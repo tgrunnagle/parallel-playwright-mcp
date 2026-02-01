@@ -455,4 +455,3 @@ func TestIsValidBrowserType(t *testing.T) {
 		})
 	}
 }
-

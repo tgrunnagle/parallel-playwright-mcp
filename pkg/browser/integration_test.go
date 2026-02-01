@@ -4,12 +4,30 @@ package browser
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
+
+	"github.com/playwright-community/playwright-go"
 )
 
 // Integration tests require Playwright runtime to be installed.
 // Run with: go test -tags=integration ./pkg/browser/...
+
+// skipIfPlaywrightNotInstalled checks if Playwright is available and skips the test with
+// helpful instructions if not.
+func skipIfPlaywrightNotInstalled(t *testing.T, err error) {
+	t.Helper()
+	if err == nil {
+		return
+	}
+	errStr := err.Error()
+	if strings.Contains(errStr, "please install the driver") ||
+		strings.Contains(errStr, "executable file not found") ||
+		strings.Contains(errStr, "Playwright") {
+		t.Skipf("Playwright not installed. Run 'task playwright:install' to install browsers.\nOriginal error: %v", err)
+	}
+}
 
 func TestStartStopIntegration(t *testing.T) {
 	t.Run("Start returns error if already running", func(t *testing.T) {
@@ -18,6 +36,7 @@ func TestStartStopIntegration(t *testing.T) {
 
 		// First start should succeed
 		if err := pool.Start(ctx); err != nil {
+			skipIfPlaywrightNotInstalled(t, err)
 			t.Fatalf("First Start failed: %v", err)
 		}
 
@@ -36,6 +55,7 @@ func TestStartStopIntegration(t *testing.T) {
 		ctx := context.Background()
 
 		if err := pool.Start(ctx); err != nil {
+			skipIfPlaywrightNotInstalled(t, err)
 			t.Fatalf("Start failed: %v", err)
 		}
 
@@ -45,8 +65,17 @@ func TestStartStopIntegration(t *testing.T) {
 	})
 
 	t.Run("concurrent Start calls only one succeeds", func(t *testing.T) {
-		pool := NewBrowserPool()
+		// Pre-check: verify Playwright is installed
+		preCheckPool := NewBrowserPool()
 		ctx := context.Background()
+		if err := preCheckPool.Start(ctx); err != nil {
+			skipIfPlaywrightNotInstalled(t, err)
+			t.Fatalf("Pre-check Start failed: %v", err)
+		}
+		_ = preCheckPool.Stop(ctx)
+
+		// Actual test
+		pool := NewBrowserPool()
 		var wg sync.WaitGroup
 		var successCount int
 		var mu sync.Mutex
@@ -81,6 +110,7 @@ func TestNewContextIntegration(t *testing.T) {
 		ctx := context.Background()
 
 		if err := pool.Start(ctx); err != nil {
+			skipIfPlaywrightNotInstalled(t, err)
 			t.Fatalf("Start failed: %v", err)
 		}
 		defer pool.Stop(ctx)
@@ -96,6 +126,7 @@ func TestNewContextIntegration(t *testing.T) {
 		ctx := context.Background()
 
 		if err := pool.Start(ctx); err != nil {
+			skipIfPlaywrightNotInstalled(t, err)
 			t.Fatalf("Start failed: %v", err)
 		}
 		defer pool.Stop(ctx)
@@ -144,6 +175,7 @@ func TestNewContextIntegration(t *testing.T) {
 		ctx := context.Background()
 
 		if err := pool.Start(ctx); err != nil {
+			skipIfPlaywrightNotInstalled(t, err)
 			t.Fatalf("Start failed: %v", err)
 		}
 		defer pool.Stop(ctx)
@@ -179,6 +211,7 @@ func TestNewContextIntegration(t *testing.T) {
 		ctx := context.Background()
 
 		if err := pool.Start(ctx); err != nil {
+			skipIfPlaywrightNotInstalled(t, err)
 			t.Fatalf("Start failed: %v", err)
 		}
 		defer pool.Stop(ctx)
@@ -210,6 +243,7 @@ func TestMultiBrowserIntegration(t *testing.T) {
 		ctx := context.Background()
 
 		if err := pool.Start(ctx); err != nil {
+			skipIfPlaywrightNotInstalled(t, err)
 			t.Fatalf("Start failed: %v", err)
 		}
 		defer pool.Stop(ctx)
@@ -256,6 +290,7 @@ func TestContextIsolationIntegration(t *testing.T) {
 		ctx := context.Background()
 
 		if err := pool.Start(ctx); err != nil {
+			skipIfPlaywrightNotInstalled(t, err)
 			t.Fatalf("Start failed: %v", err)
 		}
 		defer pool.Stop(ctx)
@@ -290,11 +325,12 @@ func TestContextIsolationIntegration(t *testing.T) {
 			t.Fatalf("Failed to navigate page1: %v", err)
 		}
 
-		err = ctx1.AddCookies([]interface{}{
-			map[string]interface{}{
-				"name":  "test_cookie",
-				"value": "context1_value",
-				"url":   "https://example.com",
+		url := "https://example.com"
+		err = ctx1.AddCookies([]playwright.OptionalCookie{
+			{
+				Name:  "test_cookie",
+				Value: "context1_value",
+				URL:   &url,
 			},
 		})
 		if err != nil {
@@ -334,6 +370,7 @@ func TestPoolOptionsIntegration(t *testing.T) {
 		ctx := context.Background()
 
 		if err := pool.Start(ctx); err != nil {
+			skipIfPlaywrightNotInstalled(t, err)
 			t.Fatalf("Start failed: %v", err)
 		}
 		defer pool.Stop(ctx)
@@ -358,6 +395,7 @@ func TestStopCleansUpAllResources(t *testing.T) {
 		ctx := context.Background()
 
 		if err := pool.Start(ctx); err != nil {
+			skipIfPlaywrightNotInstalled(t, err)
 			t.Fatalf("Start failed: %v", err)
 		}
 

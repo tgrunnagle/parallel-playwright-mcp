@@ -1,0 +1,88 @@
+version: '3'
+
+vars:
+  BINARY_NAME: playwright-mcp-server
+  BUILD_DIR: bin
+
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list
+
+  setup:
+    desc: Install all dependencies including Playwright browsers
+    cmds:
+      - task: deps
+      - task: playwright:install
+
+  deps:
+    desc: Download Go module dependencies
+    cmds:
+      - go mod download
+      - go mod tidy
+
+  playwright:install:
+    desc: Install Playwright browsers and dependencies
+    cmds:
+      - go run github.com/playwright-community/playwright-go/cmd/playwright@latest install --with-deps
+
+  playwright:install-chromium:
+    desc: Install only Chromium browser
+    cmds:
+      - go run github.com/playwright-community/playwright-go/cmd/playwright@latest install chromium
+
+  playwright:run:
+    desc: Alias for playwright:install
+    cmds:
+      - task: playwright:install
+
+  build:
+    desc: Build the server binary
+    cmds:
+      - go build -o {{.BUILD_DIR}}/{{.BINARY_NAME}}{{exeExt}} ./cmd/server
+    sources:
+      - '**/*.go'
+    generates:
+      - '{{.BUILD_DIR}}/{{.BINARY_NAME}}{{exeExt}}'
+
+  run:
+    desc: Run the server
+    deps: [build]
+    cmds:
+      - '{{.BUILD_DIR}}/{{.BINARY_NAME}}{{exeExt}}'
+
+  test:
+    desc: Run unit tests
+    cmds:
+      - go test -v ./...
+
+  test:coverage:
+    desc: Run tests with coverage report
+    cmds:
+      - go test -v -coverprofile=coverage.out ./...
+      - go tool cover -html=coverage.out -o coverage.html
+
+  test:integration:
+    desc: Run integration tests (requires Playwright installed)
+    cmds:
+      - go test -v -tags=integration ./...
+
+  lint:
+    desc: Run linting and static analysis
+    cmds:
+      - go vet ./...
+      - go fmt ./...
+
+  clean:
+    desc: Remove build artifacts
+    cmds:
+      - rm -rf {{.BUILD_DIR}}
+      - rm -f coverage.out coverage.html
+
+  check:
+    desc: Run all checks (lint, vet, test, build)
+    cmds:
+      - task: lint
+      - task: test
+      - task: build

@@ -237,45 +237,45 @@ func TestEnvironmentVariableOverrides(t *testing.T) {
 		wantDesc string
 	}{
 		{
-			name:    "MCP_HOST override",
-			envVars: map[string]string{"MCP_HOST": "192.168.1.100"},
-			checkFn: func(c *Config) bool { return c.Server.Host == "192.168.1.100" },
+			name:     "MCP_HOST override",
+			envVars:  map[string]string{"MCP_HOST": "192.168.1.100"},
+			checkFn:  func(c *Config) bool { return c.Server.Host == "192.168.1.100" },
 			wantDesc: "Server.Host = 192.168.1.100",
 		},
 		{
-			name:    "MCP_PORT override",
-			envVars: map[string]string{"MCP_PORT": "9999"},
-			checkFn: func(c *Config) bool { return c.Server.Port == 9999 },
+			name:     "MCP_PORT override",
+			envVars:  map[string]string{"MCP_PORT": "9999"},
+			checkFn:  func(c *Config) bool { return c.Server.Port == 9999 },
 			wantDesc: "Server.Port = 9999",
 		},
 		{
-			name:    "MCP_BROWSER_HEADLESS=false",
-			envVars: map[string]string{"MCP_BROWSER_HEADLESS": "false"},
-			checkFn: func(c *Config) bool { return c.Browser.Headless == false },
+			name:     "MCP_BROWSER_HEADLESS=false",
+			envVars:  map[string]string{"MCP_BROWSER_HEADLESS": "false"},
+			checkFn:  func(c *Config) bool { return c.Browser.Headless == false },
 			wantDesc: "Browser.Headless = false",
 		},
 		{
-			name:    "MCP_BROWSER_HEADLESS=true",
-			envVars: map[string]string{"MCP_BROWSER_HEADLESS": "true"},
-			checkFn: func(c *Config) bool { return c.Browser.Headless == true },
+			name:     "MCP_BROWSER_HEADLESS=true",
+			envVars:  map[string]string{"MCP_BROWSER_HEADLESS": "true"},
+			checkFn:  func(c *Config) bool { return c.Browser.Headless == true },
 			wantDesc: "Browser.Headless = true",
 		},
 		{
-			name:    "MCP_BROWSER_HEADLESS=0",
-			envVars: map[string]string{"MCP_BROWSER_HEADLESS": "0"},
-			checkFn: func(c *Config) bool { return c.Browser.Headless == false },
+			name:     "MCP_BROWSER_HEADLESS=0",
+			envVars:  map[string]string{"MCP_BROWSER_HEADLESS": "0"},
+			checkFn:  func(c *Config) bool { return c.Browser.Headless == false },
 			wantDesc: "Browser.Headless = false (from 0)",
 		},
 		{
-			name:    "MCP_BROWSER_HEADLESS=1",
-			envVars: map[string]string{"MCP_BROWSER_HEADLESS": "1"},
-			checkFn: func(c *Config) bool { return c.Browser.Headless == true },
+			name:     "MCP_BROWSER_HEADLESS=1",
+			envVars:  map[string]string{"MCP_BROWSER_HEADLESS": "1"},
+			checkFn:  func(c *Config) bool { return c.Browser.Headless == true },
 			wantDesc: "Browser.Headless = true (from 1)",
 		},
 		{
-			name:    "MCP_LOG_LEVEL override",
-			envVars: map[string]string{"MCP_LOG_LEVEL": "DEBUG"},
-			checkFn: func(c *Config) bool { return c.Logging.Level == "debug" },
+			name:     "MCP_LOG_LEVEL override",
+			envVars:  map[string]string{"MCP_LOG_LEVEL": "DEBUG"},
+			checkFn:  func(c *Config) bool { return c.Logging.Level == "debug" },
 			wantDesc: "Logging.Level = debug (lowercased)",
 		},
 	}
@@ -557,10 +557,10 @@ func TestValidateReturnsAllErrors(t *testing.T) {
 			SlowMo:      -1, // invalid
 		},
 		Session: SessionConfig{
-			MaxPerConnection: 0,  // invalid
-			MaxTotal:         0,  // invalid
-			DefaultTimeout:   0,  // invalid
-			IdleTimeout:      0,  // invalid
+			MaxPerConnection: 0, // invalid
+			MaxTotal:         0, // invalid
+			DefaultTimeout:   0, // invalid
+			IdleTimeout:      0, // invalid
 		},
 		Logging: LoggingConfig{
 			Level:  "invalid", // invalid
