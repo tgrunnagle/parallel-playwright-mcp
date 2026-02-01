@@ -44,7 +44,9 @@ type Viewport struct {
 
 // ContextOptions configures a new browser context.
 type ContextOptions struct {
-	// Headless determines whether the browser runs in headless mode.
+	// Headless is reserved for future use. In Playwright, headless mode is a
+	// browser-level setting configured via BrowserLaunchOptions, not per-context.
+	// This field is currently ignored.
 	Headless bool
 	// Viewport sets the browser viewport size. If nil, uses browser default.
 	Viewport *Viewport
@@ -173,6 +175,12 @@ func NewBrowserPoolWithOptions(opts PoolOptions) BrowserPool {
 
 // Start initializes the Playwright runtime.
 func (p *browserPool) Start(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -192,6 +200,12 @@ func (p *browserPool) Start(ctx context.Context) error {
 
 // Stop closes all browsers and the Playwright runtime.
 func (p *browserPool) Stop(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -199,12 +213,15 @@ func (p *browserPool) Stop(ctx context.Context) error {
 		return ErrPoolNotRunning
 	}
 
-	var lastErr error
+	var errs []error
 
-	// Close all browser contexts first
-	for browserCtx := range p.contextTypes {
+	// Close all browser contexts first and update statistics
+	for browserCtx, browserType := range p.contextTypes {
 		if err := browserCtx.Close(); err != nil {
-			lastErr = fmt.Errorf("failed to close browser context: %w", err)
+			errs = append(errs, fmt.Errorf("failed to close browser context: %w", err))
+		}
+		if stats, ok := p.stats[browserType]; ok {
+			stats.TotalClosed++
 		}
 	}
 	p.contextTypes = make(map[playwright.BrowserContext]BrowserType)
@@ -213,7 +230,7 @@ func (p *browserPool) Stop(ctx context.Context) error {
 	for browserType, browser := range p.browsers {
 		if browser != nil {
 			if err := browser.Close(); err != nil {
-				lastErr = fmt.Errorf("failed to close %s: %w", browserType, err)
+				errs = append(errs, fmt.Errorf("failed to close %s: %w", browserType, err))
 			}
 			if stats, ok := p.stats[browserType]; ok {
 				stats.Running = false
@@ -226,17 +243,23 @@ func (p *browserPool) Stop(ctx context.Context) error {
 	// Stop Playwright runtime
 	if p.playwright != nil {
 		if err := p.playwright.Stop(); err != nil {
-			lastErr = fmt.Errorf("failed to stop Playwright: %w", err)
+			errs = append(errs, fmt.Errorf("failed to stop Playwright: %w", err))
 		}
 		p.playwright = nil
 	}
 
 	p.running = false
-	return lastErr
+	return errors.Join(errs...)
 }
 
 // NewContext creates an isolated browser context for the specified browser type.
 func (p *browserPool) NewContext(ctx context.Context, browserType BrowserType, opts ContextOptions) (playwright.BrowserContext, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -310,12 +333,22 @@ func (p *browserPool) NewContext(ctx context.Context, browserType BrowserType, o
 
 // CloseContext closes a browser context and updates pool statistics.
 func (p *browserPool) CloseContext(ctx context.Context, browserContext playwright.BrowserContext) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	if browserContext == nil {
 		return ErrNilBrowserContext
 	}
 
 	// Get browser type before closing (while we can still identify it)
 	p.mu.Lock()
+	if !p.running {
+		p.mu.Unlock()
+		return ErrPoolNotRunning
+	}
 	browserType, tracked := p.contextTypes[browserContext]
 	p.mu.Unlock()
 

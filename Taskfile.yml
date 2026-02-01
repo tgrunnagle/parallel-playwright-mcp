@@ -32,11 +32,6 @@ tasks:
     cmds:
       - go run github.com/playwright-community/playwright-go/cmd/playwright@latest install chromium
 
-  playwright:run:
-    desc: Alias for playwright:install
-    cmds:
-      - task: playwright:install
-
   build:
     desc: Build the server binary
     cmds:

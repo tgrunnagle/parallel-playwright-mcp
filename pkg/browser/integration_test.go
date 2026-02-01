@@ -102,6 +102,51 @@ func TestStartStopIntegration(t *testing.T) {
 		// Cleanup
 		_ = pool.Stop(ctx)
 	})
+
+	t.Run("NewContext returns error after Stop", func(t *testing.T) {
+		pool := NewBrowserPool()
+		ctx := context.Background()
+
+		if err := pool.Start(ctx); err != nil {
+			skipIfPlaywrightNotInstalled(t, err)
+			t.Fatalf("Start failed: %v", err)
+		}
+
+		if err := pool.Stop(ctx); err != nil {
+			t.Fatalf("Stop failed: %v", err)
+		}
+
+		_, err := pool.NewContext(ctx, BrowserChromium, ContextOptions{})
+		if err != ErrPoolNotRunning {
+			t.Errorf("NewContext after Stop error = %v, want %v", err, ErrPoolNotRunning)
+		}
+	})
+
+	t.Run("CloseContext returns error after Stop", func(t *testing.T) {
+		pool := NewBrowserPool()
+		ctx := context.Background()
+
+		if err := pool.Start(ctx); err != nil {
+			skipIfPlaywrightNotInstalled(t, err)
+			t.Fatalf("Start failed: %v", err)
+		}
+
+		// Create a context before stopping
+		browserCtx, err := pool.NewContext(ctx, BrowserChromium, ContextOptions{})
+		if err != nil {
+			t.Fatalf("NewContext failed: %v", err)
+		}
+
+		if err := pool.Stop(ctx); err != nil {
+			t.Fatalf("Stop failed: %v", err)
+		}
+
+		// Attempting to close the context after Stop should return an error
+		err = pool.CloseContext(ctx, browserCtx)
+		if err != ErrPoolNotRunning {
+			t.Errorf("CloseContext after Stop error = %v, want %v", err, ErrPoolNotRunning)
+		}
+	})
 }
 
 func TestNewContextIntegration(t *testing.T) {
@@ -262,6 +307,9 @@ func TestMultiBrowserIntegration(t *testing.T) {
 		if stats.Browsers[BrowserFirefox].Running {
 			t.Error("Firefox should not be running yet")
 		}
+		if stats.Browsers[BrowserWebKit].Running {
+			t.Error("WebKit should not be running yet")
+		}
 
 		// Create Firefox context
 		firefoxCtx, err := pool.NewContext(ctx, BrowserFirefox, ContextOptions{Headless: true})
@@ -269,7 +317,7 @@ func TestMultiBrowserIntegration(t *testing.T) {
 			t.Fatalf("Firefox NewContext failed: %v", err)
 		}
 
-		// Verify both are running
+		// Verify Chromium and Firefox are running
 		stats = pool.Stats()
 		if !stats.Browsers[BrowserChromium].Running {
 			t.Error("Chromium should still be running")
@@ -277,10 +325,32 @@ func TestMultiBrowserIntegration(t *testing.T) {
 		if !stats.Browsers[BrowserFirefox].Running {
 			t.Error("Firefox should now be running")
 		}
+		if stats.Browsers[BrowserWebKit].Running {
+			t.Error("WebKit should not be running yet")
+		}
+
+		// Create WebKit context
+		webkitCtx, err := pool.NewContext(ctx, BrowserWebKit, ContextOptions{Headless: true})
+		if err != nil {
+			t.Fatalf("WebKit NewContext failed: %v", err)
+		}
+
+		// Verify all three browsers are running
+		stats = pool.Stats()
+		if !stats.Browsers[BrowserChromium].Running {
+			t.Error("Chromium should still be running")
+		}
+		if !stats.Browsers[BrowserFirefox].Running {
+			t.Error("Firefox should still be running")
+		}
+		if !stats.Browsers[BrowserWebKit].Running {
+			t.Error("WebKit should now be running")
+		}
 
 		// Cleanup
 		_ = pool.CloseContext(ctx, chromiumCtx)
 		_ = pool.CloseContext(ctx, firefoxCtx)
+		_ = pool.CloseContext(ctx, webkitCtx)
 	})
 }
 
