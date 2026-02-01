@@ -1,2 +1,259 @@
 // Package config handles server configuration loading from files and environment variables.
 package config
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	"gopkg.in/yaml.v3"
+)
+
+// Default configuration values.
+const (
+	DefaultHost             = "127.0.0.1"
+	DefaultPort             = 3000
+	DefaultBrowserType      = "chromium"
+	DefaultHeadless         = true
+	DefaultSlowMo           = 0
+	DefaultMaxPerConnection = 10
+	DefaultMaxTotal         = 50
+	DefaultTimeout          = 30 * time.Second
+	DefaultIdleTimeout      = 5 * time.Minute
+	DefaultLogLevel         = "info"
+	DefaultLogFormat        = "json"
+)
+
+// Valid values for validation.
+var (
+	ValidBrowserTypes = []string{"chromium", "firefox", "webkit"}
+	ValidLogLevels    = []string{"debug", "info", "warn", "error"}
+	ValidLogFormats   = []string{"json", "text"}
+)
+
+// Config represents the complete server configuration.
+type Config struct {
+	Server  ServerConfig  `yaml:"server"`
+	Browser BrowserConfig `yaml:"browser"`
+	Session SessionConfig `yaml:"session"`
+	Logging LoggingConfig `yaml:"logging"`
+}
+
+// ServerConfig contains HTTP server settings.
+type ServerConfig struct {
+	Host string `yaml:"host"`
+	Port int    `yaml:"port"`
+}
+
+// BrowserConfig contains browser-related settings.
+type BrowserConfig struct {
+	DefaultType string              `yaml:"defaultType"`
+	Headless    bool                `yaml:"headless"`
+	SlowMo      int                 `yaml:"slowMo"`
+	Chromium    BrowserLaunchConfig `yaml:"chromium"`
+	Firefox     BrowserLaunchConfig `yaml:"firefox"`
+	WebKit      BrowserLaunchConfig `yaml:"webkit"`
+}
+
+// BrowserLaunchConfig contains per-browser launch arguments.
+type BrowserLaunchConfig struct {
+	Args []string `yaml:"args"`
+}
+
+// SessionConfig contains session management settings.
+type SessionConfig struct {
+	MaxPerConnection int           `yaml:"maxPerConnection"`
+	MaxTotal         int           `yaml:"maxTotal"`
+	DefaultTimeout   time.Duration `yaml:"defaultTimeout"`
+	IdleTimeout      time.Duration `yaml:"idleTimeout"`
+}
+
+// LoggingConfig contains logging settings.
+type LoggingConfig struct {
+	Level  string `yaml:"level"`
+	Format string `yaml:"format"`
+}
+
+// LoadWithDefaults creates a configuration with all default values set.
+func LoadWithDefaults() *Config {
+	return &Config{
+		Server: ServerConfig{
+			Host: DefaultHost,
+			Port: DefaultPort,
+		},
+		Browser: BrowserConfig{
+			DefaultType: DefaultBrowserType,
+			Headless:    DefaultHeadless,
+			SlowMo:      DefaultSlowMo,
+			Chromium:    BrowserLaunchConfig{Args: []string{}},
+			Firefox:     BrowserLaunchConfig{Args: []string{}},
+			WebKit:      BrowserLaunchConfig{Args: []string{}},
+		},
+		Session: SessionConfig{
+			MaxPerConnection: DefaultMaxPerConnection,
+			MaxTotal:         DefaultMaxTotal,
+			DefaultTimeout:   DefaultTimeout,
+			IdleTimeout:      DefaultIdleTimeout,
+		},
+		Logging: LoggingConfig{
+			Level:  DefaultLogLevel,
+			Format: DefaultLogFormat,
+		},
+	}
+}
+
+// Load reads configuration from the specified path (or default paths) and applies
+// environment variable overrides. If path is empty, it checks MCP_CONFIG_PATH env var,
+// then falls back to "config.yaml" in the current directory. If the file doesn't exist,
+// default values are used.
+func Load(path string) (*Config, error) {
+	cfg := LoadWithDefaults()
+
+	// Determine config file path
+	configPath := path
+	if configPath == "" {
+		configPath = os.Getenv("MCP_CONFIG_PATH")
+	}
+	if configPath == "" {
+		configPath = "config.yaml"
+	}
+
+	// Try to load config file
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return nil, fmt.Errorf("reading config file: %w", err)
+		}
+		// File doesn't exist - use defaults
+	} else {
+		if err := yaml.Unmarshal(data, cfg); err != nil {
+			return nil, fmt.Errorf("parsing config file: %w", err)
+		}
+	}
+
+	// Apply environment variable overrides
+	if errs := cfg.applyEnvironmentOverrides(); len(errs) > 0 {
+		return nil, errors.Join(errs...)
+	}
+
+	// Validate configuration
+	if errs := cfg.Validate(); len(errs) > 0 {
+		return nil, errors.Join(errs...)
+	}
+
+	return cfg, nil
+}
+
+// applyEnvironmentOverrides overlays environment variable values on the configuration.
+// Returns a slice of errors for any invalid environment variable values.
+func (c *Config) applyEnvironmentOverrides() []error {
+	var errs []error
+
+	if host := os.Getenv("MCP_HOST"); host != "" {
+		c.Server.Host = host
+	}
+
+	if port := os.Getenv("MCP_PORT"); port != "" {
+		p, err := strconv.Atoi(port)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("invalid MCP_PORT %q: must be a valid integer", port))
+		} else {
+			c.Server.Port = p
+		}
+	}
+
+	if headless := os.Getenv("MCP_BROWSER_HEADLESS"); headless != "" {
+		val, ok := parseBool(headless)
+		if !ok {
+			errs = append(errs, fmt.Errorf("invalid MCP_BROWSER_HEADLESS %q: must be true/false, 1/0, yes/no, or on/off", headless))
+		} else {
+			c.Browser.Headless = val
+		}
+	}
+
+	if level := os.Getenv("MCP_LOG_LEVEL"); level != "" {
+		c.Logging.Level = strings.ToLower(level)
+	}
+
+	return errs
+}
+
+// parseBool parses a string as a boolean. Returns the parsed value and true if valid,
+// or false and false if the string is not a recognized boolean value.
+func parseBool(s string) (bool, bool) {
+	s = strings.ToLower(strings.TrimSpace(s))
+	switch s {
+	case "true", "1", "yes", "on":
+		return true, true
+	case "false", "0", "no", "off":
+		return false, true
+	default:
+		return false, false
+	}
+}
+
+// Validate checks configuration values and returns a slice of errors for all invalid values.
+// Note: Server.Host is not validated because empty string is valid (binds to all interfaces),
+// and any other string will be validated by the network stack when the server starts.
+func (c *Config) Validate() []error {
+	var errs []error
+
+	// Validate server port
+	if c.Server.Port < 1 || c.Server.Port > 65535 {
+		errs = append(errs, fmt.Errorf("invalid server port %d: must be between 1 and 65535", c.Server.Port))
+	}
+
+	// Validate browser type
+	if !isValidValue(c.Browser.DefaultType, ValidBrowserTypes) {
+		errs = append(errs, fmt.Errorf("invalid browser type %q: must be one of %v", c.Browser.DefaultType, ValidBrowserTypes))
+	}
+
+	// Validate slowMo is non-negative
+	if c.Browser.SlowMo < 0 {
+		errs = append(errs, fmt.Errorf("invalid slowMo %d: must be non-negative", c.Browser.SlowMo))
+	}
+
+	// Validate session limits
+	if c.Session.MaxPerConnection < 1 {
+		errs = append(errs, fmt.Errorf("invalid maxPerConnection %d: must be at least 1", c.Session.MaxPerConnection))
+	}
+	if c.Session.MaxTotal < 1 {
+		errs = append(errs, fmt.Errorf("invalid maxTotal %d: must be at least 1", c.Session.MaxTotal))
+	}
+	if c.Session.MaxPerConnection > c.Session.MaxTotal {
+		errs = append(errs, fmt.Errorf("maxPerConnection (%d) cannot exceed maxTotal (%d)", c.Session.MaxPerConnection, c.Session.MaxTotal))
+	}
+
+	// Validate timeout values
+	if c.Session.DefaultTimeout <= 0 {
+		errs = append(errs, fmt.Errorf("invalid defaultTimeout %v: must be positive", c.Session.DefaultTimeout))
+	}
+	if c.Session.IdleTimeout <= 0 {
+		errs = append(errs, fmt.Errorf("invalid idleTimeout %v: must be positive", c.Session.IdleTimeout))
+	}
+
+	// Validate log level
+	if !isValidValue(c.Logging.Level, ValidLogLevels) {
+		errs = append(errs, fmt.Errorf("invalid log level %q: must be one of %v", c.Logging.Level, ValidLogLevels))
+	}
+
+	// Validate log format
+	if !isValidValue(c.Logging.Format, ValidLogFormats) {
+		errs = append(errs, fmt.Errorf("invalid log format %q: must be one of %v", c.Logging.Format, ValidLogFormats))
+	}
+
+	return errs
+}
+
+// isValidValue checks if a value is in the list of valid values.
+func isValidValue(value string, valid []string) bool {
+	for _, v := range valid {
+		if value == v {
+			return true
+		}
+	}
+	return false
+}

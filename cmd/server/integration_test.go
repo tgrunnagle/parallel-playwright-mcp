@@ -70,10 +70,9 @@ func sendInitializeRequest(t *testing.T, addr string) (*http.Response, map[strin
 }
 
 // startTestServer starts an MCP server on a free port and returns the address.
-// Note: The mcp-go StreamableHTTPServer.Start() blocks indefinitely and doesn't
-// expose a shutdown method. The cancel function signals intent to stop but the
-// server goroutine continues until the test process ends. Test isolation is
-// achieved through dynamic port allocation (getFreePort).
+// The server includes both the MCP handler at /mcp and the health endpoint at /health.
+// Note: The cancel function signals intent to stop but the server goroutine continues
+// until the test process ends. Test isolation is achieved through dynamic port allocation.
 func startTestServer(t *testing.T) (string, func()) {
 	t.Helper()
 
@@ -86,12 +85,17 @@ func startTestServer(t *testing.T) (string, func()) {
 		server.WithToolCapabilities(true),
 	)
 
-	httpServer := server.NewStreamableHTTPServer(mcpServer)
+	mcpHandler := server.NewStreamableHTTPServer(mcpServer)
+
+	// Create custom HTTP mux with health endpoint and MCP handler
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", healthHandler(serverVersion))
+	mux.Handle("/mcp", mcpHandler)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
 	go func() {
-		if err := httpServer.Start(addr); err != nil && ctx.Err() == nil {
+		if err := http.ListenAndServe(addr, mux); err != nil && ctx.Err() == nil {
 			t.Logf("Server stopped: %v", err)
 		}
 	}()
@@ -189,75 +193,6 @@ func TestMCPInitializeResponseIncludesToolCapabilities(t *testing.T) {
 	}
 }
 
-// Edge case tests for port validation
-
-func TestValidatePort_InvalidNonNumericValue(t *testing.T) {
-	testCases := []struct {
-		name string
-		port string
-	}{
-		{"alphabetic", "abc"},
-		{"alphanumeric", "80abc"},
-		{"empty string", ""},
-		{"special chars", "80:80"},
-		{"float", "80.5"},
-		{"negative with text", "-abc"},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			err := validatePort(tc.port)
-			if err == nil {
-				t.Errorf("validatePort(%q) should return error for non-numeric value", tc.port)
-			}
-		})
-	}
-}
-
-func TestValidatePort_OutOfRangeValues(t *testing.T) {
-	testCases := []struct {
-		name string
-		port string
-	}{
-		{"zero", "0"},
-		{"negative", "-1"},
-		{"too high", "65536"},
-		{"way too high", "100000"},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			err := validatePort(tc.port)
-			if err == nil {
-				t.Errorf("validatePort(%q) should return error for out-of-range value", tc.port)
-			}
-		})
-	}
-}
-
-func TestValidatePort_ValidValues(t *testing.T) {
-	testCases := []struct {
-		name string
-		port string
-	}{
-		{"minimum valid", "1"},
-		{"common port", "80"},
-		{"common port", "443"},
-		{"default port", "3000"},
-		{"high port", "8080"},
-		{"maximum valid", "65535"},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			err := validatePort(tc.port)
-			if err != nil {
-				t.Errorf("validatePort(%q) should not return error for valid value: %v", tc.port, err)
-			}
-		})
-	}
-}
-
 func TestServerFailsOnPortInUse(t *testing.T) {
 	// Start a listener to occupy a port
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -292,5 +227,96 @@ func TestServerFailsOnPortInUse(t *testing.T) {
 		// Success - server correctly failed with an error
 	case <-time.After(2 * time.Second):
 		t.Error("Server did not fail within timeout when port is in use")
+	}
+}
+
+func TestHealthEndpoint_IsAccessibleOnRunningServer(t *testing.T) {
+	addr, cleanup := startTestServer(t)
+	defer cleanup()
+
+	url := fmt.Sprintf("http://%s/health", addr)
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	resp, err := client.Get(url)
+	if err != nil {
+		t.Fatalf("Failed to send health request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestHealthEndpoint_ReturnsExpectedJSONSchema(t *testing.T) {
+	addr, cleanup := startTestServer(t)
+	defer cleanup()
+
+	url := fmt.Sprintf("http://%s/health", addr)
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	resp, err := client.Get(url)
+	if err != nil {
+		t.Fatalf("Failed to send health request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Verify Content-Type header
+	contentType := resp.Header.Get("Content-Type")
+	if contentType != "application/json" {
+		t.Errorf("Expected Content-Type 'application/json', got '%s'", contentType)
+	}
+
+	// Verify response body
+	var response HealthResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+
+	if response.Status != "ok" {
+		t.Errorf("Expected status 'ok', got '%s'", response.Status)
+	}
+
+	if response.Version != serverVersion {
+		t.Errorf("Expected version '%s', got '%s'", serverVersion, response.Version)
+	}
+}
+
+func TestHealthEndpoint_RespondsWhileMCPOperationsInProgress(t *testing.T) {
+	addr, cleanup := startTestServer(t)
+	defer cleanup()
+
+	// Start an MCP initialize request in background (which may take longer)
+	go func() {
+		url := fmt.Sprintf("http://%s/mcp", addr)
+		initRequest := map[string]any{
+			"jsonrpc": "2.0",
+			"id":      1,
+			"method":  "initialize",
+			"params": map[string]any{
+				"protocolVersion": "2024-11-05",
+				"capabilities":    map[string]any{},
+				"clientInfo": map[string]any{
+					"name":    "test-client",
+					"version": "1.0.0",
+				},
+			},
+		}
+		body, _ := json.Marshal(initRequest)
+		http.Post(url, "application/json", bytes.NewReader(body))
+	}()
+
+	// Immediately check the health endpoint - it should respond quickly
+	healthURL := fmt.Sprintf("http://%s/health", addr)
+	client := &http.Client{Timeout: 100 * time.Millisecond}
+
+	resp, err := client.Get(healthURL)
+	if err != nil {
+		t.Fatalf("Health endpoint did not respond within 100ms: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", resp.StatusCode)
 	}
 }
