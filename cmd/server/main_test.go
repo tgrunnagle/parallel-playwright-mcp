@@ -5,6 +5,7 @@ import (
 	"testing"
 )
 
+// TODO replace with real tests when they're appropriate
 func TestGetEnv(t *testing.T) {
 	tests := []struct {
 		name         string

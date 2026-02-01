@@ -9,6 +9,7 @@ $ARGUMENTS
 
 ### 1. Understand the Context
 - Use the `gh` CLI to fetch the full issue details (title, description, acceptance criteria, labels)
+- NOTE: the project directory structure may have changed from the issue specification. non-`cmd` packages are in the `pkg/` directory
 - Review the git information above to understand the scope of changes
 - Review existing MCP server implementation and Playwright integration patterns if needed
 - Understand the intended behavior and scope of the changes

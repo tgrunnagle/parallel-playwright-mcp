@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -27,6 +28,12 @@ func main() {
 	// Get configuration from environment
 	host := getEnv("MCP_HOST", defaultHost)
 	port := getEnv("MCP_PORT", defaultPort)
+
+	// Validate port is a valid number
+	if err := validatePort(port); err != nil {
+		log.Fatalf("Invalid MCP_PORT value %q: %v", port, err)
+	}
+
 	addr := fmt.Sprintf("%s:%s", host, port)
 
 	// Create streamable HTTP server
@@ -47,4 +54,17 @@ func getEnv(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+// validatePort validates that a port string is a valid port number.
+// Returns an error if the port is not a valid number or out of range.
+func validatePort(port string) error {
+	portNum, err := strconv.Atoi(port)
+	if err != nil {
+		return fmt.Errorf("must be a number")
+	}
+	if portNum < 1 || portNum > 65535 {
+		return fmt.Errorf("must be between 1 and 65535")
+	}
+	return nil
 }
