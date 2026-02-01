@@ -46,7 +46,7 @@ logging:
 	}
 
 	// Set environment variable overrides
-	t.Setenv("MCP_HOST", "127.0.0.1")       // Override host from file
+	t.Setenv("MCP_HOST", "127.0.0.1")        // Override host from file
 	t.Setenv("MCP_BROWSER_HEADLESS", "true") // Override headless from file
 	t.Setenv("MCP_LOG_LEVEL", "info")        // Override log level from file
 

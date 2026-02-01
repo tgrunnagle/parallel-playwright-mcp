@@ -2,6 +2,8 @@
 CODE_REVIEW_ISSUES.md
 PR_SUMMARY.md
 
+.task/*
+
 # If you prefer the allow list template instead of the deny list, see community template:
 # https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
 #
