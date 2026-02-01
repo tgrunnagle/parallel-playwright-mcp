@@ -16,6 +16,12 @@ $ARGUMENTS
 ### 2. Analyze the Implementation
 Read all modified and new files to evaluate:
 
+#### Acceptance Criteria Verification
+- Extract each acceptance criterion from the GitHub issue
+- For each criterion, explicitly verify whether the implementation satisfies it
+- Document which criteria are met, partially met, or not met
+- Any unmet or partially met criteria should be flagged as CRITICAL issues
+
 #### Correctness
 - Does the implementation meet all acceptance criteria from the issue?
 - Are there any bugs, logic errors, or edge cases not handled?

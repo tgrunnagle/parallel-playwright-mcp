@@ -1,0 +1,243 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"net"
+	"net/http"
+	"testing"
+	"time"
+
+	"github.com/mark3labs/mcp-go/server"
+)
+
+// getFreePort returns an available port for testing
+func getFreePort(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to get free port: %v", err)
+	}
+	defer listener.Close()
+	_, port, _ := net.SplitHostPort(listener.Addr().String())
+	return port
+}
+
+// startTestServer starts an MCP server on a free port and returns the address
+func startTestServer(t *testing.T) (string, func()) {
+	t.Helper()
+
+	port := getFreePort(t)
+	addr := fmt.Sprintf("127.0.0.1:%s", port)
+
+	mcpServer := server.NewMCPServer(
+		serverName,
+		serverVersion,
+		server.WithToolCapabilities(true),
+	)
+
+	httpServer := server.NewStreamableHTTPServer(mcpServer)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	go func() {
+		if err := httpServer.Start(addr); err != nil && ctx.Err() == nil {
+			t.Logf("Server stopped: %v", err)
+		}
+	}()
+
+	// Wait for server to be ready
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		conn, err := net.Dial("tcp", addr)
+		if err == nil {
+			conn.Close()
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	return addr, cancel
+}
+
+func TestServerStartsOnSpecifiedPort(t *testing.T) {
+	addr, cleanup := startTestServer(t)
+	defer cleanup()
+
+	// Verify server is listening
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatalf("Failed to connect to server at %s: %v", addr, err)
+	}
+	conn.Close()
+}
+
+func TestMCPInitializeRequest(t *testing.T) {
+	addr, cleanup := startTestServer(t)
+	defer cleanup()
+
+	// MCP initialize request
+	initRequest := map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "initialize",
+		"params": map[string]any{
+			"protocolVersion": "2024-11-05",
+			"capabilities":    map[string]any{},
+			"clientInfo": map[string]any{
+				"name":    "test-client",
+				"version": "1.0.0",
+			},
+		},
+	}
+
+	body, err := json.Marshal(initRequest)
+	if err != nil {
+		t.Fatalf("Failed to marshal request: %v", err)
+	}
+
+	url := fmt.Sprintf("http://%s/mcp", addr)
+	req, err := http.NewRequest("POST", url, bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("Failed to create request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Failed to send request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestMCPInitializeResponseContainsServerInfo(t *testing.T) {
+	addr, cleanup := startTestServer(t)
+	defer cleanup()
+
+	initRequest := map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "initialize",
+		"params": map[string]any{
+			"protocolVersion": "2024-11-05",
+			"capabilities":    map[string]any{},
+			"clientInfo": map[string]any{
+				"name":    "test-client",
+				"version": "1.0.0",
+			},
+		},
+	}
+
+	body, err := json.Marshal(initRequest)
+	if err != nil {
+		t.Fatalf("Failed to marshal request: %v", err)
+	}
+
+	url := fmt.Sprintf("http://%s/mcp", addr)
+	req, err := http.NewRequest("POST", url, bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("Failed to create request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Failed to send request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+
+	// Verify JSON-RPC response structure
+	if result["jsonrpc"] != "2.0" {
+		t.Errorf("Expected jsonrpc 2.0, got %v", result["jsonrpc"])
+	}
+
+	resultData, ok := result["result"].(map[string]any)
+	if !ok {
+		t.Fatalf("Expected result object, got %T", result["result"])
+	}
+
+	// Verify server info
+	serverInfo, ok := resultData["serverInfo"].(map[string]any)
+	if !ok {
+		t.Fatalf("Expected serverInfo object, got %T", resultData["serverInfo"])
+	}
+
+	if serverInfo["name"] != serverName {
+		t.Errorf("Expected server name %q, got %v", serverName, serverInfo["name"])
+	}
+
+	if serverInfo["version"] != serverVersion {
+		t.Errorf("Expected server version %q, got %v", serverVersion, serverInfo["version"])
+	}
+}
+
+func TestMCPInitializeResponseIncludesToolCapabilities(t *testing.T) {
+	addr, cleanup := startTestServer(t)
+	defer cleanup()
+
+	initRequest := map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "initialize",
+		"params": map[string]any{
+			"protocolVersion": "2024-11-05",
+			"capabilities":    map[string]any{},
+			"clientInfo": map[string]any{
+				"name":    "test-client",
+				"version": "1.0.0",
+			},
+		},
+	}
+
+	body, err := json.Marshal(initRequest)
+	if err != nil {
+		t.Fatalf("Failed to marshal request: %v", err)
+	}
+
+	url := fmt.Sprintf("http://%s/mcp", addr)
+	req, err := http.NewRequest("POST", url, bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("Failed to create request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Failed to send request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+
+	resultData, ok := result["result"].(map[string]any)
+	if !ok {
+		t.Fatalf("Expected result object, got %T", result["result"])
+	}
+
+	// Verify capabilities include tools
+	capabilities, ok := resultData["capabilities"].(map[string]any)
+	if !ok {
+		t.Fatalf("Expected capabilities object, got %T", resultData["capabilities"])
+	}
+
+	if _, hasTools := capabilities["tools"]; !hasTools {
+		t.Error("Expected capabilities to include 'tools'")
+	}
+}

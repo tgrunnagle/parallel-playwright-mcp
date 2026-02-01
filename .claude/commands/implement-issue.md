@@ -5,6 +5,7 @@ $ARGUMENTS
 
 ### 1. Gather Context
 - Use the `gh` CLI to fetch the full issue details (title, description, comments, labels)
+- NOTE: the project directory structure may have changed from the issue specification. non-`cmd` packages are in the `pkg/` directory
 - Search the codebase for related code patterns, similar implementations, or affected areas
 - Review existing MCP server implementation and Playwright integration patterns
 
