@@ -9,12 +9,19 @@ $ARGUMENTS
 
 ### 1. Understand the Context
 - Use the `gh` CLI to fetch the full issue details (title, description, acceptance criteria, labels)
+- NOTE: the project directory structure may have changed from the issue specification. non-`cmd` packages are in the `pkg/` directory
 - Review the git information above to understand the scope of changes
 - Review existing MCP server implementation and Playwright integration patterns if needed
 - Understand the intended behavior and scope of the changes
 
 ### 2. Analyze the Implementation
 Read all modified and new files to evaluate:
+
+#### Acceptance Criteria Verification
+- Extract each acceptance criterion from the GitHub issue
+- For each criterion, explicitly verify whether the implementation satisfies it
+- Document which criteria are met, partially met, or not met
+- Any unmet or partially met criteria should be flagged as CRITICAL issues
 
 #### Correctness
 - Does the implementation meet all acceptance criteria from the issue?
