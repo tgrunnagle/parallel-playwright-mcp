@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -209,6 +210,25 @@ server:
 	}
 }
 
+func TestLoadConfigPathFromEnvNonExistentFileUsesDefaults(t *testing.T) {
+	// When MCP_CONFIG_PATH points to a non-existent file, defaults are used.
+	// This is intentional to allow configuration paths to be set in deployment
+	// environments where the config file might not always exist.
+	t.Setenv("MCP_CONFIG_PATH", "/nonexistent/path/config.yaml")
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("Load() error = %v, expected nil (should use defaults)", err)
+	}
+
+	if cfg.Server.Port != DefaultPort {
+		t.Errorf("Server.Port = %d, want %d (default)", cfg.Server.Port, DefaultPort)
+	}
+	if cfg.Server.Host != DefaultHost {
+		t.Errorf("Server.Host = %q, want %q (default)", cfg.Server.Host, DefaultHost)
+	}
+}
+
 func TestEnvironmentVariableOverrides(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -320,17 +340,21 @@ logging:
 	}
 }
 
-func TestInvalidEnvVarPortIgnored(t *testing.T) {
+func TestInvalidEnvVarPortReturnsError(t *testing.T) {
 	t.Setenv("MCP_PORT", "not-a-number")
 
-	cfg, err := Load("/nonexistent/path/config.yaml")
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
+	_, err := Load("/nonexistent/path/config.yaml")
+	if err == nil {
+		t.Error("Load() expected error for invalid MCP_PORT, got nil")
 	}
+}
 
-	// Should use default since env var is invalid
-	if cfg.Server.Port != DefaultPort {
-		t.Errorf("Server.Port = %d, want %d (default, invalid env ignored)", cfg.Server.Port, DefaultPort)
+func TestInvalidEnvVarHeadlessReturnsError(t *testing.T) {
+	t.Setenv("MCP_BROWSER_HEADLESS", "not-a-bool")
+
+	_, err := Load("/nonexistent/path/config.yaml")
+	if err == nil {
+		t.Error("Load() expected error for invalid MCP_BROWSER_HEADLESS, got nil")
 	}
 }
 
@@ -357,7 +381,7 @@ func TestValidatePortRange(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(string(rune(tt.port)), func(t *testing.T) {
+		t.Run(fmt.Sprintf("port_%d", tt.port), func(t *testing.T) {
 			cfg := LoadWithDefaults()
 			cfg.Server.Port = tt.port
 			errs := cfg.Validate()
@@ -556,28 +580,32 @@ func TestParseBool(t *testing.T) {
 	tests := []struct {
 		input    string
 		expected bool
+		valid    bool
 	}{
-		{"true", true},
-		{"TRUE", true},
-		{"True", true},
-		{"1", true},
-		{"yes", true},
-		{"YES", true},
-		{"on", true},
-		{"ON", true},
-		{"false", false},
-		{"FALSE", false},
-		{"False", false},
-		{"0", false},
-		{"no", false},
-		{"NO", false},
-		{"off", false},
-		{"OFF", false},
+		{"true", true, true},
+		{"TRUE", true, true},
+		{"True", true, true},
+		{"1", true, true},
+		{"yes", true, true},
+		{"YES", true, true},
+		{"on", true, true},
+		{"ON", true, true},
+		{"false", false, true},
+		{"FALSE", false, true},
+		{"False", false, true},
+		{"0", false, true},
+		{"no", false, true},
+		{"NO", false, true},
+		{"off", false, true},
+		{"OFF", false, true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			result := parseBool(tt.input, !tt.expected)
+			result, ok := parseBool(tt.input)
+			if ok != tt.valid {
+				t.Errorf("parseBool(%q) ok = %v, want %v", tt.input, ok, tt.valid)
+			}
 			if result != tt.expected {
 				t.Errorf("parseBool(%q) = %v, want %v", tt.input, result, tt.expected)
 			}
@@ -585,11 +613,13 @@ func TestParseBool(t *testing.T) {
 	}
 }
 
-func TestParseBoolInvalidReturnsDefault(t *testing.T) {
-	if parseBool("invalid", true) != true {
-		t.Error("parseBool with invalid input should return default true")
+func TestParseBoolInvalidReturnsFalse(t *testing.T) {
+	_, ok := parseBool("invalid")
+	if ok {
+		t.Error("parseBool with invalid input should return ok=false")
 	}
-	if parseBool("invalid", false) != false {
-		t.Error("parseBool with invalid input should return default false")
+	_, ok = parseBool("maybe")
+	if ok {
+		t.Error("parseBool with 'maybe' should return ok=false")
 	}
 }

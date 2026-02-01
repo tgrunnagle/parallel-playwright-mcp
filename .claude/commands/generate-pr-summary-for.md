@@ -11,6 +11,7 @@ $ARGUMENTS
 ### 1. Gather Context
 - Use the `gh` CLI to fetch the full issue details (title, description, acceptance criteria, labels)
 - NOTE: the project directory structure may have changed from the issue specification. non-`cmd` packages are in the `pkg/` directory
+- If the issue has any sub-issues, they should be closed as part of this PR. Fetch all sub-issue details with `gh sub-issue list <PARENT_ISSUE_ID>`. If the `gh` CLI extension is not installed, warn the user and confirm they want to continue.
 - Review the git information above to understand:
   - All commits in the branch
   - Files changed and the extent of changes (additions/deletions)

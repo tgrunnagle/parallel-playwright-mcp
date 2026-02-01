@@ -135,7 +135,9 @@ func Load(path string) (*Config, error) {
 	}
 
 	// Apply environment variable overrides
-	cfg.applyEnvironmentOverrides()
+	if errs := cfg.applyEnvironmentOverrides(); len(errs) > 0 {
+		return nil, errors.Join(errs...)
+	}
 
 	// Validate configuration
 	if errs := cfg.Validate(); len(errs) > 0 {
@@ -146,40 +148,56 @@ func Load(path string) (*Config, error) {
 }
 
 // applyEnvironmentOverrides overlays environment variable values on the configuration.
-func (c *Config) applyEnvironmentOverrides() {
+// Returns a slice of errors for any invalid environment variable values.
+func (c *Config) applyEnvironmentOverrides() []error {
+	var errs []error
+
 	if host := os.Getenv("MCP_HOST"); host != "" {
 		c.Server.Host = host
 	}
 
 	if port := os.Getenv("MCP_PORT"); port != "" {
-		if p, err := strconv.Atoi(port); err == nil {
+		p, err := strconv.Atoi(port)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("invalid MCP_PORT %q: must be a valid integer", port))
+		} else {
 			c.Server.Port = p
 		}
 	}
 
 	if headless := os.Getenv("MCP_BROWSER_HEADLESS"); headless != "" {
-		c.Browser.Headless = parseBool(headless, c.Browser.Headless)
+		val, ok := parseBool(headless)
+		if !ok {
+			errs = append(errs, fmt.Errorf("invalid MCP_BROWSER_HEADLESS %q: must be true/false, 1/0, yes/no, or on/off", headless))
+		} else {
+			c.Browser.Headless = val
+		}
 	}
 
 	if level := os.Getenv("MCP_LOG_LEVEL"); level != "" {
 		c.Logging.Level = strings.ToLower(level)
 	}
+
+	return errs
 }
 
-// parseBool parses a string as a boolean, returning the default value on error.
-func parseBool(s string, defaultVal bool) bool {
+// parseBool parses a string as a boolean. Returns the parsed value and true if valid,
+// or false and false if the string is not a recognized boolean value.
+func parseBool(s string) (bool, bool) {
 	s = strings.ToLower(strings.TrimSpace(s))
 	switch s {
 	case "true", "1", "yes", "on":
-		return true
+		return true, true
 	case "false", "0", "no", "off":
-		return false
+		return false, true
 	default:
-		return defaultVal
+		return false, false
 	}
 }
 
 // Validate checks configuration values and returns a slice of errors for all invalid values.
+// Note: Server.Host is not validated because empty string is valid (binds to all interfaces),
+// and any other string will be validated by the network stack when the server starts.
 func (c *Config) Validate() []error {
 	var errs []error
 
