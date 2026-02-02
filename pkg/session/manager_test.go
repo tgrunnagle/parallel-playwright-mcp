@@ -301,6 +301,24 @@ func TestCreateSession(t *testing.T) {
 		}
 	})
 
+	t.Run("returns error for invalid browser type", func(t *testing.T) {
+		pool := &mockBrowserPool{
+			newContextErr: browser.ErrInvalidBrowserType,
+		}
+		mgr := NewManager(pool)
+		ctx := context.Background()
+
+		_, err := mgr.CreateSession(ctx, "mcp-1", SessionOptions{
+			BrowserType: browser.BrowserType("invalid"),
+		})
+		if err == nil {
+			t.Error("expected error for invalid browser type")
+		}
+		if !errors.Is(err, browser.ErrInvalidBrowserType) {
+			t.Errorf("error should wrap ErrInvalidBrowserType: %v", err)
+		}
+	})
+
 	t.Run("returns error when initial page creation fails", func(t *testing.T) {
 		pageErr := errors.New("page creation failed")
 		mockCtx := &mockBrowserContext{newPageErr: pageErr}

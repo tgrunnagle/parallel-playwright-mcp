@@ -12,7 +12,17 @@ import (
 // mockPageForSession is a mock implementation of playwright.Page for session testing.
 type mockPageForSession struct {
 	playwright.Page
-	id string
+	id    string
+	url   string
+	title string
+}
+
+func (m *mockPageForSession) URL() string {
+	return m.url
+}
+
+func (m *mockPageForSession) Title() (string, error) {
+	return m.title, nil
 }
 
 func TestBrowserSession_ActivePage(t *testing.T) {
@@ -49,6 +59,57 @@ func TestBrowserSession_ActivePage(t *testing.T) {
 		result := session.ActivePage()
 		if result != nil {
 			t.Error("ActivePage should return nil when Pages is nil")
+		}
+	})
+}
+
+func TestBrowserSession_ActivePageInfo(t *testing.T) {
+	t.Run("returns URL and title from active page", func(t *testing.T) {
+		page := &mockPageForSession{
+			id:    "test-page",
+			url:   "https://example.com",
+			title: "Example Title",
+		}
+		session := &BrowserSession{
+			Pages:       map[string]playwright.Page{"tab-1": page},
+			ActiveTabID: "tab-1",
+		}
+
+		url, title := session.ActivePageInfo()
+		if url != "https://example.com" {
+			t.Errorf("URL = %q, want %q", url, "https://example.com")
+		}
+		if title != "Example Title" {
+			t.Errorf("Title = %q, want %q", title, "Example Title")
+		}
+	})
+
+	t.Run("returns empty strings when no active page", func(t *testing.T) {
+		session := &BrowserSession{
+			Pages:       map[string]playwright.Page{},
+			ActiveTabID: "nonexistent",
+		}
+
+		url, title := session.ActivePageInfo()
+		if url != "" {
+			t.Errorf("URL should be empty, got %q", url)
+		}
+		if title != "" {
+			t.Errorf("Title should be empty, got %q", title)
+		}
+	})
+
+	t.Run("returns empty strings when Pages map is nil", func(t *testing.T) {
+		session := &BrowserSession{
+			ActiveTabID: "tab-1",
+		}
+
+		url, title := session.ActivePageInfo()
+		if url != "" {
+			t.Errorf("URL should be empty, got %q", url)
+		}
+		if title != "" {
+			t.Errorf("Title should be empty, got %q", title)
 		}
 	})
 }

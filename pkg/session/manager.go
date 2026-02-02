@@ -25,7 +25,9 @@ var (
 type SessionOptions struct {
 	// BrowserType specifies the browser engine to use.
 	BrowserType browser.BrowserType
-	// Headless determines whether the browser runs in headless mode.
+	// Headless is reserved for future use. In Playwright, headless mode is a
+	// browser-level setting configured via pool options, not per-context.
+	// This field is currently ignored.
 	Headless bool
 	// Viewport sets the browser viewport size. If nil, uses browser default.
 	Viewport *browser.Viewport
@@ -122,6 +124,7 @@ func (m *manager) CreateSession(ctx context.Context, mcpSessionID string, opts S
 	sessionID := "sess-" + uuid.New().String()
 
 	// Translate SessionOptions to ContextOptions
+	// Note: Headless is passed but currently ignored by browser.ContextOptions
 	contextOpts := browser.ContextOptions{
 		Headless:     opts.Headless,
 		Viewport:     opts.Viewport,
@@ -140,8 +143,8 @@ func (m *manager) CreateSession(ctx context.Context, mcpSessionID string, opts S
 	// Create initial page in the context
 	page, err := browserContext.NewPage()
 	if err != nil {
-		// Clean up context if page creation fails
-		_ = browserContext.Close()
+		// Clean up context if page creation fails - use pool.CloseContext to maintain proper tracking
+		_ = m.pool.CloseContext(ctx, browserContext)
 		return nil, fmt.Errorf("failed to create initial page: %w", err)
 	}
 
@@ -259,17 +262,16 @@ func (m *manager) ListSessions(mcpSessionID string) []*SessionInfo {
 			continue
 		}
 
+		// Get URL and title safely using ActivePageInfo to avoid data races
+		url, title := session.ActivePageInfo()
+
 		info := &SessionInfo{
 			ID:          session.ID,
 			BrowserType: session.BrowserType,
+			URL:         url,
+			Title:       title,
 			CreatedAt:   session.CreatedAt,
 			LastAccess:  session.LastAccess,
-		}
-
-		// Get URL and title from active page (may be nil or error)
-		if page := session.ActivePage(); page != nil {
-			info.URL = page.URL()
-			info.Title, _ = page.Title()
 		}
 
 		result = append(result, info)

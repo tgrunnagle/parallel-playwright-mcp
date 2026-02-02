@@ -42,6 +42,26 @@ func (s *BrowserSession) ActivePage() playwright.Page {
 	return s.Pages[s.ActiveTabID]
 }
 
+// ActivePageInfo returns the URL and title of the active page.
+// This method safely captures page information while holding the session lock,
+// preventing data races when the page might be closed concurrently.
+// Returns empty strings if no active page exists or if page methods fail.
+func (s *BrowserSession) ActivePageInfo() (url, title string) {
+	s.mu.RLock()
+	page := s.Pages[s.ActiveTabID]
+	s.mu.RUnlock()
+
+	if page == nil {
+		return "", ""
+	}
+
+	// Capture URL and title - these methods are safe to call even on a closed page
+	// (Playwright returns empty values rather than panicking)
+	url = page.URL()
+	title, _ = page.Title()
+	return url, title
+}
+
 // UpdateLastAccess updates the LastAccess timestamp to the current time.
 func (s *BrowserSession) UpdateLastAccess() {
 	s.mu.Lock()
