@@ -2,13 +2,17 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/tgrunnagle/parallel-playwright-mcp/pkg/browser"
 	"github.com/tgrunnagle/parallel-playwright-mcp/pkg/config"
+	"github.com/tgrunnagle/parallel-playwright-mcp/pkg/session"
+	"github.com/tgrunnagle/parallel-playwright-mcp/pkg/tools"
 )
 
 // HealthResponse represents the health check response structure.
@@ -48,12 +52,36 @@ func main() {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
 
+	// Create and start browser pool
+	poolOpts := browser.PoolOptions{
+		DefaultHeadless: cfg.Browser.Headless,
+	}
+	pool := browser.NewBrowserPoolWithOptions(poolOpts)
+
+	ctx := context.Background()
+	if err := pool.Start(ctx); err != nil {
+		log.Fatalf("Failed to start browser pool: %v", err)
+	}
+	defer func() {
+		if err := pool.Stop(context.Background()); err != nil {
+			log.Printf("Error stopping browser pool: %v", err)
+		}
+	}()
+
+	// Create session manager
+	sessionMgr := session.NewManager(pool)
+
 	// Create MCP server with tool capabilities
 	mcpServer := server.NewMCPServer(
 		serverName,
 		serverVersion,
 		server.WithToolCapabilities(true),
 	)
+
+	// Register session management tools
+	mcpServer.AddTool(tools.SessionCreateTool(), tools.SessionCreateHandler(sessionMgr))
+	mcpServer.AddTool(tools.SessionListTool(), tools.SessionListHandler(sessionMgr))
+	mcpServer.AddTool(tools.SessionCloseTool(), tools.SessionCloseHandler(sessionMgr))
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 
