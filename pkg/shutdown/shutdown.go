@@ -181,7 +181,8 @@ func (c *Coordinator) drainHTTPConnections(ctx context.Context) error {
 	return err
 }
 
-// closeBrowserSessions closes all browser sessions for tracked MCP connections.
+// closeBrowserSessions closes all browser sessions using the session manager's CloseAll method.
+// This ensures all sessions are closed regardless of MCP session tracking.
 func (c *Coordinator) closeBrowserSessions(ctx context.Context) error {
 	if c.sessionMgr == nil {
 		slog.Info("shutdown: no session manager to clean up")
@@ -191,34 +192,8 @@ func (c *Coordinator) closeBrowserSessions(ctx context.Context) error {
 	phaseCtx, cancel := context.WithTimeout(ctx, c.config.PhaseTimeout)
 	defer cancel()
 
-	// Get snapshot of MCP sessions under lock
-	c.mu.RLock()
-	sessions := make([]string, len(c.mcpSessions))
-	copy(sessions, c.mcpSessions)
-	c.mu.RUnlock()
-
-	if len(sessions) == 0 {
-		slog.Info("shutdown: no MCP sessions to close")
-		return nil
-	}
-
-	slog.Info("shutdown: closing sessions for MCP connections", "count", len(sessions))
-
-	var errs []error
-	for _, mcpSessionID := range sessions {
-		if err := c.sessionMgr.CloseAllForMCP(phaseCtx, mcpSessionID); err != nil {
-			slog.Warn("shutdown: failed to close sessions for MCP connection",
-				"mcpSessionID", mcpSessionID,
-				"error", err,
-			)
-			errs = append(errs, fmt.Errorf("MCP session %s: %w", mcpSessionID, err))
-		}
-	}
-
-	if len(errs) > 0 {
-		return errors.Join(errs...)
-	}
-	return nil
+	slog.Info("shutdown: closing all browser sessions")
+	return c.sessionMgr.CloseAll(phaseCtx)
 }
 
 // stopBrowserPool stops the browser pool with phase timeout.

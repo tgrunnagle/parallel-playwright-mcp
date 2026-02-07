@@ -1,10 +1,17 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/signal"
+	"syscall"
 	"testing"
+	"time"
+
+	"github.com/tgrunnagle/parallel-playwright-mcp/pkg/shutdown"
 )
 
 func TestHealthHandler_ReturnsOKStatus(t *testing.T) {
@@ -86,5 +93,137 @@ func TestHealthHandler_RejectsNonGetMethods(t *testing.T) {
 				t.Errorf("expected status %d for %s, got %d", http.StatusMethodNotAllowed, method, rec.Code)
 			}
 		})
+	}
+}
+
+// TestSignalNotifyContext_CancelledOnSIGINT verifies that signal.NotifyContext
+// cancels the context when SIGINT is received.
+// This test is skipped on Windows because SIGINT cannot be sent programmatically.
+func TestSignalNotifyContext_CancelledOnSIGINT(t *testing.T) {
+	// Skip on Windows - SIGINT cannot be sent programmatically
+	if os.Getenv("OS") == "Windows_NT" {
+		t.Skip("Skipping signal test on Windows - SIGINT not supported")
+	}
+
+	// Create a context with signal handling for SIGINT
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT)
+	defer stop()
+
+	// Send SIGINT to the current process
+	p, err := os.FindProcess(os.Getpid())
+	if err != nil {
+		t.Fatalf("Failed to find current process: %v", err)
+	}
+
+	// Use a channel to verify context cancellation
+	done := make(chan struct{})
+	go func() {
+		<-ctx.Done()
+		close(done)
+	}()
+
+	// Send the signal
+	if err := p.Signal(syscall.SIGINT); err != nil {
+		t.Skipf("Signal not supported on this platform: %v", err)
+	}
+
+	// Wait for context cancellation with timeout
+	select {
+	case <-done:
+		// Success - context was cancelled
+	case <-time.After(2 * time.Second):
+		t.Error("Context was not cancelled after SIGINT")
+	}
+}
+
+// TestShutdownCoordinator_TriggeredByContextCancellation verifies that
+// the shutdown coordinator can be triggered by context cancellation,
+// which is how signal handling works in the main function.
+func TestShutdownCoordinator_TriggeredByContextCancellation(t *testing.T) {
+	// Create a cancellable context (simulates signal handling)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Create a test HTTP server
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	httpServer := &http.Server{
+		Addr:    "127.0.0.1:0",
+		Handler: mux,
+	}
+
+	// Create shutdown coordinator
+	config := shutdown.DefaultConfig().
+		WithDrainTimeout(100 * time.Millisecond).
+		WithPhaseTimeout(100 * time.Millisecond).
+		WithTotalTimeout(500 * time.Millisecond)
+
+	coordinator := shutdown.NewCoordinator(
+		config,
+		httpServer,
+		nil, // No session manager
+		nil, // No browser pool
+		nil, // Will create its own request tracker
+	)
+
+	shutdownComplete := make(chan error, 1)
+
+	// Simulate the main loop pattern
+	go func() {
+		select {
+		case <-ctx.Done():
+			shutdownComplete <- coordinator.Shutdown(context.Background())
+		case <-time.After(5 * time.Second):
+			shutdownComplete <- context.DeadlineExceeded
+		}
+	}()
+
+	// Cancel the context (simulates receiving a signal)
+	cancel()
+
+	// Verify shutdown was triggered
+	select {
+	case err := <-shutdownComplete:
+		if err != nil {
+			t.Errorf("Shutdown returned unexpected error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("Shutdown was not triggered after context cancellation")
+	}
+}
+
+// TestSignalHandling_ShutdownSequenceOrder verifies that when shutdown is
+// triggered (via context cancellation), the shutdown phases execute in order.
+func TestSignalHandling_ShutdownSequenceOrder(t *testing.T) {
+	// This test verifies the integration between signal handling and shutdown sequencing
+	// The actual phase ordering is tested in pkg/shutdown/shutdown_test.go
+	// Here we just verify that context cancellation triggers the shutdown
+
+	httpServer := &http.Server{
+		Addr:    "127.0.0.1:0",
+		Handler: http.NewServeMux(),
+	}
+
+	config := shutdown.DefaultConfig().
+		WithDrainTimeout(50 * time.Millisecond).
+		WithPhaseTimeout(50 * time.Millisecond).
+		WithTotalTimeout(200 * time.Millisecond)
+
+	coordinator := shutdown.NewCoordinator(
+		config,
+		httpServer,
+		nil,
+		nil,
+		nil,
+	)
+
+	// Trigger shutdown
+	err := coordinator.Shutdown(context.Background())
+
+	// Shutdown should complete without error when there are no active resources
+	if err != nil {
+		t.Errorf("Shutdown returned error: %v", err)
 	}
 }

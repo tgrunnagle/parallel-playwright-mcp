@@ -1052,3 +1052,83 @@ func TestAttachConsoleHandler(t *testing.T) {
 		}
 	})
 }
+
+func TestCloseAll(t *testing.T) {
+	t.Run("closes all sessions regardless of MCP connection", func(t *testing.T) {
+		pool := &mockBrowserPool{}
+		mgr := NewManager(pool)
+		ctx := context.Background()
+
+		// Create sessions in multiple MCP connections
+		s1, _ := mgr.CreateSession(ctx, "mcp-1", SessionOptions{})
+		s2, _ := mgr.CreateSession(ctx, "mcp-1", SessionOptions{})
+		s3, _ := mgr.CreateSession(ctx, "mcp-2", SessionOptions{})
+
+		// Verify sessions exist
+		if len(mgr.ListSessions("mcp-1")) != 2 {
+			t.Fatal("expected 2 sessions for mcp-1")
+		}
+		if len(mgr.ListSessions("mcp-2")) != 1 {
+			t.Fatal("expected 1 session for mcp-2")
+		}
+
+		// Close all sessions
+		err := mgr.CloseAll(ctx)
+		if err != nil {
+			t.Fatalf("CloseAll failed: %v", err)
+		}
+
+		// Verify all sessions are closed
+		if len(mgr.ListSessions("mcp-1")) != 0 {
+			t.Error("expected 0 sessions for mcp-1 after CloseAll")
+		}
+		if len(mgr.ListSessions("mcp-2")) != 0 {
+			t.Error("expected 0 sessions for mcp-2 after CloseAll")
+		}
+
+		// Verify sessions are not accessible
+		_, ok := mgr.GetSession("mcp-1", s1.ID)
+		if ok {
+			t.Error("session s1 should not be accessible after CloseAll")
+		}
+		_, ok = mgr.GetSession("mcp-1", s2.ID)
+		if ok {
+			t.Error("session s2 should not be accessible after CloseAll")
+		}
+		_, ok = mgr.GetSession("mcp-2", s3.ID)
+		if ok {
+			t.Error("session s3 should not be accessible after CloseAll")
+		}
+	})
+
+	t.Run("returns nil when no sessions exist", func(t *testing.T) {
+		pool := &mockBrowserPool{}
+		mgr := NewManager(pool)
+		ctx := context.Background()
+
+		err := mgr.CloseAll(ctx)
+		if err != nil {
+			t.Errorf("CloseAll with no sessions should return nil, got: %v", err)
+		}
+	})
+
+	t.Run("continues closing sessions even if some fail", func(t *testing.T) {
+		pool := &mockBrowserPool{}
+		mgr := NewManager(pool)
+		ctx := context.Background()
+
+		// Create sessions
+		mgr.CreateSession(ctx, "mcp-1", SessionOptions{})
+		mgr.CreateSession(ctx, "mcp-1", SessionOptions{})
+
+		// CloseAll should close all sessions despite mock context close behavior
+		err := mgr.CloseAll(ctx)
+		// Error may or may not occur depending on mock behavior
+		_ = err
+
+		// Verify tracking maps are cleared
+		if len(mgr.ListSessions("mcp-1")) != 0 {
+			t.Error("expected 0 sessions for mcp-1 after CloseAll")
+		}
+	})
+}

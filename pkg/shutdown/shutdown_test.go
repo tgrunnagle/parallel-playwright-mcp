@@ -3,6 +3,7 @@ package shutdown
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -83,6 +84,8 @@ type mockSessionManager struct {
 	closeAllForMCPCalled   map[string]bool
 	closeAllForMCPErr      error
 	closeAllForMCPDelay    time.Duration
+	closeAllCalled         bool
+	closeAllErr            error
 	createSessionErr       error
 	closeSessionErr        error
 	sessions               map[string]*session.BrowserSession
@@ -129,6 +132,19 @@ func (m *mockSessionManager) CloseAllForMCP(ctx context.Context, mcpSessionID st
 
 	m.closeAllForMCPCalled[mcpSessionID] = true
 	return m.closeAllForMCPErr
+}
+
+func (m *mockSessionManager) CloseAll(_ context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.closeAllCalled = true
+	return m.closeAllErr
+}
+
+func (m *mockSessionManager) wasCloseAllCalled() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.closeAllCalled
 }
 
 func (m *mockSessionManager) Cleanup(_ context.Context, _ time.Duration) (int, error) {
@@ -234,7 +250,7 @@ func TestCoordinator_Shutdown_StopsBrowserPool(t *testing.T) {
 	}
 }
 
-func TestCoordinator_Shutdown_ClosesSessionsForMCP(t *testing.T) {
+func TestCoordinator_Shutdown_ClosesAllSessions(t *testing.T) {
 	mgr := newMockSessionManager()
 	coord := NewCoordinator(
 		DefaultConfig().WithPhaseTimeout(100*time.Millisecond),
@@ -244,20 +260,14 @@ func TestCoordinator_Shutdown_ClosesSessionsForMCP(t *testing.T) {
 		nil,
 	)
 
-	coord.RegisterMCPSession("mcp-1")
-	coord.RegisterMCPSession("mcp-2")
-
 	ctx := context.Background()
 	err := coord.Shutdown(ctx)
 
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
-	if !mgr.wasCloseAllForMCPCalled("mcp-1") {
-		t.Error("expected CloseAllForMCP to be called for mcp-1")
-	}
-	if !mgr.wasCloseAllForMCPCalled("mcp-2") {
-		t.Error("expected CloseAllForMCP to be called for mcp-2")
+	if !mgr.wasCloseAllCalled() {
+		t.Error("expected CloseAll to be called")
 	}
 }
 
@@ -332,7 +342,7 @@ func (m *orderedMockPool) Stats() browser.PoolStats {
 	return browser.PoolStats{Browsers: make(map[browser.BrowserType]browser.BrowserStats)}
 }
 
-// orderedMockSessionManager tracks the order of CloseAllForMCP calls
+// orderedMockSessionManager tracks the order of CloseAll calls
 type orderedMockSessionManager struct {
 	order *[]string
 	mu    *sync.Mutex
@@ -347,6 +357,9 @@ func (m *orderedMockSessionManager) GetSession(_, _ string) (*session.BrowserSes
 func (m *orderedMockSessionManager) CloseSession(_ context.Context, _, _ string) error { return nil }
 func (m *orderedMockSessionManager) ListSessions(_ string) []*session.SessionInfo        { return nil }
 func (m *orderedMockSessionManager) CloseAllForMCP(_ context.Context, _ string) error {
+	return nil
+}
+func (m *orderedMockSessionManager) CloseAll(_ context.Context) error {
 	m.mu.Lock()
 	*m.order = append(*m.order, "sessions")
 	m.mu.Unlock()
@@ -358,7 +371,7 @@ func (m *orderedMockSessionManager) Cleanup(_ context.Context, _ time.Duration) 
 
 func TestCoordinator_Shutdown_ContinuesOnError(t *testing.T) {
 	mgr := newMockSessionManager()
-	mgr.closeAllForMCPErr = errors.New("session close error")
+	mgr.closeAllErr = errors.New("session close error")
 
 	pool := newMockBrowserPool()
 
@@ -369,7 +382,6 @@ func TestCoordinator_Shutdown_ContinuesOnError(t *testing.T) {
 		pool,
 		nil,
 	)
-	coord.RegisterMCPSession("mcp-1")
 
 	ctx := context.Background()
 	err := coord.Shutdown(ctx)
@@ -385,7 +397,7 @@ func TestCoordinator_Shutdown_ContinuesOnError(t *testing.T) {
 
 func TestCoordinator_Shutdown_ReturnsAggregatedErrors(t *testing.T) {
 	mgr := newMockSessionManager()
-	mgr.closeAllForMCPErr = errors.New("session error")
+	mgr.closeAllErr = errors.New("session error")
 
 	pool := newMockBrowserPool()
 	pool.stopErr = errors.New("pool error")
@@ -397,7 +409,6 @@ func TestCoordinator_Shutdown_ReturnsAggregatedErrors(t *testing.T) {
 		pool,
 		nil,
 	)
-	coord.RegisterMCPSession("mcp-1")
 
 	ctx := context.Background()
 	err := coord.Shutdown(ctx)
@@ -406,7 +417,7 @@ func TestCoordinator_Shutdown_ReturnsAggregatedErrors(t *testing.T) {
 		t.Fatal("expected error")
 	}
 	errStr := err.Error()
-	if !errors.Is(err, mgr.closeAllForMCPErr) && !containsString(errStr, "session") {
+	if !errors.Is(err, mgr.closeAllErr) && !strings.Contains(errStr, "session") {
 		t.Error("expected error to contain session error")
 	}
 }
@@ -468,8 +479,4 @@ func TestCoordinator_Shutdown_NilDependencies(t *testing.T) {
 	if err != nil {
 		t.Errorf("unexpected error with nil dependencies: %v", err)
 	}
-}
-
-func containsString(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsString(s[1:], substr) || s[:len(substr)] == substr)
 }

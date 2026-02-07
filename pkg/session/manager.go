@@ -83,6 +83,10 @@ type BrowserSessionManager interface {
 	// This should be called during MCP session cleanup.
 	CloseAllForMCP(ctx context.Context, mcpSessionID string) error
 
+	// CloseAll closes all browser sessions regardless of MCP connection.
+	// This should be called during server shutdown to ensure all sessions are closed.
+	CloseAll(ctx context.Context) error
+
 	// Cleanup removes expired/orphaned sessions that exceed the idle timeout.
 	// Returns the number of sessions cleaned up.
 	Cleanup(ctx context.Context, idleTimeout time.Duration) (int, error)
@@ -330,6 +334,51 @@ func (m *manager) CloseAllForMCP(ctx context.Context, mcpSessionID string) error
 	delete(m.mcpSessions, mcpSessionID)
 
 	// Return combined error if any closures failed
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+
+	return nil
+}
+
+// CloseAll closes all browser sessions regardless of MCP connection.
+// It continues closing remaining sessions even if some fail.
+// This is used during server shutdown to ensure all resources are released.
+func (m *manager) CloseAll(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if len(m.sessions) == 0 {
+		return nil
+	}
+
+	// Collect errors but continue closing all sessions
+	var errs []error
+
+	for sessionID, session := range m.sessions {
+		// Check for context cancellation
+		select {
+		case <-ctx.Done():
+			errs = append(errs, ctx.Err())
+			return errors.Join(errs...)
+		default:
+		}
+
+		// Close all pages in the session
+		for _, page := range session.Pages {
+			_ = page.Close()
+		}
+
+		// Close the browser context
+		if err := session.Context.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to close session %s: %w", sessionID, err))
+		}
+	}
+
+	// Clear all tracking maps
+	m.sessions = make(map[string]*BrowserSession)
+	m.mcpSessions = make(map[string][]string)
+
 	if len(errs) > 0 {
 		return errors.Join(errs...)
 	}

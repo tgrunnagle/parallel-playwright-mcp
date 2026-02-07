@@ -72,7 +72,9 @@ func main() {
 		os.Exit(exitCode)
 	}()
 
-	// Create root context with signal handling for graceful shutdown
+	// Create root context with signal handling for graceful shutdown.
+	// Note: On Windows, SIGTERM is not natively supported. Only SIGINT (Ctrl+C) will
+	// trigger graceful shutdown. On Unix-like systems, both SIGTERM and SIGINT work.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
@@ -165,6 +167,10 @@ func run(ctx context.Context, emergencyCleanup **shutdown.EmergencyCleanup) erro
 	select {
 	case <-ctx.Done():
 		slog.Info("shutdown signal received")
+		// Use context.Background() instead of the cancelled ctx to allow the shutdown
+		// sequence to complete without immediate cancellation. The coordinator has its
+		// own timeouts (TotalTimeout, DrainTimeout, PhaseTimeout) to prevent hanging.
+		// A second signal won't accelerate shutdown, but the timeouts ensure completion.
 		return shutdownCoord.Shutdown(context.Background())
 	case err := <-errChan:
 		if err != nil {

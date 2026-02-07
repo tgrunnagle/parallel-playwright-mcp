@@ -66,6 +66,10 @@ func (m *mockSessionManager) CloseAllForMCP(ctx context.Context, mcpSessionID st
 	return nil
 }
 
+func (m *mockSessionManager) CloseAll(_ context.Context) error {
+	return nil
+}
+
 func (m *mockSessionManager) Cleanup(ctx context.Context, idleTimeout time.Duration) (int, error) {
 	if m.cleanupFunc != nil {
 		return m.cleanupFunc(ctx, idleTimeout)
