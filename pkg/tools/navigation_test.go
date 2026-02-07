@@ -269,6 +269,19 @@ func TestReloadTool(t *testing.T) {
 	}
 }
 
+// createSessionWithMockPage creates a BrowserSession with a mockPage for testing.
+func createSessionWithMockPage(page *mockPage) *session.BrowserSession {
+	sess := &session.BrowserSession{
+		ID:          "sess-123",
+		ActiveTabID: "tab-1",
+		Pages:       make(map[string]playwright.Page),
+	}
+	if page != nil {
+		sess.Pages["tab-1"] = page
+	}
+	return sess
+}
+
 // TestNavigateHandler tests the navigate handler.
 func TestNavigateHandler(t *testing.T) {
 	tests := []struct {
@@ -323,6 +336,95 @@ func TestNavigateHandler(t *testing.T) {
 			},
 			expectError:    true,
 			expectedResult: "[-32001] Session not found",
+		},
+		{
+			name: "nil page in session",
+			arguments: map[string]any{
+				"sessionId": "sess-123",
+				"url":       "https://example.com",
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				return createSessionWithMockPage(nil), true
+			},
+			expectError:    true,
+			expectedResult: "no active page in session",
+		},
+		{
+			name: "successful navigation",
+			arguments: map[string]any{
+				"sessionId": "sess-123",
+				"url":       "https://example.com",
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				page := &mockPage{
+					gotoFunc: func(url string, opts playwright.PageGotoOptions) (playwright.Response, error) {
+						return nil, nil
+					},
+				}
+				return createSessionWithMockPage(page), true
+			},
+			expectError:    false,
+			expectedResult: "Navigated to https://example.com",
+		},
+		{
+			name: "successful navigation with options",
+			arguments: map[string]any{
+				"sessionId": "sess-123",
+				"url":       "https://example.com",
+				"waitUntil": "networkidle",
+				"timeout":   float64(5000),
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				page := &mockPage{
+					gotoFunc: func(url string, opts playwright.PageGotoOptions) (playwright.Response, error) {
+						// Verify options are passed correctly
+						if opts.WaitUntil == nil {
+							return nil, errors.New("expected WaitUntil to be set")
+						}
+						if opts.Timeout == nil || *opts.Timeout != 5000 {
+							return nil, errors.New("expected Timeout to be 5000")
+						}
+						return nil, nil
+					},
+				}
+				return createSessionWithMockPage(page), true
+			},
+			expectError:    false,
+			expectedResult: "Navigated to https://example.com",
+		},
+		{
+			name: "navigation timeout error",
+			arguments: map[string]any{
+				"sessionId": "sess-123",
+				"url":       "https://slow.example.com",
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				page := &mockPage{
+					gotoFunc: func(url string, opts playwright.PageGotoOptions) (playwright.Response, error) {
+						return nil, errors.New("navigation timeout exceeded")
+					},
+				}
+				return createSessionWithMockPage(page), true
+			},
+			expectError:    true,
+			expectedResult: "[-32003] Navigation timeout",
+		},
+		{
+			name: "navigation failure error",
+			arguments: map[string]any{
+				"sessionId": "sess-123",
+				"url":       "https://invalid.example",
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				page := &mockPage{
+					gotoFunc: func(url string, opts playwright.PageGotoOptions) (playwright.Response, error) {
+						return nil, errors.New("net::ERR_NAME_NOT_RESOLVED")
+					},
+				}
+				return createSessionWithMockPage(page), true
+			},
+			expectError:    true,
+			expectedResult: "[-32004] Navigation failed",
 		},
 	}
 
@@ -400,6 +502,65 @@ func TestGoBackHandler(t *testing.T) {
 			expectError:    true,
 			expectedResult: "[-32001] Session not found",
 		},
+		{
+			name: "nil page in session",
+			arguments: map[string]any{
+				"sessionId": "sess-123",
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				return createSessionWithMockPage(nil), true
+			},
+			expectError:    true,
+			expectedResult: "no active page in session",
+		},
+		{
+			name: "successful go_back",
+			arguments: map[string]any{
+				"sessionId": "sess-123",
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				page := &mockPage{
+					goBackFunc: func(opts playwright.PageGoBackOptions) (playwright.Response, error) {
+						return &mockResponse{urlFunc: func() string { return "https://previous.example.com" }}, nil
+					},
+				}
+				return createSessionWithMockPage(page), true
+			},
+			expectError:    false,
+			expectedResult: "Navigated back to https://previous.example.com",
+		},
+		{
+			name: "no previous page in history",
+			arguments: map[string]any{
+				"sessionId": "sess-123",
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				page := &mockPage{
+					goBackFunc: func(opts playwright.PageGoBackOptions) (playwright.Response, error) {
+						return nil, nil // nil response indicates no history
+					},
+				}
+				return createSessionWithMockPage(page), true
+			},
+			expectError:    false,
+			expectedResult: "No previous page in history",
+		},
+		{
+			name: "go_back timeout error",
+			arguments: map[string]any{
+				"sessionId": "sess-123",
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				page := &mockPage{
+					goBackFunc: func(opts playwright.PageGoBackOptions) (playwright.Response, error) {
+						return nil, errors.New("navigation timeout")
+					},
+				}
+				return createSessionWithMockPage(page), true
+			},
+			expectError:    true,
+			expectedResult: "[-32003] Navigation timeout",
+		},
 	}
 
 	for _, tt := range tests {
@@ -476,6 +637,65 @@ func TestGoForwardHandler(t *testing.T) {
 			expectError:    true,
 			expectedResult: "[-32001] Session not found",
 		},
+		{
+			name: "nil page in session",
+			arguments: map[string]any{
+				"sessionId": "sess-123",
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				return createSessionWithMockPage(nil), true
+			},
+			expectError:    true,
+			expectedResult: "no active page in session",
+		},
+		{
+			name: "successful go_forward",
+			arguments: map[string]any{
+				"sessionId": "sess-123",
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				page := &mockPage{
+					goForwardFunc: func(opts playwright.PageGoForwardOptions) (playwright.Response, error) {
+						return &mockResponse{urlFunc: func() string { return "https://next.example.com" }}, nil
+					},
+				}
+				return createSessionWithMockPage(page), true
+			},
+			expectError:    false,
+			expectedResult: "Navigated forward to https://next.example.com",
+		},
+		{
+			name: "no forward page in history",
+			arguments: map[string]any{
+				"sessionId": "sess-123",
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				page := &mockPage{
+					goForwardFunc: func(opts playwright.PageGoForwardOptions) (playwright.Response, error) {
+						return nil, nil // nil response indicates no forward history
+					},
+				}
+				return createSessionWithMockPage(page), true
+			},
+			expectError:    false,
+			expectedResult: "No forward page in history",
+		},
+		{
+			name: "go_forward navigation error",
+			arguments: map[string]any{
+				"sessionId": "sess-123",
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				page := &mockPage{
+					goForwardFunc: func(opts playwright.PageGoForwardOptions) (playwright.Response, error) {
+						return nil, errors.New("network error")
+					},
+				}
+				return createSessionWithMockPage(page), true
+			},
+			expectError:    true,
+			expectedResult: "[-32004] Navigation failed",
+		},
 	}
 
 	for _, tt := range tests {
@@ -551,6 +771,75 @@ func TestReloadHandler(t *testing.T) {
 			},
 			expectError:    true,
 			expectedResult: "[-32001] Session not found",
+		},
+		{
+			name: "nil page in session",
+			arguments: map[string]any{
+				"sessionId": "sess-123",
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				return createSessionWithMockPage(nil), true
+			},
+			expectError:    true,
+			expectedResult: "no active page in session",
+		},
+		{
+			name: "successful reload",
+			arguments: map[string]any{
+				"sessionId": "sess-123",
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				page := &mockPage{
+					reloadFunc: func(opts playwright.PageReloadOptions) (playwright.Response, error) {
+						return nil, nil
+					},
+					urlFunc: func() string {
+						return "https://example.com"
+					},
+				}
+				return createSessionWithMockPage(page), true
+			},
+			expectError:    false,
+			expectedResult: "Reloaded page: https://example.com",
+		},
+		{
+			name: "reload with waitUntil option",
+			arguments: map[string]any{
+				"sessionId": "sess-123",
+				"waitUntil": "domcontentloaded",
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				page := &mockPage{
+					reloadFunc: func(opts playwright.PageReloadOptions) (playwright.Response, error) {
+						if opts.WaitUntil == nil {
+							return nil, errors.New("expected WaitUntil to be set")
+						}
+						return nil, nil
+					},
+					urlFunc: func() string {
+						return "https://example.com"
+					},
+				}
+				return createSessionWithMockPage(page), true
+			},
+			expectError:    false,
+			expectedResult: "Reloaded page: https://example.com",
+		},
+		{
+			name: "reload timeout error",
+			arguments: map[string]any{
+				"sessionId": "sess-123",
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				page := &mockPage{
+					reloadFunc: func(opts playwright.PageReloadOptions) (playwright.Response, error) {
+						return nil, errors.New("timeout exceeded waiting for page")
+					},
+				}
+				return createSessionWithMockPage(page), true
+			},
+			expectError:    true,
+			expectedResult: "[-32003] Navigation timeout",
 		},
 	}
 
