@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"testing"
 	"time"
@@ -101,7 +103,7 @@ func TestHealthHandler_RejectsNonGetMethods(t *testing.T) {
 // This test is skipped on Windows because SIGINT cannot be sent programmatically.
 func TestSignalNotifyContext_CancelledOnSIGINT(t *testing.T) {
 	// Skip on Windows - SIGINT cannot be sent programmatically
-	if os.Getenv("OS") == "Windows_NT" {
+	if runtime.GOOS == "windows" {
 		t.Skip("Skipping signal test on Windows - SIGINT not supported")
 	}
 
@@ -233,7 +235,7 @@ func TestSignalHandling_ShutdownSequenceOrder(t *testing.T) {
 // This test is skipped on Windows because SIGINT cannot be sent programmatically.
 func TestSetupSignalHandler_CancelsContextOnFirstSignal(t *testing.T) {
 	// Skip on Windows - signals cannot be sent programmatically in the same way
-	if os.Getenv("OS") == "Windows_NT" {
+	if runtime.GOOS == "windows" {
 		t.Skip("Skipping signal test on Windows - SIGINT not supported programmatically")
 	}
 
@@ -281,7 +283,7 @@ func TestSetupSignalHandler_CancelsContextOnFirstSignal(t *testing.T) {
 // This is a structural test that verifies the handler uses both signals.
 func TestSetupSignalHandler_RegistersForSIGTERMAndSIGINT(t *testing.T) {
 	// Skip on Windows - SIGTERM is not natively supported
-	if os.Getenv("OS") == "Windows_NT" {
+	if runtime.GOOS == "windows" {
 		t.Skip("Skipping signal test on Windows - SIGTERM not supported")
 	}
 
@@ -318,5 +320,81 @@ func TestSetupSignalHandler_RegistersForSIGTERMAndSIGINT(t *testing.T) {
 		// Success - context was cancelled by SIGTERM
 	case <-time.After(2 * time.Second):
 		t.Error("Context was not cancelled after SIGTERM")
+	}
+}
+
+// TestSetupSignalHandler_ForcesExitOnSecondSignal verifies that a second signal
+// causes immediate termination with exit code 1.
+// This test uses subprocess execution to verify exit behavior.
+// This test is skipped on Windows because signals cannot be sent programmatically.
+func TestSetupSignalHandler_ForcesExitOnSecondSignal(t *testing.T) {
+	// Skip on Windows - signals cannot be sent programmatically
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping signal test on Windows - signals not supported programmatically")
+	}
+
+	// When running as the subprocess, set up signal handler and wait for signals
+	if os.Getenv("TEST_FORCE_QUIT_SUBPROCESS") == "1" {
+		// Reset signal handlers to ensure clean state
+		signal.Reset(syscall.SIGINT, syscall.SIGTERM)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		setupSignalHandler(cancel)
+
+		// Wait for context cancellation from first signal
+		<-ctx.Done()
+
+		// Block forever waiting for second signal to force exit
+		// The second signal should call os.Exit(1)
+		select {}
+	}
+
+	// Main test: run this test function as a subprocess
+	cmd := exec.Command(os.Args[0], "-test.run=TestSetupSignalHandler_ForcesExitOnSecondSignal", "-test.v")
+	cmd.Env = append(os.Environ(), "TEST_FORCE_QUIT_SUBPROCESS=1")
+
+	// Start the subprocess
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("Failed to start subprocess: %v", err)
+	}
+
+	// Give the subprocess time to set up signal handlers
+	time.Sleep(100 * time.Millisecond)
+
+	// Send first SIGINT - should trigger graceful shutdown
+	if err := cmd.Process.Signal(syscall.SIGINT); err != nil {
+		t.Fatalf("Failed to send first SIGINT: %v", err)
+	}
+
+	// Small delay to ensure first signal is processed
+	time.Sleep(50 * time.Millisecond)
+
+	// Send second SIGINT - should force immediate exit
+	if err := cmd.Process.Signal(syscall.SIGINT); err != nil {
+		t.Fatalf("Failed to send second SIGINT: %v", err)
+	}
+
+	// Wait for process to exit with timeout
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	select {
+	case err := <-done:
+		// Process exited - check exit code
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			if exitErr.ExitCode() != 1 {
+				t.Errorf("Expected exit code 1 on forced shutdown, got %d", exitErr.ExitCode())
+			}
+			// Success - process exited with code 1 as expected
+		} else if err != nil {
+			t.Errorf("Unexpected error type: %v", err)
+		} else {
+			t.Error("Expected non-zero exit code on forced shutdown")
+		}
+	case <-time.After(5 * time.Second):
+		cmd.Process.Kill()
+		t.Error("Subprocess did not exit within timeout after second signal")
 	}
 }
