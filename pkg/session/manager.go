@@ -151,6 +151,12 @@ func (m *manager) CreateSession(ctx context.Context, mcpSessionID string, opts S
 	// Generate tab ID for initial page
 	initialTabID := "tab-" + uuid.New().String()
 
+	// Initialize console log buffer
+	consoleLogs := NewConsoleLogBuffer(DefaultConsoleLogBufferSize)
+
+	// Attach console handler to initial page
+	attachConsoleHandler(page, consoleLogs)
+
 	// Create the browser session
 	now := time.Now()
 	session := &BrowserSession{
@@ -160,6 +166,7 @@ func (m *manager) CreateSession(ctx context.Context, mcpSessionID string, opts S
 		Context:      browserContext,
 		Pages:        map[string]playwright.Page{initialTabID: page},
 		ActiveTabID:  initialTabID,
+		ConsoleLogs:  consoleLogs,
 		CreatedAt:    now,
 		LastAccess:   now,
 		Metadata:     make(map[string]any),
@@ -427,4 +434,36 @@ func (m *manager) removeFromMCPIndex(mcpSessionID, browserSessionID string) {
 	if len(m.mcpSessions[mcpSessionID]) == 0 {
 		delete(m.mcpSessions, mcpSessionID)
 	}
+}
+
+// attachConsoleHandler attaches a console event handler to a page that captures
+// console messages and stores them in the provided buffer.
+// This function should be called for each new page (initial page and new tabs).
+func attachConsoleHandler(page playwright.Page, buffer *ConsoleLogBuffer) {
+	page.On("console", func(msg playwright.ConsoleMessage) {
+		// Map Playwright console message type to ConsoleLogLevel
+		level := MapConsoleType(msg.Type())
+
+		// Get source location
+		location := msg.Location()
+
+		// Create log entry with current timestamp
+		entry := ConsoleLogEntry{
+			Timestamp: time.Now(),
+			Level:     level,
+			Text:      msg.Text(),
+			URL:       location.URL,
+			Line:      location.LineNumber,
+			Column:    location.ColumnNumber,
+		}
+
+		// Add to buffer (thread-safe)
+		buffer.Add(entry)
+	})
+}
+
+// AttachConsoleHandler is the exported version of attachConsoleHandler for use
+// by external packages (e.g., tab management tools) when creating new pages.
+func AttachConsoleHandler(page playwright.Page, buffer *ConsoleLogBuffer) {
+	attachConsoleHandler(page, buffer)
 }

@@ -61,6 +61,10 @@ func (m *mockPage) Close(options ...playwright.PageCloseOptions) error {
 	return m.closeErr
 }
 
+func (m *mockPage) On(event string, handler interface{}) {
+	// No-op for testing - console handlers are attached but not invoked
+}
+
 // mockBrowserPool is a mock implementation of browser.BrowserPool for testing.
 type mockBrowserPool struct {
 	newContextFunc func(ctx context.Context, browserType browser.BrowserType, opts browser.ContextOptions) (playwright.BrowserContext, error)

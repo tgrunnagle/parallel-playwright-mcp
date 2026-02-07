@@ -24,6 +24,8 @@ type BrowserSession struct {
 	Pages map[string]playwright.Page
 	// ActiveTabID is the currently active tab identifier.
 	ActiveTabID string
+	// ConsoleLogs is the circular buffer for captured console messages.
+	ConsoleLogs *ConsoleLogBuffer
 	// CreatedAt is the session creation timestamp.
 	CreatedAt time.Time
 	// LastAccess is the timestamp of the last activity in this session.
