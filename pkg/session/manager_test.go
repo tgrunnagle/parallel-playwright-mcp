@@ -41,11 +41,12 @@ func (m *mockBrowserContext) Close(options ...playwright.BrowserContextCloseOpti
 // mockPage is a mock implementation of playwright.Page for testing.
 type mockPage struct {
 	playwright.Page
-	url       string
-	title     string
-	titleErr  error
-	closed    bool
-	closeErr  error
+	url             string
+	title           string
+	titleErr        error
+	closed          bool
+	closeErr        error
+	consoleHandlers []func(playwright.ConsoleMessage)
 }
 
 func (m *mockPage) URL() string {
@@ -59,6 +60,41 @@ func (m *mockPage) Title() (string, error) {
 func (m *mockPage) Close(options ...playwright.PageCloseOptions) error {
 	m.closed = true
 	return m.closeErr
+}
+
+func (m *mockPage) On(event string, handler interface{}) {
+	if event == "console" {
+		if h, ok := handler.(func(playwright.ConsoleMessage)); ok {
+			m.consoleHandlers = append(m.consoleHandlers, h)
+		}
+	}
+}
+
+// simulateConsoleMessage simulates a console message being emitted for testing.
+func (m *mockPage) simulateConsoleMessage(msg playwright.ConsoleMessage) {
+	for _, h := range m.consoleHandlers {
+		h(msg)
+	}
+}
+
+// mockConsoleMessage is a mock implementation of playwright.ConsoleMessage for testing.
+type mockConsoleMessage struct {
+	playwright.ConsoleMessage
+	msgType  string
+	text     string
+	location *playwright.ConsoleMessageLocation
+}
+
+func (m *mockConsoleMessage) Type() string {
+	return m.msgType
+}
+
+func (m *mockConsoleMessage) Text() string {
+	return m.text
+}
+
+func (m *mockConsoleMessage) Location() *playwright.ConsoleMessageLocation {
+	return m.location
 }
 
 // mockBrowserPool is a mock implementation of browser.BrowserPool for testing.
@@ -397,10 +433,10 @@ func TestGetSession(t *testing.T) {
 		retrieved, ok := mgr.GetSession("mcp-1", created.ID)
 
 		if !ok {
-			t.Error("GetSession should return true")
+			t.Fatal("GetSession should return true")
 		}
 		if retrieved == nil {
-			t.Error("GetSession should return session")
+			t.Fatal("GetSession should return session")
 		}
 		if retrieved.ID != created.ID {
 			t.Error("returned session ID mismatch")
@@ -895,6 +931,124 @@ func TestRemoveFromMCPIndex(t *testing.T) {
 		}
 		if !hasS1 || !hasS3 {
 			t.Error("remaining sessions should still be in slice")
+		}
+	})
+}
+
+func TestAttachConsoleHandler(t *testing.T) {
+	t.Run("attaches handler to page", func(t *testing.T) {
+		page := &mockPage{}
+		buffer := NewConsoleLogBuffer(10)
+
+		AttachConsoleHandler(page, buffer)
+
+		if len(page.consoleHandlers) != 1 {
+			t.Errorf("expected 1 console handler, got %d", len(page.consoleHandlers))
+		}
+	})
+
+	t.Run("handler captures console messages", func(t *testing.T) {
+		page := &mockPage{}
+		buffer := NewConsoleLogBuffer(10)
+
+		AttachConsoleHandler(page, buffer)
+
+		// Simulate a console message
+		msg := &mockConsoleMessage{
+			msgType: "log",
+			text:    "test message",
+			location: &playwright.ConsoleMessageLocation{
+				URL:          "https://example.com/app.js",
+				LineNumber:   42,
+				ColumnNumber: 15,
+			},
+		}
+
+		page.simulateConsoleMessage(msg)
+
+		entries := buffer.Get(0, "")
+		if len(entries) != 1 {
+			t.Fatalf("expected 1 entry, got %d", len(entries))
+		}
+
+		entry := entries[0]
+		if entry.Level != ConsoleLogLevelLog {
+			t.Errorf("expected level 'log', got '%s'", entry.Level)
+		}
+		if entry.Text != "test message" {
+			t.Errorf("expected text 'test message', got '%s'", entry.Text)
+		}
+		if entry.URL != "https://example.com/app.js" {
+			t.Errorf("expected URL 'https://example.com/app.js', got '%s'", entry.URL)
+		}
+		if entry.Line != 42 {
+			t.Errorf("expected line 42, got %d", entry.Line)
+		}
+		if entry.Column != 15 {
+			t.Errorf("expected column 15, got %d", entry.Column)
+		}
+	})
+
+	t.Run("handler captures different log levels", func(t *testing.T) {
+		page := &mockPage{}
+		buffer := NewConsoleLogBuffer(10)
+
+		AttachConsoleHandler(page, buffer)
+
+		// Simulate different log levels
+		levels := []string{"log", "warning", "error", "info", "debug"}
+		for _, lvl := range levels {
+			msg := &mockConsoleMessage{
+				msgType:  lvl,
+				text:     lvl + " message",
+				location: nil, // No location info
+			}
+			page.simulateConsoleMessage(msg)
+		}
+
+		entries := buffer.Get(0, "")
+		if len(entries) != 5 {
+			t.Fatalf("expected 5 entries, got %d", len(entries))
+		}
+
+		// Verify warning maps to warn
+		warnEntries := buffer.Get(0, ConsoleLogLevelWarn)
+		if len(warnEntries) != 1 {
+			t.Errorf("expected 1 warn entry, got %d", len(warnEntries))
+		}
+
+		errorEntries := buffer.Get(0, ConsoleLogLevelError)
+		if len(errorEntries) != 1 {
+			t.Errorf("expected 1 error entry, got %d", len(errorEntries))
+		}
+	})
+
+	t.Run("multiple handlers can be attached to same page", func(t *testing.T) {
+		page := &mockPage{}
+		buffer1 := NewConsoleLogBuffer(10)
+		buffer2 := NewConsoleLogBuffer(10)
+
+		AttachConsoleHandler(page, buffer1)
+		AttachConsoleHandler(page, buffer2)
+
+		if len(page.consoleHandlers) != 2 {
+			t.Errorf("expected 2 console handlers, got %d", len(page.consoleHandlers))
+		}
+
+		// Simulate a console message
+		msg := &mockConsoleMessage{
+			msgType:  "log",
+			text:     "broadcast message",
+			location: nil, // No location info
+		}
+		page.simulateConsoleMessage(msg)
+
+		// Both buffers should receive the message
+		if buffer1.Count() != 1 {
+			t.Errorf("buffer1 should have 1 entry, got %d", buffer1.Count())
+		}
+		if buffer2.Count() != 1 {
+			t.Errorf("buffer2 should have 1 entry, got %d", buffer2.Count())
 		}
 	})
 }

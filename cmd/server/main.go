@@ -83,6 +83,9 @@ func main() {
 	mcpServer.AddTool(tools.SessionListTool(), tools.SessionListHandler(sessionMgr))
 	mcpServer.AddTool(tools.SessionCloseTool(), tools.SessionCloseHandler(sessionMgr))
 
+	// Register inspection tools
+	mcpServer.AddTool(tools.GetConsoleLogsTool(), tools.GetConsoleLogsHandler(sessionMgr))
+
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 
 	// Create streamable HTTP server (implements http.Handler)
