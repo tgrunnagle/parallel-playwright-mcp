@@ -19,6 +19,12 @@ const (
 	defaultViewportHeight = 720
 )
 
+// MCP error codes for session operations.
+const (
+	// ErrCodeSessionNotFound indicates the requested session does not exist or is inaccessible.
+	ErrCodeSessionNotFound = -32001
+)
+
 // SessionCreateTool returns the session_create MCP tool definition.
 func SessionCreateTool() mcp.Tool {
 	return mcp.NewTool("session_create",
@@ -152,8 +158,8 @@ func SessionCloseHandler(mgr session.BrowserSessionManager) server.ToolHandlerFu
 
 		// Close the session (manager handles ownership validation and cleanup)
 		if err := mgr.CloseSession(ctx, mcpSessionID, sessionID); err != nil {
-			// Return error with descriptive message
-			return mcp.NewToolResultError(fmt.Sprintf("Session not found: %s", sessionID)), nil
+			// Return error with code and descriptive message
+			return mcp.NewToolResultError(fmt.Sprintf("[%d] Session not found: %s", ErrCodeSessionNotFound, sessionID)), nil
 		}
 
 		return mcp.NewToolResultText(fmt.Sprintf("Closed session: %s", sessionID)), nil
