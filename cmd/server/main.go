@@ -124,6 +124,12 @@ func run(ctx context.Context, emergencyCleanup **shutdown.EmergencyCleanup) erro
 	// Register inspection tools
 	mcpServer.AddTool(tools.GetConsoleLogsTool(), tools.GetConsoleLogsHandler(sessionMgr))
 
+	// Register navigation tools
+	mcpServer.AddTool(tools.NavigateTool(), tools.NavigateHandler(sessionMgr))
+	mcpServer.AddTool(tools.GoBackTool(), tools.GoBackHandler(sessionMgr))
+	mcpServer.AddTool(tools.GoForwardTool(), tools.GoForwardHandler(sessionMgr))
+	mcpServer.AddTool(tools.ReloadTool(), tools.ReloadHandler(sessionMgr))
+
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 
 	// Create streamable HTTP server (implements http.Handler)
