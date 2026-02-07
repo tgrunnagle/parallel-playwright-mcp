@@ -317,6 +317,18 @@ func TestGetConsoleLogsHandler(t *testing.T) {
 			expectError:    true,
 			expectedResult: "Console log buffer not initialized",
 		},
+		{
+			name: "invalid level returns error",
+			arguments: map[string]any{
+				"sessionId": "sess-test",
+				"level":     "invalid_level",
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				return createSessionWithLogs([]session.ConsoleLogEntry{}), true
+			},
+			expectError:    true,
+			expectedResult: "Invalid level: invalid_level",
+		},
 	}
 
 	for _, tt := range tests {

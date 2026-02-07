@@ -73,28 +73,6 @@ func (m *mockSessionManager) Cleanup(ctx context.Context, idleTimeout time.Durat
 	return 0, nil
 }
 
-// mockClientSession implements server.ClientSession interface for testing.
-// These methods are required for interface compliance with mcp-go's ClientSession.
-type mockClientSession struct {
-	sessionID string
-}
-
-// Initialize, Initialized, and NotificationChannel are required by server.ClientSession interface.
-func (m *mockClientSession) Initialize()                                        {}
-func (m *mockClientSession) Initialized() bool                                  { return true }
-func (m *mockClientSession) NotificationChannel() chan<- mcp.JSONRPCNotification { return nil }
-func (m *mockClientSession) SessionID() string                                  { return m.sessionID }
-
-// contextWithMCPSession creates a context with a mock MCP client session.
-func contextWithMCPSession(sessionID string) context.Context {
-	// Note: This is a simplified approach. In a real test, we would need to
-	// properly inject the session into the context using mcp-go's internal mechanism.
-	// For unit tests, we'll use context.Background() and the handler will get empty sessionID.
-	// The actual MCP session isolation is verified through the mockSessionManager which
-	// tracks the mcpSessionID parameter passed to each method.
-	return context.Background()
-}
-
 // TestSessionCreateTool tests the session_create tool definition.
 func TestSessionCreateTool(t *testing.T) {
 	tool := SessionCreateTool()

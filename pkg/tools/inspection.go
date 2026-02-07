@@ -64,11 +64,16 @@ func GetConsoleLogsHandler(mgr session.BrowserSessionManager) server.ToolHandler
 			}
 		}
 
-		// Extract level filter parameter
+		// Extract and validate level filter parameter
 		var level session.ConsoleLogLevel
 		levelStr := req.GetString("level", "")
 		if levelStr != "" {
-			level = session.ConsoleLogLevel(levelStr)
+			switch levelStr {
+			case "log", "info", "warn", "error", "debug":
+				level = session.ConsoleLogLevel(levelStr)
+			default:
+				return mcp.NewToolResultError(fmt.Sprintf("Invalid level: %s. Must be one of: log, info, warn, error, debug", levelStr)), nil
+			}
 		}
 
 		// Retrieve console logs from session buffer

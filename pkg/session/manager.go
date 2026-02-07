@@ -444,17 +444,18 @@ func attachConsoleHandler(page playwright.Page, buffer *ConsoleLogBuffer) {
 		// Map Playwright console message type to ConsoleLogLevel
 		level := MapConsoleType(msg.Type())
 
-		// Get source location
-		location := msg.Location()
-
 		// Create log entry with current timestamp
 		entry := ConsoleLogEntry{
 			Timestamp: time.Now(),
 			Level:     level,
 			Text:      msg.Text(),
-			URL:       location.URL,
-			Line:      location.LineNumber,
-			Column:    location.ColumnNumber,
+		}
+
+		// Get source location if available
+		if location := msg.Location(); location != nil {
+			entry.URL = location.URL
+			entry.Line = location.LineNumber
+			entry.Column = location.ColumnNumber
 		}
 
 		// Add to buffer (thread-safe)
