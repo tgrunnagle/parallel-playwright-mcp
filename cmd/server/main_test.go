@@ -227,3 +227,96 @@ func TestSignalHandling_ShutdownSequenceOrder(t *testing.T) {
 		t.Errorf("Shutdown returned error: %v", err)
 	}
 }
+
+// TestSetupSignalHandler_CancelsContextOnFirstSignal verifies that
+// setupSignalHandler cancels the context when the first signal is received.
+// This test is skipped on Windows because SIGINT cannot be sent programmatically.
+func TestSetupSignalHandler_CancelsContextOnFirstSignal(t *testing.T) {
+	// Skip on Windows - signals cannot be sent programmatically in the same way
+	if os.Getenv("OS") == "Windows_NT" {
+		t.Skip("Skipping signal test on Windows - SIGINT not supported programmatically")
+	}
+
+	// Reset signal handlers to avoid interference from previous tests
+	signal.Reset(syscall.SIGINT, syscall.SIGTERM)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Set up signal handler
+	setupSignalHandler(cancel)
+
+	// Give the goroutine time to set up the signal listener
+	time.Sleep(10 * time.Millisecond)
+
+	// Send SIGINT to the current process
+	p, err := os.FindProcess(os.Getpid())
+	if err != nil {
+		t.Fatalf("Failed to find current process: %v", err)
+	}
+
+	// Use a channel to verify context cancellation
+	done := make(chan struct{})
+	go func() {
+		<-ctx.Done()
+		close(done)
+	}()
+
+	// Send the signal
+	if err := p.Signal(syscall.SIGINT); err != nil {
+		t.Skipf("Signal not supported on this platform: %v", err)
+	}
+
+	// Wait for context cancellation with timeout
+	select {
+	case <-done:
+		// Success - context was cancelled
+	case <-time.After(2 * time.Second):
+		t.Error("Context was not cancelled after SIGINT")
+	}
+}
+
+// TestSetupSignalHandler_RegistersForSIGTERMAndSIGINT verifies that
+// the signal handler sets up notification for both SIGTERM and SIGINT.
+// This is a structural test that verifies the handler uses both signals.
+func TestSetupSignalHandler_RegistersForSIGTERMAndSIGINT(t *testing.T) {
+	// Skip on Windows - SIGTERM is not natively supported
+	if os.Getenv("OS") == "Windows_NT" {
+		t.Skip("Skipping signal test on Windows - SIGTERM not supported")
+	}
+
+	// Reset signal handlers to avoid interference
+	signal.Reset(syscall.SIGINT, syscall.SIGTERM)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Set up signal handler
+	setupSignalHandler(cancel)
+
+	// Give the goroutine time to set up
+	time.Sleep(10 * time.Millisecond)
+
+	// Test with SIGTERM
+	p, err := os.FindProcess(os.Getpid())
+	if err != nil {
+		t.Fatalf("Failed to find current process: %v", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		<-ctx.Done()
+		close(done)
+	}()
+
+	if err := p.Signal(syscall.SIGTERM); err != nil {
+		t.Skipf("SIGTERM not supported on this platform: %v", err)
+	}
+
+	select {
+	case <-done:
+		// Success - context was cancelled by SIGTERM
+	case <-time.After(2 * time.Second):
+		t.Error("Context was not cancelled after SIGTERM")
+	}
+}
