@@ -10,6 +10,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/tgrunnagle/parallel-playwright-mcp/pkg/browser"
+	"github.com/tgrunnagle/parallel-playwright-mcp/pkg/errors"
 	"github.com/tgrunnagle/parallel-playwright-mcp/pkg/session"
 )
 
@@ -17,12 +18,6 @@ import (
 const (
 	defaultViewportWidth  = 1280
 	defaultViewportHeight = 720
-)
-
-// MCP error codes for session operations.
-const (
-	// ErrCodeSessionNotFound indicates the requested session does not exist or is inaccessible.
-	ErrCodeSessionNotFound = -32001
 )
 
 // SessionCreateTool returns the session_create MCP tool definition.
@@ -159,7 +154,7 @@ func SessionCloseHandler(mgr session.BrowserSessionManager) server.ToolHandlerFu
 		// Close the session (manager handles ownership validation and cleanup)
 		if err := mgr.CloseSession(ctx, mcpSessionID, sessionID); err != nil {
 			// Return error with code and descriptive message
-			return mcp.NewToolResultError(fmt.Sprintf("[%d] Session not found: %s", ErrCodeSessionNotFound, sessionID)), nil
+			return mcp.NewToolResultError(fmt.Sprintf("[%d] Session not found: %s", errors.CodeSessionNotFound, sessionID)), nil
 		}
 
 		return mcp.NewToolResultText(fmt.Sprintf("Closed session: %s", sessionID)), nil

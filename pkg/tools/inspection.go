@@ -8,6 +8,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/tgrunnagle/parallel-playwright-mcp/pkg/errors"
 	"github.com/tgrunnagle/parallel-playwright-mcp/pkg/session"
 )
 
@@ -44,7 +45,7 @@ func GetConsoleLogsHandler(mgr session.BrowserSessionManager) server.ToolHandler
 		// Get session with ownership validation
 		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
 		if !ok {
-			return mcp.NewToolResultError(fmt.Sprintf("[%d] Session not found: %s", ErrCodeSessionNotFound, sessionID)), nil
+			return mcp.NewToolResultError(fmt.Sprintf("[%d] Session not found: %s", errors.CodeSessionNotFound, sessionID)), nil
 		}
 
 		// Check if ConsoleLogs buffer exists

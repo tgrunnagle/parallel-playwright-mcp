@@ -501,3 +501,544 @@ type resultError struct {
 func (e *resultError) Error() string {
 	return e.message
 }
+
+// TestNavigateToolIntegration tests the navigate tool with real browser instances.
+func TestNavigateToolIntegration(t *testing.T) {
+	pool, mgr := setupPoolAndManager(t)
+	defer pool.Stop(context.Background())
+
+	createHandler := SessionCreateHandler(mgr)
+	navigateHandler := NavigateHandler(mgr)
+	ctx := context.Background()
+
+	// Create a session for all tests
+	createReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "session_create",
+			Arguments: map[string]any{},
+		},
+	}
+	createResult, err := createHandler(ctx, createReq)
+	if err != nil {
+		t.Fatalf("Create handler returned error: %v", err)
+	}
+	if createResult.IsError {
+		skipIfPlaywrightNotInstalled(t, extractErrorFromResult(createResult))
+		t.Fatalf("Create failed: %s", extractTextContent(createResult.Content))
+	}
+	sessionID := strings.TrimPrefix(extractTextContent(createResult.Content), "Created session: ")
+	defer mgr.CloseSession(ctx, "", sessionID)
+
+	t.Run("navigates to valid URL", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "navigate",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"url":       "about:blank",
+				},
+			},
+		}
+
+		result, err := navigateHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+
+		text := extractTextContent(result.Content)
+		if !strings.Contains(text, "Navigated to") {
+			t.Errorf("Expected navigation success message, got: %s", text)
+		}
+	})
+
+	t.Run("navigates with waitUntil option", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "navigate",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"url":       "about:blank",
+					"waitUntil": "load",
+				},
+			},
+		}
+
+		result, err := navigateHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+	})
+
+	t.Run("returns error for invalid session", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "navigate",
+				Arguments: map[string]any{
+					"sessionId": "sess-invalid",
+					"url":       "about:blank",
+				},
+			},
+		}
+
+		result, err := navigateHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if !result.IsError {
+			t.Error("Expected error for invalid session")
+		}
+
+		text := extractTextContent(result.Content)
+		if !strings.Contains(text, "[-32001]") {
+			t.Errorf("Expected session not found error code, got: %s", text)
+		}
+	})
+}
+
+// TestGoBackToolIntegration tests the go_back tool with real browser instances.
+func TestGoBackToolIntegration(t *testing.T) {
+	pool, mgr := setupPoolAndManager(t)
+	defer pool.Stop(context.Background())
+
+	createHandler := SessionCreateHandler(mgr)
+	navigateHandler := NavigateHandler(mgr)
+	goBackHandler := GoBackHandler(mgr)
+	ctx := context.Background()
+
+	// Create a session
+	createReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "session_create",
+			Arguments: map[string]any{},
+		},
+	}
+	createResult, err := createHandler(ctx, createReq)
+	if err != nil {
+		t.Fatalf("Create handler returned error: %v", err)
+	}
+	if createResult.IsError {
+		skipIfPlaywrightNotInstalled(t, extractErrorFromResult(createResult))
+		t.Fatalf("Create failed: %s", extractTextContent(createResult.Content))
+	}
+	sessionID := strings.TrimPrefix(extractTextContent(createResult.Content), "Created session: ")
+	defer mgr.CloseSession(ctx, "", sessionID)
+
+	t.Run("returns no history message on fresh session", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "go_back",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+				},
+			},
+		}
+
+		result, err := goBackHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+
+		text := extractTextContent(result.Content)
+		if !strings.Contains(text, "No previous page") {
+			t.Errorf("Expected 'No previous page' message, got: %s", text)
+		}
+	})
+
+	t.Run("navigates back after page navigation", func(t *testing.T) {
+		// Navigate to first page
+		navReq := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "navigate",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"url":       "about:blank",
+				},
+			},
+		}
+		navigateHandler(ctx, navReq)
+
+		// Navigate to second page (using data URL for consistent testing)
+		navReq2 := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "navigate",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"url":       "data:text/html,<h1>Second Page</h1>",
+				},
+			},
+		}
+		navigateHandler(ctx, navReq2)
+
+		// Go back
+		backReq := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "go_back",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+				},
+			},
+		}
+
+		result, err := goBackHandler(ctx, backReq)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+
+		text := extractTextContent(result.Content)
+		if !strings.Contains(text, "Navigated back") {
+			t.Errorf("Expected 'Navigated back' message, got: %s", text)
+		}
+	})
+}
+
+// TestGoForwardToolIntegration tests the go_forward tool with real browser instances.
+func TestGoForwardToolIntegration(t *testing.T) {
+	pool, mgr := setupPoolAndManager(t)
+	defer pool.Stop(context.Background())
+
+	createHandler := SessionCreateHandler(mgr)
+	navigateHandler := NavigateHandler(mgr)
+	goBackHandler := GoBackHandler(mgr)
+	goForwardHandler := GoForwardHandler(mgr)
+	ctx := context.Background()
+
+	// Create a session
+	createReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "session_create",
+			Arguments: map[string]any{},
+		},
+	}
+	createResult, err := createHandler(ctx, createReq)
+	if err != nil {
+		t.Fatalf("Create handler returned error: %v", err)
+	}
+	if createResult.IsError {
+		skipIfPlaywrightNotInstalled(t, extractErrorFromResult(createResult))
+		t.Fatalf("Create failed: %s", extractTextContent(createResult.Content))
+	}
+	sessionID := strings.TrimPrefix(extractTextContent(createResult.Content), "Created session: ")
+	defer mgr.CloseSession(ctx, "", sessionID)
+
+	t.Run("returns no history message on fresh session", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "go_forward",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+				},
+			},
+		}
+
+		result, err := goForwardHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+
+		text := extractTextContent(result.Content)
+		if !strings.Contains(text, "No forward page") {
+			t.Errorf("Expected 'No forward page' message, got: %s", text)
+		}
+	})
+
+	t.Run("navigates forward after go_back", func(t *testing.T) {
+		// Navigate to first page
+		navReq := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "navigate",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"url":       "data:text/html,<h1>First Page</h1>",
+				},
+			},
+		}
+		navigateHandler(ctx, navReq)
+
+		// Navigate to second page
+		navReq2 := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "navigate",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"url":       "data:text/html,<h1>Second Page</h1>",
+				},
+			},
+		}
+		navigateHandler(ctx, navReq2)
+
+		// Go back
+		backReq := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "go_back",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+				},
+			},
+		}
+		goBackHandler(ctx, backReq)
+
+		// Go forward
+		forwardReq := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "go_forward",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+				},
+			},
+		}
+
+		result, err := goForwardHandler(ctx, forwardReq)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+
+		text := extractTextContent(result.Content)
+		if !strings.Contains(text, "Navigated forward") {
+			t.Errorf("Expected 'Navigated forward' message, got: %s", text)
+		}
+	})
+}
+
+// TestReloadToolIntegration tests the reload tool with real browser instances.
+func TestReloadToolIntegration(t *testing.T) {
+	pool, mgr := setupPoolAndManager(t)
+	defer pool.Stop(context.Background())
+
+	createHandler := SessionCreateHandler(mgr)
+	navigateHandler := NavigateHandler(mgr)
+	reloadHandler := ReloadHandler(mgr)
+	ctx := context.Background()
+
+	// Create a session
+	createReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "session_create",
+			Arguments: map[string]any{},
+		},
+	}
+	createResult, err := createHandler(ctx, createReq)
+	if err != nil {
+		t.Fatalf("Create handler returned error: %v", err)
+	}
+	if createResult.IsError {
+		skipIfPlaywrightNotInstalled(t, extractErrorFromResult(createResult))
+		t.Fatalf("Create failed: %s", extractTextContent(createResult.Content))
+	}
+	sessionID := strings.TrimPrefix(extractTextContent(createResult.Content), "Created session: ")
+	defer mgr.CloseSession(ctx, "", sessionID)
+
+	// Navigate to a page first
+	navReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "navigate",
+			Arguments: map[string]any{
+				"sessionId": sessionID,
+				"url":       "about:blank",
+			},
+		},
+	}
+	navigateHandler(ctx, navReq)
+
+	t.Run("reloads current page", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "reload",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+				},
+			},
+		}
+
+		result, err := reloadHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+
+		text := extractTextContent(result.Content)
+		if !strings.Contains(text, "Reloaded page") {
+			t.Errorf("Expected 'Reloaded page' message, got: %s", text)
+		}
+	})
+
+	t.Run("reloads with waitUntil option", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "reload",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"waitUntil": "domcontentloaded",
+				},
+			},
+		}
+
+		result, err := reloadHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+	})
+}
+
+// TestNavigationFlowIntegration tests a complete navigation workflow.
+func TestNavigationFlowIntegration(t *testing.T) {
+	pool, mgr := setupPoolAndManager(t)
+	defer pool.Stop(context.Background())
+
+	createHandler := SessionCreateHandler(mgr)
+	navigateHandler := NavigateHandler(mgr)
+	goBackHandler := GoBackHandler(mgr)
+	goForwardHandler := GoForwardHandler(mgr)
+	reloadHandler := ReloadHandler(mgr)
+	ctx := context.Background()
+
+	// Create a session
+	createReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "session_create",
+			Arguments: map[string]any{},
+		},
+	}
+	createResult, err := createHandler(ctx, createReq)
+	if err != nil {
+		t.Fatalf("Create handler returned error: %v", err)
+	}
+	if createResult.IsError {
+		skipIfPlaywrightNotInstalled(t, extractErrorFromResult(createResult))
+		t.Fatalf("Create failed: %s", extractTextContent(createResult.Content))
+	}
+	sessionID := strings.TrimPrefix(extractTextContent(createResult.Content), "Created session: ")
+	defer mgr.CloseSession(ctx, "", sessionID)
+
+	t.Run("full navigation flow: navigate -> navigate -> back -> forward -> reload", func(t *testing.T) {
+		// Step 1: Navigate to first page
+		navReq1 := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "navigate",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"url":       "data:text/html,<h1>Page 1</h1>",
+				},
+			},
+		}
+		result, _ := navigateHandler(ctx, navReq1)
+		if result.IsError {
+			t.Fatalf("Navigate to page 1 failed: %s", extractTextContent(result.Content))
+		}
+
+		// Step 2: Navigate to second page
+		navReq2 := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "navigate",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"url":       "data:text/html,<h1>Page 2</h1>",
+				},
+			},
+		}
+		result, _ = navigateHandler(ctx, navReq2)
+		if result.IsError {
+			t.Fatalf("Navigate to page 2 failed: %s", extractTextContent(result.Content))
+		}
+
+		// Step 3: Navigate to third page
+		navReq3 := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "navigate",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"url":       "data:text/html,<h1>Page 3</h1>",
+				},
+			},
+		}
+		result, _ = navigateHandler(ctx, navReq3)
+		if result.IsError {
+			t.Fatalf("Navigate to page 3 failed: %s", extractTextContent(result.Content))
+		}
+
+		// Step 4: Go back (should be at page 2)
+		backReq := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "go_back",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+				},
+			},
+		}
+		result, _ = goBackHandler(ctx, backReq)
+		if result.IsError {
+			t.Fatalf("Go back failed: %s", extractTextContent(result.Content))
+		}
+		text := extractTextContent(result.Content)
+		if !strings.Contains(text, "Navigated back") {
+			t.Errorf("Expected back navigation message, got: %s", text)
+		}
+
+		// Step 5: Go forward (should be at page 3)
+		forwardReq := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "go_forward",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+				},
+			},
+		}
+		result, _ = goForwardHandler(ctx, forwardReq)
+		if result.IsError {
+			t.Fatalf("Go forward failed: %s", extractTextContent(result.Content))
+		}
+		text = extractTextContent(result.Content)
+		if !strings.Contains(text, "Navigated forward") {
+			t.Errorf("Expected forward navigation message, got: %s", text)
+		}
+
+		// Step 6: Reload current page
+		reloadReq := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "reload",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+				},
+			},
+		}
+		result, _ = reloadHandler(ctx, reloadReq)
+		if result.IsError {
+			t.Fatalf("Reload failed: %s", extractTextContent(result.Content))
+		}
+		text = extractTextContent(result.Content)
+		if !strings.Contains(text, "Reloaded page") {
+			t.Errorf("Expected reload message, got: %s", text)
+		}
+	})
+}
