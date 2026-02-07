@@ -72,11 +72,16 @@ func main() {
 		os.Exit(exitCode)
 	}()
 
-	// Create root context with signal handling for graceful shutdown.
+	// Create root context with cancellation for graceful shutdown.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Set up signal handling for graceful shutdown.
+	// First SIGTERM/SIGINT triggers graceful shutdown via context cancellation.
+	// Second signal forces immediate termination.
 	// Note: On Windows, SIGTERM is not natively supported. Only SIGINT (Ctrl+C) will
 	// trigger graceful shutdown. On Unix-like systems, both SIGTERM and SIGINT work.
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
-	defer stop()
+	setupSignalHandler(cancel)
 
 	if err := run(ctx, &emergencyCleanup); err != nil && !errors.Is(err, context.Canceled) {
 		slog.Error("server error", "error", err)
@@ -166,11 +171,10 @@ func run(ctx context.Context, emergencyCleanup **shutdown.EmergencyCleanup) erro
 	// Wait for shutdown signal or error
 	select {
 	case <-ctx.Done():
-		slog.Info("shutdown signal received")
+		// Note: The actual signal type is logged by setupSignalHandler.
 		// Use context.Background() instead of the cancelled ctx to allow the shutdown
 		// sequence to complete without immediate cancellation. The coordinator has its
 		// own timeouts (TotalTimeout, DrainTimeout, PhaseTimeout) to prevent hanging.
-		// A second signal won't accelerate shutdown, but the timeouts ensure completion.
 		return shutdownCoord.Shutdown(context.Background())
 	case err := <-errChan:
 		if err != nil {
@@ -178,4 +182,24 @@ func run(ctx context.Context, emergencyCleanup **shutdown.EmergencyCleanup) erro
 		}
 		return nil
 	}
+}
+
+// setupSignalHandler configures OS signal handling for graceful shutdown.
+// First SIGTERM/SIGINT triggers graceful shutdown via context cancellation.
+// Second signal forces immediate termination with exit code 1.
+func setupSignalHandler(cancel context.CancelFunc) {
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
+
+	go func() {
+		// Wait for first signal
+		sig := <-sigChan
+		slog.Info("received shutdown signal, initiating graceful shutdown", "signal", sig)
+		cancel()
+
+		// Wait for second signal (force quit)
+		sig = <-sigChan
+		slog.Warn("received second signal, forcing immediate shutdown", "signal", sig)
+		os.Exit(1)
+	}()
 }
