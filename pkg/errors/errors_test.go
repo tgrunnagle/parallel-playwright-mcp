@@ -473,14 +473,14 @@ func TestMCPErrorInterfaceCompliance(t *testing.T) {
 	})
 
 	t.Run("all error types return valid ErrorData", func(t *testing.T) {
-		errors := []MCPError{
+		mcpErrors := []MCPError{
 			NewSessionNotFoundError("sess-123"),
 			NewElementNotFoundError("#btn", 5000),
 			NewTimeoutError("navigation", 30000),
 			NewNavigationError("https://example.com", "timeout"),
 		}
 
-		for _, err := range errors {
+		for _, err := range mcpErrors {
 			data := err.ErrorData()
 			if data == nil {
 				t.Errorf("%T.ErrorData() should not return nil", err)
@@ -492,7 +492,7 @@ func TestMCPErrorInterfaceCompliance(t *testing.T) {
 	})
 
 	t.Run("all error types return distinct error codes", func(t *testing.T) {
-		errors := []MCPError{
+		mcpErrors := []MCPError{
 			NewSessionNotFoundError("sess-123"),
 			NewElementNotFoundError("#btn", 5000),
 			NewTimeoutError("navigation", 30000),
@@ -500,7 +500,7 @@ func TestMCPErrorInterfaceCompliance(t *testing.T) {
 		}
 
 		codes := make(map[int]string)
-		for _, err := range errors {
+		for _, err := range mcpErrors {
 			code := err.ErrorCode()
 			if existing, exists := codes[code]; exists {
 				t.Errorf("error code %d used by both %s and %T", code, existing, err)
