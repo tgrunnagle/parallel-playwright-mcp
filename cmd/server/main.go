@@ -123,6 +123,7 @@ func run(ctx context.Context, emergencyCleanup **shutdown.EmergencyCleanup) erro
 
 	// Register inspection tools
 	mcpServer.AddTool(tools.GetConsoleLogsTool(), tools.GetConsoleLogsHandler(sessionMgr))
+	mcpServer.AddTool(tools.GetNetworkLogsTool(), tools.GetNetworkLogsHandler(sessionMgr))
 
 	// Register navigation tools
 	mcpServer.AddTool(tools.NavigateTool(), tools.NavigateHandler(sessionMgr))
