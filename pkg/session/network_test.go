@@ -4,6 +4,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/playwright-community/playwright-go"
 )
 
 func TestDefaultNetworkLogBufferSize(t *testing.T) {
@@ -753,6 +755,535 @@ func TestNetworkLogEntry_Fields(t *testing.T) {
 
 		if entries[0].Duration != longDuration {
 			t.Errorf("Duration = %v, want %v", entries[0].Duration, longDuration)
+		}
+	})
+}
+
+// mockNetworkPage is a mock implementation of playwright.Page for network event testing.
+type mockNetworkPage struct {
+	playwright.Page
+	requestHandlers       []func(playwright.Request)
+	responseHandlers      []func(playwright.Response)
+	requestFailedHandlers []func(playwright.Request)
+}
+
+func (m *mockNetworkPage) On(event string, handler interface{}) {
+	switch event {
+	case "request":
+		if h, ok := handler.(func(playwright.Request)); ok {
+			m.requestHandlers = append(m.requestHandlers, h)
+		}
+	case "response":
+		if h, ok := handler.(func(playwright.Response)); ok {
+			m.responseHandlers = append(m.responseHandlers, h)
+		}
+	case "requestfailed":
+		if h, ok := handler.(func(playwright.Request)); ok {
+			m.requestFailedHandlers = append(m.requestFailedHandlers, h)
+		}
+	}
+}
+
+func (m *mockNetworkPage) RemoveListener(event string, handler interface{}) {
+	// In a real implementation, we'd remove the specific handler
+	// For testing, we just clear all handlers of that type
+	switch event {
+	case "request":
+		m.requestHandlers = nil
+	case "response":
+		m.responseHandlers = nil
+	case "requestfailed":
+		m.requestFailedHandlers = nil
+	}
+}
+
+func (m *mockNetworkPage) simulateRequest(req playwright.Request) {
+	for _, h := range m.requestHandlers {
+		h(req)
+	}
+}
+
+func (m *mockNetworkPage) simulateResponse(resp playwright.Response) {
+	for _, h := range m.responseHandlers {
+		h(resp)
+	}
+}
+
+func (m *mockNetworkPage) simulateRequestFailed(req playwright.Request) {
+	for _, h := range m.requestFailedHandlers {
+		h(req)
+	}
+}
+
+// mockRequest is a mock implementation of playwright.Request.
+type mockRequest struct {
+	playwright.Request
+	method       string
+	url          string
+	postData     []byte
+	resourceType string
+}
+
+func (m *mockRequest) Method() string {
+	return m.method
+}
+
+func (m *mockRequest) URL() string {
+	return m.url
+}
+
+func (m *mockRequest) PostDataBuffer() ([]byte, error) {
+	return m.postData, nil
+}
+
+func (m *mockRequest) ResourceType() string {
+	return m.resourceType
+}
+
+// mockResponse is a mock implementation of playwright.Response.
+type mockResponse struct {
+	playwright.Response
+	request playwright.Request
+	url     string
+	status  int
+	headers []playwright.NameValue
+}
+
+func (m *mockResponse) Request() playwright.Request {
+	return m.request
+}
+
+func (m *mockResponse) URL() string {
+	return m.url
+}
+
+func (m *mockResponse) Status() int {
+	return m.status
+}
+
+func (m *mockResponse) HeadersArray() ([]playwright.NameValue, error) {
+	return m.headers, nil
+}
+
+func TestRequestKey(t *testing.T) {
+	t.Run("generates unique key for different methods to same URL", func(t *testing.T) {
+		req1 := &mockRequest{method: "GET", url: "https://example.com/api"}
+		req2 := &mockRequest{method: "POST", url: "https://example.com/api"}
+
+		key1 := requestKey(req1)
+		key2 := requestKey(req2)
+
+		if key1 == key2 {
+			t.Errorf("keys should be different: %s vs %s", key1, key2)
+		}
+	})
+
+	t.Run("generates same key for identical requests", func(t *testing.T) {
+		req1 := &mockRequest{method: "GET", url: "https://example.com/api"}
+		req2 := &mockRequest{method: "GET", url: "https://example.com/api"}
+
+		key1 := requestKey(req1)
+		key2 := requestKey(req2)
+
+		if key1 != key2 {
+			t.Errorf("keys should be same: %s vs %s", key1, key2)
+		}
+	})
+
+	t.Run("generates different keys for different URLs", func(t *testing.T) {
+		req1 := &mockRequest{method: "GET", url: "https://example.com/api/1"}
+		req2 := &mockRequest{method: "GET", url: "https://example.com/api/2"}
+
+		key1 := requestKey(req1)
+		key2 := requestKey(req2)
+
+		if key1 == key2 {
+			t.Errorf("keys should be different: %s vs %s", key1, key2)
+		}
+	})
+}
+
+func TestSetupNetworkLogging(t *testing.T) {
+	t.Run("returns non-nil cleanup function", func(t *testing.T) {
+		page := &mockNetworkPage{}
+		buffer := NewNetworkLogBuffer(10)
+
+		cleanup := SetupNetworkLogging(page, buffer)
+		if cleanup == nil {
+			t.Error("SetupNetworkLogging should return non-nil cleanup function")
+		}
+	})
+
+	t.Run("returns no-op cleanup function when buffer is nil", func(t *testing.T) {
+		page := &mockNetworkPage{}
+
+		cleanup := SetupNetworkLogging(page, nil)
+		if cleanup == nil {
+			t.Error("SetupNetworkLogging should return non-nil cleanup function even with nil buffer")
+		}
+		// Should not panic
+		cleanup()
+	})
+
+	t.Run("attaches request event handler", func(t *testing.T) {
+		page := &mockNetworkPage{}
+		buffer := NewNetworkLogBuffer(10)
+
+		SetupNetworkLogging(page, buffer)
+
+		if len(page.requestHandlers) != 1 {
+			t.Errorf("expected 1 request handler, got %d", len(page.requestHandlers))
+		}
+	})
+
+	t.Run("attaches response event handler", func(t *testing.T) {
+		page := &mockNetworkPage{}
+		buffer := NewNetworkLogBuffer(10)
+
+		SetupNetworkLogging(page, buffer)
+
+		if len(page.responseHandlers) != 1 {
+			t.Errorf("expected 1 response handler, got %d", len(page.responseHandlers))
+		}
+	})
+
+	t.Run("attaches requestfailed event handler", func(t *testing.T) {
+		page := &mockNetworkPage{}
+		buffer := NewNetworkLogBuffer(10)
+
+		SetupNetworkLogging(page, buffer)
+
+		if len(page.requestFailedHandlers) != 1 {
+			t.Errorf("expected 1 requestfailed handler, got %d", len(page.requestFailedHandlers))
+		}
+	})
+
+	t.Run("cleanup function removes event listeners", func(t *testing.T) {
+		page := &mockNetworkPage{}
+		buffer := NewNetworkLogBuffer(10)
+
+		cleanup := SetupNetworkLogging(page, buffer)
+		cleanup()
+
+		if len(page.requestHandlers) != 0 {
+			t.Errorf("expected 0 request handlers after cleanup, got %d", len(page.requestHandlers))
+		}
+		if len(page.responseHandlers) != 0 {
+			t.Errorf("expected 0 response handlers after cleanup, got %d", len(page.responseHandlers))
+		}
+		if len(page.requestFailedHandlers) != 0 {
+			t.Errorf("expected 0 requestfailed handlers after cleanup, got %d", len(page.requestFailedHandlers))
+		}
+	})
+
+	t.Run("captures successful request/response pair", func(t *testing.T) {
+		page := &mockNetworkPage{}
+		buffer := NewNetworkLogBuffer(10)
+
+		SetupNetworkLogging(page, buffer)
+
+		req := &mockRequest{
+			method:       "GET",
+			url:          "https://example.com/api",
+			postData:     nil,
+			resourceType: "document",
+		}
+
+		// Simulate request event
+		page.simulateRequest(req)
+
+		// Small delay to ensure duration is measurable
+		time.Sleep(10 * time.Millisecond)
+
+		// Simulate response event
+		resp := &mockResponse{
+			request: req,
+			url:     "https://example.com/api",
+			status:  200,
+			headers: []playwright.NameValue{{Name: "content-length", Value: "1024"}},
+		}
+		page.simulateResponse(resp)
+
+		// Verify entry was captured
+		entries := buffer.Entries(0)
+		if len(entries) != 1 {
+			t.Fatalf("expected 1 entry, got %d", len(entries))
+		}
+
+		entry := entries[0]
+		if entry.Method != "GET" {
+			t.Errorf("Method = %q, want GET", entry.Method)
+		}
+		if entry.URL != "https://example.com/api" {
+			t.Errorf("URL = %q, want https://example.com/api", entry.URL)
+		}
+		if entry.Status != 200 {
+			t.Errorf("Status = %d, want 200", entry.Status)
+		}
+		if entry.Duration == 0 {
+			t.Error("Duration should be non-zero for successful request")
+		}
+		if entry.ResponseSize != 1024 {
+			t.Errorf("ResponseSize = %d, want 1024", entry.ResponseSize)
+		}
+		if entry.ResourceType != "document" {
+			t.Errorf("ResourceType = %q, want document", entry.ResourceType)
+		}
+	})
+
+	t.Run("captures POST request with body size", func(t *testing.T) {
+		page := &mockNetworkPage{}
+		buffer := NewNetworkLogBuffer(10)
+
+		SetupNetworkLogging(page, buffer)
+
+		postData := []byte(`{"name": "test"}`)
+		req := &mockRequest{
+			method:       "POST",
+			url:          "https://example.com/api",
+			postData:     postData,
+			resourceType: "xhr",
+		}
+
+		page.simulateRequest(req)
+
+		resp := &mockResponse{
+			request: req,
+			url:     "https://example.com/api",
+			status:  201,
+			headers: []playwright.NameValue{{Name: "content-length", Value: "256"}},
+		}
+		page.simulateResponse(resp)
+
+		entries := buffer.Entries(0)
+		if len(entries) != 1 {
+			t.Fatalf("expected 1 entry, got %d", len(entries))
+		}
+
+		entry := entries[0]
+		if entry.Method != "POST" {
+			t.Errorf("Method = %q, want POST", entry.Method)
+		}
+		if entry.RequestSize != int64(len(postData)) {
+			t.Errorf("RequestSize = %d, want %d", entry.RequestSize, len(postData))
+		}
+		if entry.Status != 201 {
+			t.Errorf("Status = %d, want 201", entry.Status)
+		}
+		if entry.ResourceType != "xhr" {
+			t.Errorf("ResourceType = %q, want xhr", entry.ResourceType)
+		}
+	})
+
+	t.Run("captures failed request with status 0", func(t *testing.T) {
+		page := &mockNetworkPage{}
+		buffer := NewNetworkLogBuffer(10)
+
+		SetupNetworkLogging(page, buffer)
+
+		req := &mockRequest{
+			method:       "GET",
+			url:          "https://unreachable.example.com",
+			resourceType: "document",
+		}
+
+		page.simulateRequest(req)
+		page.simulateRequestFailed(req)
+
+		entries := buffer.Entries(0)
+		if len(entries) != 1 {
+			t.Fatalf("expected 1 entry, got %d", len(entries))
+		}
+
+		entry := entries[0]
+		if entry.Status != 0 {
+			t.Errorf("Status = %d, want 0 for failed request", entry.Status)
+		}
+		if entry.Duration != 0 {
+			t.Errorf("Duration = %v, want 0 for failed request", entry.Duration)
+		}
+		if entry.URL != "https://unreachable.example.com" {
+			t.Errorf("URL = %q, want https://unreachable.example.com", entry.URL)
+		}
+		if entry.ResourceType != "document" {
+			t.Errorf("ResourceType = %q, want document", entry.ResourceType)
+		}
+	})
+
+	t.Run("handles response without tracked request", func(t *testing.T) {
+		page := &mockNetworkPage{}
+		buffer := NewNetworkLogBuffer(10)
+
+		SetupNetworkLogging(page, buffer)
+
+		req := &mockRequest{
+			method:       "GET",
+			url:          "https://example.com/untracked",
+			resourceType: "script",
+		}
+
+		// Simulate response without prior request event (late attachment)
+		resp := &mockResponse{
+			request: req,
+			url:     "https://example.com/untracked",
+			status:  200,
+			headers: []playwright.NameValue{},
+		}
+		page.simulateResponse(resp)
+
+		entries := buffer.Entries(0)
+		if len(entries) != 1 {
+			t.Fatalf("expected 1 entry, got %d", len(entries))
+		}
+
+		entry := entries[0]
+		if entry.Status != 200 {
+			t.Errorf("Status = %d, want 200", entry.Status)
+		}
+		// Duration will be 0 since no tracked request
+		if entry.Duration != 0 {
+			t.Errorf("Duration = %v, want 0 for untracked request", entry.Duration)
+		}
+	})
+
+	t.Run("handles multiple concurrent requests", func(t *testing.T) {
+		page := &mockNetworkPage{}
+		buffer := NewNetworkLogBuffer(100)
+
+		SetupNetworkLogging(page, buffer)
+
+		// Simulate multiple requests starting
+		reqs := []*mockRequest{
+			{method: "GET", url: "https://example.com/1", resourceType: "script"},
+			{method: "GET", url: "https://example.com/2", resourceType: "image"},
+			{method: "POST", url: "https://example.com/3", resourceType: "xhr"},
+		}
+
+		for _, req := range reqs {
+			page.simulateRequest(req)
+		}
+
+		// Simulate responses in different order
+		for i := len(reqs) - 1; i >= 0; i-- {
+			resp := &mockResponse{
+				request: reqs[i],
+				url:     reqs[i].url,
+				status:  200,
+				headers: []playwright.NameValue{},
+			}
+			page.simulateResponse(resp)
+		}
+
+		entries := buffer.Entries(0)
+		if len(entries) != 3 {
+			t.Fatalf("expected 3 entries, got %d", len(entries))
+		}
+	})
+
+	t.Run("concurrent access is thread-safe", func(t *testing.T) {
+		page := &mockNetworkPage{}
+		buffer := NewNetworkLogBuffer(1000)
+
+		SetupNetworkLogging(page, buffer)
+
+		var wg sync.WaitGroup
+		requestCount := 100
+
+		// Launch multiple goroutines simulating requests
+		for i := 0; i < requestCount; i++ {
+			wg.Add(1)
+			go func(idx int) {
+				defer wg.Done()
+
+				req := &mockRequest{
+					method:       "GET",
+					url:          "https://example.com/" + string(rune('0'+idx%10)),
+					resourceType: "document",
+				}
+
+				page.simulateRequest(req)
+
+				resp := &mockResponse{
+					request: req,
+					url:     req.url,
+					status:  200,
+					headers: []playwright.NameValue{},
+				}
+				page.simulateResponse(resp)
+			}(i)
+		}
+
+		wg.Wait()
+
+		// All entries should have been captured
+		if buffer.Len() != requestCount {
+			t.Errorf("expected %d entries, got %d", requestCount, buffer.Len())
+		}
+	})
+
+	t.Run("response without Content-Length header", func(t *testing.T) {
+		page := &mockNetworkPage{}
+		buffer := NewNetworkLogBuffer(10)
+
+		SetupNetworkLogging(page, buffer)
+
+		req := &mockRequest{
+			method:       "GET",
+			url:          "https://example.com/api",
+			resourceType: "document",
+		}
+
+		page.simulateRequest(req)
+
+		resp := &mockResponse{
+			request: req,
+			url:     "https://example.com/api",
+			status:  200,
+			headers: []playwright.NameValue{}, // No Content-Length
+		}
+		page.simulateResponse(resp)
+
+		entries := buffer.Entries(0)
+		if len(entries) != 1 {
+			t.Fatalf("expected 1 entry, got %d", len(entries))
+		}
+
+		if entries[0].ResponseSize != 0 {
+			t.Errorf("ResponseSize = %d, want 0 when no Content-Length", entries[0].ResponseSize)
+		}
+	})
+
+	t.Run("no entries added after cleanup", func(t *testing.T) {
+		page := &mockNetworkPage{}
+		buffer := NewNetworkLogBuffer(10)
+
+		cleanup := SetupNetworkLogging(page, buffer)
+
+		// Add one entry before cleanup
+		req := &mockRequest{method: "GET", url: "https://example.com/before", resourceType: "document"}
+		page.simulateRequest(req)
+		resp := &mockResponse{request: req, url: req.url, status: 200, headers: []playwright.NameValue{}}
+		page.simulateResponse(resp)
+
+		if buffer.Len() != 1 {
+			t.Fatalf("expected 1 entry before cleanup, got %d", buffer.Len())
+		}
+
+		// Call cleanup
+		cleanup()
+
+		// Handlers are cleared, so new events won't be processed by our handlers
+		// (Since we cleared the handlers in RemoveListener mock)
+		beforeCount := buffer.Len()
+
+		// Try to add another entry after cleanup
+		req2 := &mockRequest{method: "GET", url: "https://example.com/after", resourceType: "document"}
+		page.simulateRequest(req2)
+		resp2 := &mockResponse{request: req2, url: req2.url, status: 200, headers: []playwright.NameValue{}}
+		page.simulateResponse(resp2)
+
+		if buffer.Len() != beforeCount {
+			t.Errorf("buffer length changed after cleanup: was %d, now %d", beforeCount, buffer.Len())
 		}
 	})
 }

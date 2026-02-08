@@ -1,8 +1,11 @@
 package session
 
 import (
+	"strconv"
 	"sync"
 	"time"
+
+	"github.com/playwright-community/playwright-go"
 )
 
 // DefaultNetworkLogBufferSize is the default maximum number of network log entries.
@@ -24,6 +27,8 @@ type NetworkLogEntry struct {
 	RequestSize int64 `json:"requestSize"`
 	// ResponseSize is the size of the response body in bytes.
 	ResponseSize int64 `json:"responseSize"`
+	// ResourceType is the type of resource (document, script, image, etc.).
+	ResourceType string `json:"resourceType,omitempty"`
 }
 
 // NetworkLogBuffer is a thread-safe circular buffer for network log entries.
@@ -106,4 +111,159 @@ func (b *NetworkLogBuffer) Len() int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.count
+}
+
+// pendingRequest tracks an in-flight HTTP request for duration calculation.
+type pendingRequest struct {
+	StartTime    time.Time
+	Method       string
+	URL          string
+	RequestSize  int64
+	ResourceType string
+}
+
+// requestKey generates a unique key for correlating requests with responses.
+// Uses URL + method combination to handle concurrent requests to same endpoint.
+func requestKey(request playwright.Request) string {
+	return request.Method() + "|" + request.URL()
+}
+
+// SetupNetworkLogging attaches request/response event listeners to a page
+// and routes captured network activity to the provided buffer.
+// Returns a cleanup function that removes the event listeners.
+func SetupNetworkLogging(page playwright.Page, buffer *NetworkLogBuffer) func() {
+	if buffer == nil {
+		return func() {} // No-op if buffer is nil
+	}
+
+	pending := make(map[string]*pendingRequest)
+	var mu sync.Mutex
+
+	// Handler for request events
+	requestHandler := func(request playwright.Request) {
+		key := requestKey(request)
+
+		var requestSize int64
+		if postData, err := request.PostDataBuffer(); err == nil && postData != nil {
+			requestSize = int64(len(postData))
+		}
+
+		mu.Lock()
+		pending[key] = &pendingRequest{
+			StartTime:    time.Now(),
+			Method:       request.Method(),
+			URL:          request.URL(),
+			RequestSize:  requestSize,
+			ResourceType: request.ResourceType(),
+		}
+		mu.Unlock()
+	}
+
+	// Handler for response events
+	responseHandler := func(response playwright.Response) {
+		request := response.Request()
+		key := requestKey(request)
+
+		mu.Lock()
+		pendingReq, found := pending[key]
+		if found {
+			delete(pending, key)
+		}
+		mu.Unlock()
+
+		// Calculate duration if we have the matching request
+		var duration time.Duration
+		var requestSize int64
+		var resourceType string
+		var timestamp time.Time
+
+		if found {
+			duration = time.Since(pendingReq.StartTime)
+			requestSize = pendingReq.RequestSize
+			resourceType = pendingReq.ResourceType
+			timestamp = pendingReq.StartTime
+		} else {
+			// Request wasn't tracked, use current time and what we can get from response
+			resourceType = request.ResourceType()
+			timestamp = time.Now()
+		}
+
+		// Get response size from Content-Length header
+		var responseSize int64
+		headers, err := response.HeadersArray()
+		if err == nil {
+			for _, h := range headers {
+				if h.Name == "content-length" {
+					if size, parseErr := strconv.ParseInt(h.Value, 10, 64); parseErr == nil {
+						responseSize = size
+					}
+					break
+				}
+			}
+		}
+
+		entry := NetworkLogEntry{
+			Timestamp:    timestamp,
+			Method:       request.Method(),
+			URL:          response.URL(),
+			Status:       response.Status(),
+			Duration:     duration,
+			RequestSize:  requestSize,
+			ResponseSize: responseSize,
+			ResourceType: resourceType,
+		}
+
+		buffer.Add(entry)
+	}
+
+	// Handler for failed requests (no response received)
+	requestFailedHandler := func(request playwright.Request) {
+		key := requestKey(request)
+
+		mu.Lock()
+		pendingReq, found := pending[key]
+		if found {
+			delete(pending, key)
+		}
+		mu.Unlock()
+
+		// Record failed request with status 0
+		var requestSize int64
+		var resourceType string
+		var timestamp time.Time
+
+		if found {
+			requestSize = pendingReq.RequestSize
+			resourceType = pendingReq.ResourceType
+			timestamp = pendingReq.StartTime
+		} else {
+			resourceType = request.ResourceType()
+			timestamp = time.Now()
+		}
+
+		entry := NetworkLogEntry{
+			Timestamp:    timestamp,
+			Method:       request.Method(),
+			URL:          request.URL(),
+			Status:       0, // No response received
+			Duration:     0,
+			RequestSize:  requestSize,
+			ResponseSize: 0,
+			ResourceType: resourceType,
+		}
+
+		buffer.Add(entry)
+	}
+
+	// Attach event listeners
+	page.On("request", requestHandler)
+	page.On("response", responseHandler)
+	page.On("requestfailed", requestFailedHandler)
+
+	// Return cleanup function
+	return func() {
+		page.RemoveListener("request", requestHandler)
+		page.RemoveListener("response", responseHandler)
+		page.RemoveListener("requestfailed", requestFailedHandler)
+	}
 }
