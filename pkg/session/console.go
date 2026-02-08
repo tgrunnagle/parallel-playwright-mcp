@@ -44,7 +44,7 @@ type ConsoleLogEntry struct {
 // ConsoleLogBuffer is a thread-safe circular buffer for console log entries.
 // It stores up to maxSize entries, evicting the oldest when capacity is reached.
 type ConsoleLogBuffer struct {
-	mu      sync.Mutex
+	mu      sync.RWMutex
 	entries []ConsoleLogEntry
 	maxSize int
 	head    int // Index where next entry will be written
@@ -82,8 +82,8 @@ func (b *ConsoleLogBuffer) Add(entry ConsoleLogEntry) {
 // If level is non-empty, only entries matching that level are returned.
 // If limit is <= 0, all matching entries are returned.
 func (b *ConsoleLogBuffer) Get(limit int, level ConsoleLogLevel) []ConsoleLogEntry {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 
 	if b.count == 0 {
 		return []ConsoleLogEntry{}
@@ -123,10 +123,10 @@ func (b *ConsoleLogBuffer) Clear() {
 	// Note: We don't need to zero out entries slice, just reset indices
 }
 
-// Count returns the current number of entries in the buffer.
-func (b *ConsoleLogBuffer) Count() int {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+// Len returns the current number of entries in the buffer.
+func (b *ConsoleLogBuffer) Len() int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 	return b.count
 }
 
