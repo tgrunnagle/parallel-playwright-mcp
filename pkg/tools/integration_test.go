@@ -2438,3 +2438,472 @@ func TestPressKeyToolIntegration(t *testing.T) {
 		}
 	})
 }
+
+// TestGetNetworkLogsToolIntegration tests the get_network_logs tool with real browser instances.
+func TestGetNetworkLogsToolIntegration(t *testing.T) {
+	pool, mgr := setupPoolAndManager(t)
+	defer pool.Stop(context.Background())
+
+	createHandler := SessionCreateHandler(mgr)
+	navigateHandler := NavigateHandler(mgr)
+	networkLogsHandler := GetNetworkLogsHandler(mgr)
+	closeHandler := SessionCloseHandler(mgr)
+	ctx := context.Background()
+
+	// Create a session
+	createReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "session_create",
+			Arguments: map[string]any{},
+		},
+	}
+	createResult, err := createHandler(ctx, createReq)
+	if err != nil {
+		t.Fatalf("Create handler returned error: %v", err)
+	}
+	if createResult.IsError {
+		skipIfPlaywrightNotInstalled(t, extractErrorFromResult(createResult))
+		t.Fatalf("Create failed: %s", extractTextContent(createResult.Content))
+	}
+	sessionID := strings.TrimPrefix(extractTextContent(createResult.Content), "Created session: ")
+	defer mgr.CloseSession(ctx, "", sessionID)
+
+	t.Run("retrieves network logs after navigation", func(t *testing.T) {
+		// Navigate to a data URL - this should generate at least one network request
+		navReq := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "navigate",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"url":       "data:text/html,<html><body><h1>Test Page</h1></body></html>",
+				},
+			},
+		}
+		navResult, err := navigateHandler(ctx, navReq)
+		if err != nil || navResult.IsError {
+			t.Fatalf("Navigation failed: %v", extractTextContent(navResult.Content))
+		}
+
+		// Get network logs
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "get_network_logs",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+				},
+			},
+		}
+
+		result, err := networkLogsHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+
+		text := extractTextContent(result.Content)
+		var logs []networkLogOutput
+		if err := json.Unmarshal([]byte(text), &logs); err != nil {
+			t.Fatalf("Failed to parse network logs: %v", err)
+		}
+
+		// Data URLs may or may not generate network entries depending on the browser,
+		// but the response should be valid JSON array
+		t.Logf("Retrieved %d network log entries", len(logs))
+	})
+
+	t.Run("retrieves network logs after multiple navigations", func(t *testing.T) {
+		// Navigate to first page
+		navReq1 := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "navigate",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"url":       "data:text/html,<html><body><h1>Page 1</h1></body></html>",
+				},
+			},
+		}
+		navigateHandler(ctx, navReq1)
+
+		// Navigate to second page
+		navReq2 := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "navigate",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"url":       "data:text/html,<html><body><h1>Page 2</h1></body></html>",
+				},
+			},
+		}
+		navigateHandler(ctx, navReq2)
+
+		// Get network logs
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "get_network_logs",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+				},
+			},
+		}
+
+		result, err := networkLogsHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+
+		text := extractTextContent(result.Content)
+		var logs []networkLogOutput
+		if err := json.Unmarshal([]byte(text), &logs); err != nil {
+			t.Fatalf("Failed to parse network logs: %v", err)
+		}
+
+		// Response should be valid JSON array
+		t.Logf("Retrieved %d network log entries after multiple navigations", len(logs))
+	})
+
+	t.Run("respects limit parameter", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "get_network_logs",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"limit":     float64(1),
+				},
+			},
+		}
+
+		result, err := networkLogsHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+
+		text := extractTextContent(result.Content)
+		var logs []networkLogOutput
+		if err := json.Unmarshal([]byte(text), &logs); err != nil {
+			t.Fatalf("Failed to parse network logs: %v", err)
+		}
+
+		if len(logs) > 1 {
+			t.Errorf("Expected at most 1 entry with limit=1, got %d", len(logs))
+		}
+	})
+
+	t.Run("filters by URL pattern", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "get_network_logs",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"filter": map[string]any{
+						"urlPattern": "data:",
+					},
+				},
+			},
+		}
+
+		result, err := networkLogsHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+
+		text := extractTextContent(result.Content)
+		var logs []networkLogOutput
+		if err := json.Unmarshal([]byte(text), &logs); err != nil {
+			t.Fatalf("Failed to parse network logs: %v", err)
+		}
+
+		// All returned entries should match the URL pattern
+		for _, log := range logs {
+			if !strings.Contains(log.URL, "data:") {
+				t.Errorf("URL pattern filter failed: %s doesn't match 'data:'", log.URL)
+			}
+		}
+	})
+
+	t.Run("filters by status code", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "get_network_logs",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"filter": map[string]any{
+						"statusMin": float64(200),
+						"statusMax": float64(299),
+					},
+				},
+			},
+		}
+
+		result, err := networkLogsHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+
+		text := extractTextContent(result.Content)
+		var logs []networkLogOutput
+		if err := json.Unmarshal([]byte(text), &logs); err != nil {
+			t.Fatalf("Failed to parse network logs: %v", err)
+		}
+
+		// All returned entries should have 2xx status
+		for _, log := range logs {
+			if log.Status < 200 || log.Status > 299 {
+				t.Errorf("Status filter failed: status %d not in range 200-299", log.Status)
+			}
+		}
+	})
+
+	t.Run("returns error for invalid regex pattern", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "get_network_logs",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"filter": map[string]any{
+						"urlPattern": "[invalid(",
+					},
+				},
+			},
+		}
+
+		result, err := networkLogsHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if !result.IsError {
+			t.Error("Expected error for invalid regex pattern")
+		}
+
+		text := extractTextContent(result.Content)
+		if !strings.Contains(text, "invalid") && !strings.Contains(text, "regex") {
+			t.Errorf("Expected invalid regex error message, got: %s", text)
+		}
+	})
+
+	t.Run("returns error for non-existent session", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "get_network_logs",
+				Arguments: map[string]any{
+					"sessionId": "sess-non-existent",
+				},
+			},
+		}
+
+		result, err := networkLogsHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if !result.IsError {
+			t.Error("Expected error for non-existent session")
+		}
+
+		text := extractTextContent(result.Content)
+		if !strings.Contains(text, "[-32001]") {
+			t.Errorf("Expected session not found error code, got: %s", text)
+		}
+	})
+
+	t.Run("returns error after session is closed", func(t *testing.T) {
+		// Create a new session specifically for this test
+		createReq2 := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name:      "session_create",
+				Arguments: map[string]any{},
+			},
+		}
+		createResult2, err := createHandler(ctx, createReq2)
+		if err != nil || createResult2.IsError {
+			t.Fatalf("Create second session failed")
+		}
+		sessionID2 := strings.TrimPrefix(extractTextContent(createResult2.Content), "Created session: ")
+
+		// Close the session
+		closeReq := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "session_close",
+				Arguments: map[string]any{
+					"sessionId": sessionID2,
+				},
+			},
+		}
+		closeResult, err := closeHandler(ctx, closeReq)
+		if err != nil || closeResult.IsError {
+			t.Fatalf("Close session failed")
+		}
+
+		// Try to get network logs from closed session
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "get_network_logs",
+				Arguments: map[string]any{
+					"sessionId": sessionID2,
+				},
+			},
+		}
+
+		result, err := networkLogsHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if !result.IsError {
+			t.Error("Expected error for closed session")
+		}
+
+		text := extractTextContent(result.Content)
+		if !strings.Contains(text, "[-32001]") && !strings.Contains(text, "not found") {
+			t.Errorf("Expected session not found error, got: %s", text)
+		}
+	})
+}
+
+// TestGetNetworkLogsWithRealNetworkTrafficIntegration tests network logging with actual HTTP requests.
+func TestGetNetworkLogsWithRealNetworkTrafficIntegration(t *testing.T) {
+	pool, mgr := setupPoolAndManager(t)
+	defer pool.Stop(context.Background())
+
+	createHandler := SessionCreateHandler(mgr)
+	navigateHandler := NavigateHandler(mgr)
+	networkLogsHandler := GetNetworkLogsHandler(mgr)
+	ctx := context.Background()
+
+	// Create a session
+	createReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "session_create",
+			Arguments: map[string]any{},
+		},
+	}
+	createResult, err := createHandler(ctx, createReq)
+	if err != nil {
+		t.Fatalf("Create handler returned error: %v", err)
+	}
+	if createResult.IsError {
+		skipIfPlaywrightNotInstalled(t, extractErrorFromResult(createResult))
+		t.Fatalf("Create failed: %s", extractTextContent(createResult.Content))
+	}
+	sessionID := strings.TrimPrefix(extractTextContent(createResult.Content), "Created session: ")
+	defer mgr.CloseSession(ctx, "", sessionID)
+
+	t.Run("captures network requests from page with inline script", func(t *testing.T) {
+		// Navigate to a page that makes a fetch request (will fail but still captured)
+		testPage := `data:text/html,<html><body><script>
+			fetch('https://example.com/api/test').catch(() => {});
+		</script></body></html>`
+
+		navReq := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "navigate",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"url":       testPage,
+					"waitUntil": "networkidle",
+				},
+			},
+		}
+		navResult, err := navigateHandler(ctx, navReq)
+		if err != nil || navResult.IsError {
+			t.Logf("Navigation result: %v", extractTextContent(navResult.Content))
+		}
+
+		// Get network logs
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "get_network_logs",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+				},
+			},
+		}
+
+		result, err := networkLogsHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+
+		text := extractTextContent(result.Content)
+		var logs []networkLogOutput
+		if err := json.Unmarshal([]byte(text), &logs); err != nil {
+			t.Fatalf("Failed to parse network logs: %v", err)
+		}
+
+		t.Logf("Captured %d network requests", len(logs))
+
+		// Log details for debugging
+		for i, log := range logs {
+			t.Logf("  [%d] %s %s -> %d", i, log.Method, log.URL, log.Status)
+		}
+	})
+
+	t.Run("verifies network log entry format", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "get_network_logs",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+				},
+			},
+		}
+
+		result, err := networkLogsHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+
+		text := extractTextContent(result.Content)
+		var logs []networkLogOutput
+		if err := json.Unmarshal([]byte(text), &logs); err != nil {
+			t.Fatalf("Failed to parse network logs: %v", err)
+		}
+
+		// If there are entries, verify their format
+		for _, log := range logs {
+			// Timestamp should be in ISO 8601 format
+			if log.Timestamp == "" {
+				t.Error("Expected non-empty timestamp")
+			}
+			// Method should be a valid HTTP method
+			if log.Method == "" {
+				t.Error("Expected non-empty method")
+			}
+			// URL should be non-empty
+			if log.URL == "" {
+				t.Error("Expected non-empty URL")
+			}
+			// DurationMs should be non-negative
+			if log.DurationMs < 0 {
+				t.Errorf("Expected non-negative duration, got %d", log.DurationMs)
+			}
+		}
+	})
+}

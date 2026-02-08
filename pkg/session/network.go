@@ -36,11 +36,11 @@ type NetworkLogEntry struct {
 // It maintains a fixed maximum size, automatically discarding oldest entries
 // when capacity is reached.
 type NetworkLogBuffer struct {
-	entries    []NetworkLogEntry
-	maxSize    int
-	head int // Index where next entry will be written
-	count      int // Number of valid entries (0 to maxSize)
-	mu         sync.RWMutex
+	entries []NetworkLogEntry
+	maxSize int
+	head    int // Index where next entry will be written
+	count   int // Number of valid entries (0 to maxSize)
+	mu      sync.RWMutex
 }
 
 // NewNetworkLogBuffer creates a new NetworkLogBuffer with the specified maximum size.
