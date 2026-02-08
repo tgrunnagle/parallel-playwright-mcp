@@ -80,15 +80,15 @@ func (m *mockBrowserPool) wasStopCalled() bool {
 
 // mockSessionManager implements session.BrowserSessionManager for testing
 type mockSessionManager struct {
-	mu                     sync.Mutex
-	closeAllForMCPCalled   map[string]bool
-	closeAllForMCPErr      error
-	closeAllForMCPDelay    time.Duration
-	closeAllCalled         bool
-	closeAllErr            error
-	createSessionErr       error
-	closeSessionErr        error
-	sessions               map[string]*session.BrowserSession
+	mu                   sync.Mutex
+	closeAllForMCPCalled map[string]bool
+	closeAllForMCPErr    error
+	closeAllForMCPDelay  time.Duration
+	closeAllCalled       bool
+	closeAllErr          error
+	createSessionErr     error
+	closeSessionErr      error
+	sessions             map[string]*session.BrowserSession
 }
 
 func newMockSessionManager() *mockSessionManager {
@@ -355,7 +355,7 @@ func (m *orderedMockSessionManager) GetSession(_, _ string) (*session.BrowserSes
 	return nil, false
 }
 func (m *orderedMockSessionManager) CloseSession(_ context.Context, _, _ string) error { return nil }
-func (m *orderedMockSessionManager) ListSessions(_ string) []*session.SessionInfo        { return nil }
+func (m *orderedMockSessionManager) ListSessions(_ string) []*session.SessionInfo      { return nil }
 func (m *orderedMockSessionManager) CloseAllForMCP(_ context.Context, _ string) error {
 	return nil
 }

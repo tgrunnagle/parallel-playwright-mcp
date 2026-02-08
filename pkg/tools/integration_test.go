@@ -1042,3 +1042,787 @@ func TestNavigationFlowIntegration(t *testing.T) {
 		}
 	})
 }
+
+// TestScreenshotToolIntegration tests the screenshot tool with real browser instances.
+func TestScreenshotToolIntegration(t *testing.T) {
+	pool, mgr := setupPoolAndManager(t)
+	defer pool.Stop(context.Background())
+
+	createHandler := SessionCreateHandler(mgr)
+	navigateHandler := NavigateHandler(mgr)
+	screenshotHandler := ScreenshotHandler(mgr)
+	ctx := context.Background()
+
+	// Create a session
+	createReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "session_create",
+			Arguments: map[string]any{},
+		},
+	}
+	createResult, err := createHandler(ctx, createReq)
+	if err != nil {
+		t.Fatalf("Create handler returned error: %v", err)
+	}
+	if createResult.IsError {
+		skipIfPlaywrightNotInstalled(t, extractErrorFromResult(createResult))
+		t.Fatalf("Create failed: %s", extractTextContent(createResult.Content))
+	}
+	sessionID := strings.TrimPrefix(extractTextContent(createResult.Content), "Created session: ")
+	defer mgr.CloseSession(ctx, "", sessionID)
+
+	// Navigate to a test page
+	navReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "navigate",
+			Arguments: map[string]any{
+				"sessionId": sessionID,
+				"url":       "data:text/html,<h1>Screenshot Test</h1><p>Test content</p>",
+			},
+		},
+	}
+	navigateHandler(ctx, navReq)
+
+	t.Run("captures page screenshot", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "screenshot",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+				},
+			},
+		}
+
+		result, err := screenshotHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+
+		// Verify we got image content
+		if len(result.Content) == 0 {
+			t.Error("Expected content in result")
+		}
+	})
+
+	t.Run("captures fullPage screenshot", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "screenshot",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"fullPage":  true,
+				},
+			},
+		}
+
+		result, err := screenshotHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+	})
+}
+
+// TestExtractTextToolIntegration tests the extract_text tool with real browser instances.
+func TestExtractTextToolIntegration(t *testing.T) {
+	pool, mgr := setupPoolAndManager(t)
+	defer pool.Stop(context.Background())
+
+	createHandler := SessionCreateHandler(mgr)
+	navigateHandler := NavigateHandler(mgr)
+	extractTextHandler := ExtractTextHandler(mgr)
+	ctx := context.Background()
+
+	// Create a session
+	createReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "session_create",
+			Arguments: map[string]any{},
+		},
+	}
+	createResult, err := createHandler(ctx, createReq)
+	if err != nil {
+		t.Fatalf("Create handler returned error: %v", err)
+	}
+	if createResult.IsError {
+		skipIfPlaywrightNotInstalled(t, extractErrorFromResult(createResult))
+		t.Fatalf("Create failed: %s", extractTextContent(createResult.Content))
+	}
+	sessionID := strings.TrimPrefix(extractTextContent(createResult.Content), "Created session: ")
+	defer mgr.CloseSession(ctx, "", sessionID)
+
+	// Navigate to a test page with structured content
+	navReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "navigate",
+			Arguments: map[string]any{
+				"sessionId": sessionID,
+				"url":       "data:text/html,<html><body><h1>Title</h1><p>Paragraph text</p><div><span>Nested content</span></div></body></html>",
+			},
+		},
+	}
+	navigateHandler(ctx, navReq)
+
+	t.Run("extracts text from body", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "extract_text",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+				},
+			},
+		}
+
+		result, err := extractTextHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+
+		text := extractTextContent(result.Content)
+		if !strings.Contains(text, "Title") {
+			t.Errorf("Expected 'Title' in response, got: %s", text)
+		}
+		if !strings.Contains(text, "Paragraph text") {
+			t.Errorf("Expected 'Paragraph text' in response, got: %s", text)
+		}
+	})
+
+	t.Run("extracts text from specific selector", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "extract_text",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"selector":  "h1",
+				},
+			},
+		}
+
+		result, err := extractTextHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+
+		text := extractTextContent(result.Content)
+		if !strings.Contains(text, "Title") {
+			t.Errorf("Expected 'Title' in response, got: %s", text)
+		}
+	})
+
+	t.Run("returns error for non-matching selector", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "extract_text",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"selector":  "#non-existent-element",
+				},
+			},
+		}
+
+		result, err := extractTextHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if !result.IsError {
+			t.Error("Expected error for non-matching selector")
+		}
+
+		text := extractTextContent(result.Content)
+		if !strings.Contains(text, "[-32002]") {
+			t.Errorf("Expected element not found error code, got: %s", text)
+		}
+	})
+}
+
+// TestGetHTMLToolIntegration tests the get_html tool with real browser instances.
+func TestGetHTMLToolIntegration(t *testing.T) {
+	pool, mgr := setupPoolAndManager(t)
+	defer pool.Stop(context.Background())
+
+	createHandler := SessionCreateHandler(mgr)
+	navigateHandler := NavigateHandler(mgr)
+	getHTMLHandler := GetHTMLHandler(mgr)
+	ctx := context.Background()
+
+	// Create a session
+	createReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "session_create",
+			Arguments: map[string]any{},
+		},
+	}
+	createResult, err := createHandler(ctx, createReq)
+	if err != nil {
+		t.Fatalf("Create handler returned error: %v", err)
+	}
+	if createResult.IsError {
+		skipIfPlaywrightNotInstalled(t, extractErrorFromResult(createResult))
+		t.Fatalf("Create failed: %s", extractTextContent(createResult.Content))
+	}
+	sessionID := strings.TrimPrefix(extractTextContent(createResult.Content), "Created session: ")
+	defer mgr.CloseSession(ctx, "", sessionID)
+
+	// Navigate to a test page
+	navReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "navigate",
+			Arguments: map[string]any{
+				"sessionId": sessionID,
+				"url":       "data:text/html,<html><body><div id=\"content\"><p>Test paragraph</p></div></body></html>",
+			},
+		},
+	}
+	navigateHandler(ctx, navReq)
+
+	t.Run("gets full page HTML", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "get_html",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+				},
+			},
+		}
+
+		result, err := getHTMLHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+
+		text := extractTextContent(result.Content)
+		if !strings.Contains(text, "Test paragraph") {
+			t.Errorf("Expected 'Test paragraph' in HTML, got: %s", text)
+		}
+	})
+
+	t.Run("gets element innerHTML", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "get_html",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"selector":  "#content",
+				},
+			},
+		}
+
+		result, err := getHTMLHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+
+		text := extractTextContent(result.Content)
+		if !strings.Contains(text, "<p>Test paragraph</p>") {
+			t.Errorf("Expected '<p>Test paragraph</p>' in innerHTML, got: %s", text)
+		}
+	})
+
+	t.Run("gets element outerHTML", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "get_html",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"selector":  "#content",
+					"outer":     true,
+				},
+			},
+		}
+
+		result, err := getHTMLHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+
+		text := extractTextContent(result.Content)
+		if !strings.Contains(text, "id=\"content\"") {
+			t.Errorf("Expected 'id=\"content\"' in outerHTML, got: %s", text)
+		}
+	})
+}
+
+// TestEvaluateToolIntegration tests the evaluate tool with real browser instances.
+func TestEvaluateToolIntegration(t *testing.T) {
+	pool, mgr := setupPoolAndManager(t)
+	defer pool.Stop(context.Background())
+
+	createHandler := SessionCreateHandler(mgr)
+	navigateHandler := NavigateHandler(mgr)
+	evaluateHandler := EvaluateHandler(mgr)
+	ctx := context.Background()
+
+	// Create a session
+	createReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "session_create",
+			Arguments: map[string]any{},
+		},
+	}
+	createResult, err := createHandler(ctx, createReq)
+	if err != nil {
+		t.Fatalf("Create handler returned error: %v", err)
+	}
+	if createResult.IsError {
+		skipIfPlaywrightNotInstalled(t, extractErrorFromResult(createResult))
+		t.Fatalf("Create failed: %s", extractTextContent(createResult.Content))
+	}
+	sessionID := strings.TrimPrefix(extractTextContent(createResult.Content), "Created session: ")
+	defer mgr.CloseSession(ctx, "", sessionID)
+
+	// Navigate to a test page
+	navReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "navigate",
+			Arguments: map[string]any{
+				"sessionId": sessionID,
+				"url":       "data:text/html,<html><body><h1 id=\"title\">Hello World</h1></body></html>",
+			},
+		},
+	}
+	navigateHandler(ctx, navReq)
+
+	t.Run("evaluates simple expression", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "evaluate",
+				Arguments: map[string]any{
+					"sessionId":  sessionID,
+					"expression": "1 + 2",
+				},
+			},
+		}
+
+		result, err := evaluateHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+
+		text := extractTextContent(result.Content)
+		if text != "3" {
+			t.Errorf("Expected '3', got: %s", text)
+		}
+	})
+
+	t.Run("evaluates DOM query", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "evaluate",
+				Arguments: map[string]any{
+					"sessionId":  sessionID,
+					"expression": "document.getElementById('title').textContent",
+				},
+			},
+		}
+
+		result, err := evaluateHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+
+		text := extractTextContent(result.Content)
+		if !strings.Contains(text, "Hello World") {
+			t.Errorf("Expected 'Hello World' in response, got: %s", text)
+		}
+	})
+
+	t.Run("returns object as JSON", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "evaluate",
+				Arguments: map[string]any{
+					"sessionId":  sessionID,
+					"expression": "({ name: 'test', value: 42 })",
+				},
+			},
+		}
+
+		result, err := evaluateHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+
+		text := extractTextContent(result.Content)
+		var obj map[string]interface{}
+		if err := json.Unmarshal([]byte(text), &obj); err != nil {
+			t.Fatalf("Failed to parse JSON response: %v", err)
+		}
+		if obj["name"] != "test" || obj["value"] != float64(42) {
+			t.Errorf("Unexpected object values: %v", obj)
+		}
+	})
+}
+
+// TestQuerySelectorToolIntegration tests the query_selector tool with real browser instances.
+func TestQuerySelectorToolIntegration(t *testing.T) {
+	pool, mgr := setupPoolAndManager(t)
+	defer pool.Stop(context.Background())
+
+	createHandler := SessionCreateHandler(mgr)
+	navigateHandler := NavigateHandler(mgr)
+	querySelectorHandler := QuerySelectorHandler(mgr)
+	ctx := context.Background()
+
+	// Create a session
+	createReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "session_create",
+			Arguments: map[string]any{},
+		},
+	}
+	createResult, err := createHandler(ctx, createReq)
+	if err != nil {
+		t.Fatalf("Create handler returned error: %v", err)
+	}
+	if createResult.IsError {
+		skipIfPlaywrightNotInstalled(t, extractErrorFromResult(createResult))
+		t.Fatalf("Create failed: %s", extractTextContent(createResult.Content))
+	}
+	sessionID := strings.TrimPrefix(extractTextContent(createResult.Content), "Created session: ")
+	defer mgr.CloseSession(ctx, "", sessionID)
+
+	// Navigate to a test page with multiple elements
+	navReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "navigate",
+			Arguments: map[string]any{
+				"sessionId": sessionID,
+				"url":       "data:text/html,<html><body><button id=\"btn1\" class=\"primary\">Submit</button><button id=\"btn2\" class=\"secondary\">Cancel</button></body></html>",
+			},
+		},
+	}
+	navigateHandler(ctx, navReq)
+
+	t.Run("queries single element", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "query_selector",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"selector":  "#btn1",
+				},
+			},
+		}
+
+		result, err := querySelectorHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+
+		text := extractTextContent(result.Content)
+		var info ElementInfo
+		if err := json.Unmarshal([]byte(text), &info); err != nil {
+			t.Fatalf("Failed to parse response: %v", err)
+		}
+
+		if info.Tag != "button" {
+			t.Errorf("Expected tag 'button', got '%s'", info.Tag)
+		}
+		if info.Attributes["id"] != "btn1" {
+			t.Errorf("Expected id 'btn1', got '%s'", info.Attributes["id"])
+		}
+	})
+
+	t.Run("queries all matching elements", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "query_selector",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"selector":  "button",
+					"all":       true,
+				},
+			},
+		}
+
+		result, err := querySelectorHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+
+		text := extractTextContent(result.Content)
+		var infos []ElementInfo
+		if err := json.Unmarshal([]byte(text), &infos); err != nil {
+			t.Fatalf("Failed to parse response: %v", err)
+		}
+
+		if len(infos) != 2 {
+			t.Errorf("Expected 2 buttons, got %d", len(infos))
+		}
+	})
+
+	t.Run("returns error for non-matching selector", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "query_selector",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"selector":  "#non-existent",
+				},
+			},
+		}
+
+		result, err := querySelectorHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if !result.IsError {
+			t.Error("Expected error for non-matching selector")
+		}
+
+		text := extractTextContent(result.Content)
+		if !strings.Contains(text, "[-32002]") {
+			t.Errorf("Expected element not found error code, got: %s", text)
+		}
+	})
+}
+
+// TestGetAccessibilityTreeToolIntegration tests the get_accessibility_tree tool with real browser instances.
+func TestGetAccessibilityTreeToolIntegration(t *testing.T) {
+	pool, mgr := setupPoolAndManager(t)
+	defer pool.Stop(context.Background())
+
+	createHandler := SessionCreateHandler(mgr)
+	navigateHandler := NavigateHandler(mgr)
+	accessibilityHandler := GetAccessibilityTreeHandler(mgr)
+	ctx := context.Background()
+
+	// Create a session
+	createReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "session_create",
+			Arguments: map[string]any{},
+		},
+	}
+	createResult, err := createHandler(ctx, createReq)
+	if err != nil {
+		t.Fatalf("Create handler returned error: %v", err)
+	}
+	if createResult.IsError {
+		skipIfPlaywrightNotInstalled(t, extractErrorFromResult(createResult))
+		t.Fatalf("Create failed: %s", extractTextContent(createResult.Content))
+	}
+	sessionID := strings.TrimPrefix(extractTextContent(createResult.Content), "Created session: ")
+	defer mgr.CloseSession(ctx, "", sessionID)
+
+	// Navigate to a test page with accessible elements
+	navReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "navigate",
+			Arguments: map[string]any{
+				"sessionId": sessionID,
+				"url":       "data:text/html,<html><body><nav><a href=\"#\">Home</a></nav><main><h1>Title</h1><button aria-label=\"Submit Form\">Submit</button></main></body></html>",
+			},
+		},
+	}
+	navigateHandler(ctx, navReq)
+
+	t.Run("gets accessibility tree", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "get_accessibility_tree",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+				},
+			},
+		}
+
+		result, err := accessibilityHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+
+		text := extractTextContent(result.Content)
+
+		// Verify it returns a valid JSON structure
+		var tree map[string]interface{}
+		if err := json.Unmarshal([]byte(text), &tree); err != nil {
+			t.Fatalf("Failed to parse accessibility tree: %v", err)
+		}
+
+		// Verify role is present
+		if tree["role"] == nil {
+			t.Error("Expected 'role' in accessibility tree")
+		}
+
+		// Check that key elements are captured
+		if !strings.Contains(text, "button") {
+			t.Error("Expected 'button' role in accessibility tree")
+		}
+		if !strings.Contains(text, "Submit Form") {
+			t.Error("Expected 'Submit Form' aria-label in accessibility tree")
+		}
+	})
+}
+
+// TestGetConsoleLogsToolIntegration tests the get_console_logs tool with real browser instances.
+func TestGetConsoleLogsToolIntegration(t *testing.T) {
+	pool, mgr := setupPoolAndManager(t)
+	defer pool.Stop(context.Background())
+
+	createHandler := SessionCreateHandler(mgr)
+	navigateHandler := NavigateHandler(mgr)
+	evaluateHandler := EvaluateHandler(mgr)
+	consoleLogsHandler := GetConsoleLogsHandler(mgr)
+	ctx := context.Background()
+
+	// Create a session
+	createReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "session_create",
+			Arguments: map[string]any{},
+		},
+	}
+	createResult, err := createHandler(ctx, createReq)
+	if err != nil {
+		t.Fatalf("Create handler returned error: %v", err)
+	}
+	if createResult.IsError {
+		skipIfPlaywrightNotInstalled(t, extractErrorFromResult(createResult))
+		t.Fatalf("Create failed: %s", extractTextContent(createResult.Content))
+	}
+	sessionID := strings.TrimPrefix(extractTextContent(createResult.Content), "Created session: ")
+	defer mgr.CloseSession(ctx, "", sessionID)
+
+	// Navigate to a test page
+	navReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "navigate",
+			Arguments: map[string]any{
+				"sessionId": sessionID,
+				"url":       "about:blank",
+			},
+		},
+	}
+	navigateHandler(ctx, navReq)
+
+	// Generate console logs using evaluate
+	evalReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "evaluate",
+			Arguments: map[string]any{
+				"sessionId":  sessionID,
+				"expression": "console.log('test log'); console.warn('test warning'); console.error('test error'); true",
+			},
+		},
+	}
+	evaluateHandler(ctx, evalReq)
+
+	t.Run("retrieves console logs", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "get_console_logs",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+				},
+			},
+		}
+
+		result, err := consoleLogsHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+
+		text := extractTextContent(result.Content)
+		var logs []session.ConsoleLogEntry
+		if err := json.Unmarshal([]byte(text), &logs); err != nil {
+			t.Fatalf("Failed to parse console logs: %v", err)
+		}
+
+		// Verify we captured logs
+		if len(logs) < 3 {
+			t.Errorf("Expected at least 3 log entries, got %d", len(logs))
+		}
+	})
+
+	t.Run("filters by level", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "get_console_logs",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"level":     "error",
+				},
+			},
+		}
+
+		result, err := consoleLogsHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+
+		text := extractTextContent(result.Content)
+		var logs []session.ConsoleLogEntry
+		if err := json.Unmarshal([]byte(text), &logs); err != nil {
+			t.Fatalf("Failed to parse console logs: %v", err)
+		}
+
+		// All returned logs should be error level
+		for _, log := range logs {
+			if log.Level != session.ConsoleLogLevelError {
+				t.Errorf("Expected error level, got %s", log.Level)
+			}
+		}
+	})
+}

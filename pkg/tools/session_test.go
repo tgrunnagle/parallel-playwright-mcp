@@ -15,14 +15,14 @@ import (
 
 // mockSessionManager is a mock implementation of session.BrowserSessionManager for testing.
 type mockSessionManager struct {
-	createSessionFunc   func(ctx context.Context, mcpSessionID string, opts session.SessionOptions) (*session.BrowserSession, error)
-	getSessionFunc      func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool)
-	closeSessionFunc    func(ctx context.Context, mcpSessionID, browserSessionID string) error
-	listSessionsFunc    func(mcpSessionID string) []*session.SessionInfo
-	closeAllForMCPFunc  func(ctx context.Context, mcpSessionID string) error
-	cleanupFunc         func(ctx context.Context, idleTimeout time.Duration) (int, error)
-	lastCreateOpts      session.SessionOptions
-	lastMCPSessionID    string
+	createSessionFunc    func(ctx context.Context, mcpSessionID string, opts session.SessionOptions) (*session.BrowserSession, error)
+	getSessionFunc       func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool)
+	closeSessionFunc     func(ctx context.Context, mcpSessionID, browserSessionID string) error
+	listSessionsFunc     func(mcpSessionID string) []*session.SessionInfo
+	closeAllForMCPFunc   func(ctx context.Context, mcpSessionID string) error
+	cleanupFunc          func(ctx context.Context, idleTimeout time.Duration) (int, error)
+	lastCreateOpts       session.SessionOptions
+	lastMCPSessionID     string
 	lastBrowserSessionID string
 }
 
