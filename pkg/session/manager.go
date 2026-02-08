@@ -158,22 +158,30 @@ func (m *manager) CreateSession(ctx context.Context, mcpSessionID string, opts S
 	// Initialize console log buffer
 	consoleLogs := NewConsoleLogBuffer(DefaultConsoleLogBufferSize)
 
+	// Initialize network log buffer
+	networkLogs := NewNetworkLogBuffer(DefaultNetworkLogBufferSize)
+
 	// Attach console handler to initial page
 	attachConsoleHandler(page, consoleLogs)
+
+	// Setup network logging for initial page
+	networkCleanup := SetupNetworkLogging(page, networkLogs)
 
 	// Create the browser session
 	now := time.Now()
 	session := &BrowserSession{
-		ID:           sessionID,
-		MCPSessionID: mcpSessionID,
-		BrowserType:  browserType,
-		Context:      browserContext,
-		Pages:        map[string]playwright.Page{initialTabID: page},
-		ActiveTabID:  initialTabID,
-		ConsoleLogs:  consoleLogs,
-		CreatedAt:    now,
-		LastAccess:   now,
-		Metadata:     make(map[string]any),
+		ID:              sessionID,
+		MCPSessionID:    mcpSessionID,
+		BrowserType:     browserType,
+		Context:         browserContext,
+		Pages:           map[string]playwright.Page{initialTabID: page},
+		ActiveTabID:     initialTabID,
+		ConsoleLogs:     consoleLogs,
+		NetworkLogs:     networkLogs,
+		CreatedAt:       now,
+		LastAccess:      now,
+		Metadata:        make(map[string]any),
+		networkCleanups: map[string]func(){initialTabID: networkCleanup},
 	}
 
 	// Store session with write lock
@@ -231,6 +239,9 @@ func (m *manager) CloseSession(ctx context.Context, mcpSessionID, browserSession
 	if session.MCPSessionID != mcpSessionID {
 		return ErrUnauthorized
 	}
+
+	// Clean up network event listeners
+	session.CleanupNetworkListeners()
 
 	// Close all pages in the session
 	for _, page := range session.Pages {
@@ -316,6 +327,9 @@ func (m *manager) CloseAllForMCP(ctx context.Context, mcpSessionID string) error
 			continue // Session already removed somehow
 		}
 
+		// Clean up network event listeners
+		session.CleanupNetworkListeners()
+
 		// Close all pages in the session
 		for _, page := range session.Pages {
 			_ = page.Close()
@@ -363,6 +377,9 @@ func (m *manager) CloseAll(ctx context.Context) error {
 			return errors.Join(errs...)
 		default:
 		}
+
+		// Clean up network event listeners
+		session.CleanupNetworkListeners()
 
 		// Close all pages in the session
 		for _, page := range session.Pages {

@@ -400,3 +400,280 @@ func TestCleanupIntegration(t *testing.T) {
 		}
 	})
 }
+
+func TestNetworkLoggingIntegration(t *testing.T) {
+	pool := setupPool(t)
+	defer pool.Stop(context.Background())
+
+	mgr := NewManager(pool)
+	ctx := context.Background()
+
+	t.Run("network buffer is initialized for new session", func(t *testing.T) {
+		session, err := mgr.CreateSession(ctx, "mcp-1", SessionOptions{
+			BrowserType: browser.BrowserChromium,
+		})
+		if err != nil {
+			skipIfPlaywrightNotInstalled(t, err)
+			t.Fatalf("CreateSession failed: %v", err)
+		}
+		defer mgr.CloseSession(ctx, "mcp-1", session.ID)
+
+		if session.NetworkLogs == nil {
+			t.Fatal("NetworkLogs should not be nil")
+		}
+	})
+
+	t.Run("captures network activity during navigation", func(t *testing.T) {
+		session, err := mgr.CreateSession(ctx, "mcp-1", SessionOptions{
+			BrowserType: browser.BrowserChromium,
+		})
+		if err != nil {
+			skipIfPlaywrightNotInstalled(t, err)
+			t.Fatalf("CreateSession failed: %v", err)
+		}
+		defer mgr.CloseSession(ctx, "mcp-1", session.ID)
+
+		page := session.ActivePage()
+		if page == nil {
+			t.Fatal("ActivePage should not be nil")
+		}
+
+		// Navigate to a data URL that generates a network request
+		dataURL := "data:text/html,<html><body>Test</body></html>"
+		_, err = page.Goto(dataURL)
+		if err != nil {
+			t.Fatalf("Page.Goto failed: %v", err)
+		}
+
+		// Give some time for network events to be processed
+		time.Sleep(100 * time.Millisecond)
+
+		// Verify network entries were captured
+		entries := session.NetworkLogs.Entries(0)
+		if len(entries) == 0 {
+			t.Error("expected at least one network entry from navigation")
+		}
+
+		// Verify the captured entry has expected fields
+		if len(entries) > 0 {
+			entry := entries[0]
+			if entry.Method == "" {
+				t.Error("Method should not be empty")
+			}
+			if entry.URL == "" {
+				t.Error("URL should not be empty")
+			}
+			// Data URLs may have status 0 in some browsers, so we just check it's set
+			if entry.Timestamp.IsZero() {
+				t.Error("Timestamp should not be zero")
+			}
+		}
+	})
+
+	t.Run("captures HTTP navigation with status code", func(t *testing.T) {
+		session, err := mgr.CreateSession(ctx, "mcp-1", SessionOptions{
+			BrowserType: browser.BrowserChromium,
+		})
+		if err != nil {
+			skipIfPlaywrightNotInstalled(t, err)
+			t.Fatalf("CreateSession failed: %v", err)
+		}
+		defer mgr.CloseSession(ctx, "mcp-1", session.ID)
+
+		page := session.ActivePage()
+		if page == nil {
+			t.Fatal("ActivePage should not be nil")
+		}
+
+		// Navigate to example.com (a stable public URL)
+		_, err = page.Goto("https://example.com", nil)
+		if err != nil {
+			// If network is unavailable, skip this test
+			t.Skipf("Could not navigate to example.com (network may be unavailable): %v", err)
+		}
+
+		// Give time for network events to be processed
+		time.Sleep(200 * time.Millisecond)
+
+		entries := session.NetworkLogs.Entries(0)
+		if len(entries) == 0 {
+			t.Error("expected at least one network entry from HTTP navigation")
+		}
+
+		// Find the main document request
+		var docEntry *NetworkLogEntry
+		for i := range entries {
+			if entries[i].ResourceType == "document" || strings.Contains(entries[i].URL, "example.com") {
+				docEntry = &entries[i]
+				break
+			}
+		}
+
+		if docEntry != nil {
+			if docEntry.Status != 200 {
+				t.Errorf("expected status 200, got %d", docEntry.Status)
+			}
+			if docEntry.Method != "GET" {
+				t.Errorf("expected method GET, got %s", docEntry.Method)
+			}
+			if docEntry.Duration <= 0 {
+				t.Error("expected positive duration for HTTP request")
+			}
+		}
+	})
+
+	t.Run("multiple navigations accumulate entries", func(t *testing.T) {
+		session, err := mgr.CreateSession(ctx, "mcp-1", SessionOptions{
+			BrowserType: browser.BrowserChromium,
+		})
+		if err != nil {
+			skipIfPlaywrightNotInstalled(t, err)
+			t.Fatalf("CreateSession failed: %v", err)
+		}
+		defer mgr.CloseSession(ctx, "mcp-1", session.ID)
+
+		page := session.ActivePage()
+
+		// Navigate to multiple data URLs
+		for i := 0; i < 3; i++ {
+			dataURL := "data:text/html,<html><body>Page " + string(rune('A'+i)) + "</body></html>"
+			_, err = page.Goto(dataURL)
+			if err != nil {
+				t.Fatalf("Page.Goto failed: %v", err)
+			}
+		}
+
+		// Give time for network events to be processed
+		time.Sleep(100 * time.Millisecond)
+
+		entries := session.NetworkLogs.Entries(0)
+		if len(entries) < 3 {
+			t.Errorf("expected at least 3 network entries, got %d", len(entries))
+		}
+	})
+
+	t.Run("captures failed requests with status 0", func(t *testing.T) {
+		session, err := mgr.CreateSession(ctx, "mcp-1", SessionOptions{
+			BrowserType: browser.BrowserChromium,
+		})
+		if err != nil {
+			skipIfPlaywrightNotInstalled(t, err)
+			t.Fatalf("CreateSession failed: %v", err)
+		}
+		defer mgr.CloseSession(ctx, "mcp-1", session.ID)
+
+		page := session.ActivePage()
+		if page == nil {
+			t.Fatal("ActivePage should not be nil")
+		}
+
+		// Clear any existing entries
+		session.NetworkLogs.Clear()
+
+		// Set up a route to abort requests to a specific URL
+		err = page.Route("**/abort-this-request", func(route playwright.Route) {
+			route.Abort()
+		})
+		if err != nil {
+			t.Fatalf("Failed to set up route: %v", err)
+		}
+
+		// Navigate to a page that will make a request we'll abort
+		htmlWithAbortedFetch := `data:text/html,<html><script>
+			fetch('/abort-this-request').catch(() => {});
+		</script></html>`
+		_, err = page.Goto(htmlWithAbortedFetch)
+		if err != nil {
+			t.Fatalf("Page.Goto failed: %v", err)
+		}
+
+		// Give time for network events to be processed
+		time.Sleep(200 * time.Millisecond)
+
+		// Check for a failed request entry (status 0)
+		entries := session.NetworkLogs.Entries(0)
+		var foundAborted bool
+		for _, entry := range entries {
+			if strings.Contains(entry.URL, "abort-this-request") && entry.Status == 0 {
+				foundAborted = true
+				break
+			}
+		}
+
+		if !foundAborted {
+			t.Error("expected to find an aborted request with status 0")
+		}
+	})
+
+	t.Run("captures POST request with body size", func(t *testing.T) {
+		session, err := mgr.CreateSession(ctx, "mcp-1", SessionOptions{
+			BrowserType: browser.BrowserChromium,
+		})
+		if err != nil {
+			skipIfPlaywrightNotInstalled(t, err)
+			t.Fatalf("CreateSession failed: %v", err)
+		}
+		defer mgr.CloseSession(ctx, "mcp-1", session.ID)
+
+		page := session.ActivePage()
+		if page == nil {
+			t.Fatal("ActivePage should not be nil")
+		}
+
+		// Clear any existing entries
+		session.NetworkLogs.Clear()
+
+		// Set up a route to intercept and fulfill POST requests
+		postBody := `{"test": "data", "value": 12345}`
+		err = page.Route("**/post-endpoint", func(route playwright.Route) {
+			route.Fulfill(playwright.RouteFulfillOptions{
+				Status:      playwright.Int(200),
+				ContentType: playwright.String("application/json"),
+				Body:        []byte(`{"status": "ok"}`),
+			})
+		})
+		if err != nil {
+			t.Fatalf("Failed to set up route: %v", err)
+		}
+
+		// Navigate to a page that will make a POST request
+		htmlWithPost := `data:text/html,<html><script>
+			fetch('/post-endpoint', {
+				method: 'POST',
+				headers: {'Content-Type': 'application/json'},
+				body: '` + postBody + `'
+			});
+		</script></html>`
+		_, err = page.Goto(htmlWithPost)
+		if err != nil {
+			t.Fatalf("Page.Goto failed: %v", err)
+		}
+
+		// Give time for network events to be processed
+		time.Sleep(200 * time.Millisecond)
+
+		// Check for the POST request entry
+		entries := session.NetworkLogs.Entries(0)
+		var foundPost *NetworkLogEntry
+		for i := range entries {
+			if entries[i].Method == "POST" && strings.Contains(entries[i].URL, "post-endpoint") {
+				foundPost = &entries[i]
+				break
+			}
+		}
+
+		if foundPost == nil {
+			t.Fatal("expected to find POST request entry")
+		}
+
+		// Verify the request had a body
+		expectedSize := int64(len(postBody))
+		if foundPost.RequestSize != expectedSize {
+			t.Errorf("RequestSize = %d, want %d", foundPost.RequestSize, expectedSize)
+		}
+
+		if foundPost.Status != 200 {
+			t.Errorf("Status = %d, want 200", foundPost.Status)
+		}
+	})
+}

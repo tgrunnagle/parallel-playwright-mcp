@@ -26,12 +26,16 @@ type BrowserSession struct {
 	ActiveTabID string
 	// ConsoleLogs is the circular buffer for captured console messages.
 	ConsoleLogs *ConsoleLogBuffer
+	// NetworkLogs is the circular buffer for captured network activity.
+	NetworkLogs *NetworkLogBuffer
 	// CreatedAt is the session creation timestamp.
 	CreatedAt time.Time
 	// LastAccess is the timestamp of the last activity in this session.
 	LastAccess time.Time
 	// Metadata holds additional session-specific data.
 	Metadata map[string]any
+	// networkCleanups holds cleanup functions for each page's network logging.
+	networkCleanups map[string]func()
 	// mu protects concurrent access to Pages and ActiveTabID.
 	mu sync.RWMutex
 }
@@ -81,12 +85,18 @@ func (s *BrowserSession) AddPage(tabID string, page playwright.Page) {
 
 // RemovePage removes a page from the session by tab ID.
 // Returns the removed page, or nil if the tab ID didn't exist.
+// Also cleans up any associated network logging event handlers.
 func (s *BrowserSession) RemovePage(tabID string) playwright.Page {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	page, exists := s.Pages[tabID]
 	if exists {
 		delete(s.Pages, tabID)
+		// Clean up network logging for this page
+		if cleanup, ok := s.networkCleanups[tabID]; ok {
+			cleanup()
+			delete(s.networkCleanups, tabID)
+		}
 	}
 	return page
 }
@@ -128,4 +138,64 @@ func (s *BrowserSession) TabIDs() []string {
 		ids = append(ids, id)
 	}
 	return ids
+}
+
+// CleanupNetworkListeners calls and removes all network cleanup functions for the session.
+// This should be called before closing the session to properly remove event listeners.
+// Safe to call even if networkCleanups is nil or empty.
+func (s *BrowserSession) CleanupNetworkListeners() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for tabID, cleanup := range s.networkCleanups {
+		if cleanup != nil {
+			cleanup()
+		}
+		delete(s.networkCleanups, tabID)
+	}
+}
+
+// AddNetworkCleanup registers a cleanup function for network logging on a page.
+// This should be called after SetupNetworkLogging when adding a new tab.
+func (s *BrowserSession) AddNetworkCleanup(tabID string, cleanup func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.networkCleanups == nil {
+		s.networkCleanups = make(map[string]func())
+	}
+	s.networkCleanups[tabID] = cleanup
+}
+
+// AddPageWithLogging adds a new page to the session with console and network logging
+// automatically configured. This is the recommended method for adding new tabs/pages
+// as it ensures all event handlers are properly attached.
+// If a page with the same tab ID already exists, it will be replaced (and its cleanup
+// functions will be called first).
+func (s *BrowserSession) AddPageWithLogging(tabID string, page playwright.Page) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Clean up existing page if present
+	if _, exists := s.Pages[tabID]; exists {
+		if cleanup, ok := s.networkCleanups[tabID]; ok {
+			cleanup()
+			delete(s.networkCleanups, tabID)
+		}
+	}
+
+	// Add the page
+	s.Pages[tabID] = page
+
+	// Attach console handler if buffer exists
+	if s.ConsoleLogs != nil {
+		AttachConsoleHandler(page, s.ConsoleLogs)
+	}
+
+	// Setup network logging if buffer exists
+	if s.NetworkLogs != nil {
+		cleanup := SetupNetworkLogging(page, s.NetworkLogs)
+		if s.networkCleanups == nil {
+			s.networkCleanups = make(map[string]func())
+		}
+		s.networkCleanups[tabID] = cleanup
+	}
 }
