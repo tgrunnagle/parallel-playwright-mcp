@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -108,6 +109,27 @@ func ScreenshotTool() mcp.Tool {
 		mcp.WithString("selector",
 			mcp.Description("CSS selector to capture specific element"),
 		),
+		mcp.WithObject("viewport",
+			mcp.Description("Clip region to capture (x, y, width, height in pixels)"),
+			mcp.Properties(map[string]any{
+				"x": map[string]any{
+					"type":        "number",
+					"description": "X coordinate of clip region",
+				},
+				"y": map[string]any{
+					"type":        "number",
+					"description": "Y coordinate of clip region",
+				},
+				"width": map[string]any{
+					"type":        "number",
+					"description": "Width of clip region in pixels",
+				},
+				"height": map[string]any{
+					"type":        "number",
+					"description": "Height of clip region in pixels",
+				},
+			}),
+		),
 	)
 }
 
@@ -168,6 +190,16 @@ func ScreenshotHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc
 			}
 		}
 
+		// Parse viewport/clip option
+		if vpArg, ok := args["viewport"]; ok && vpArg != nil {
+			if vpMap, ok := vpArg.(map[string]any); ok {
+				clip := parseClipRegion(vpMap)
+				if clip != nil {
+					opts.Clip = clip
+				}
+			}
+		}
+
 		screenshotBytes, err := page.Screenshot(opts)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to capture screenshot: %v", err)), nil
@@ -175,6 +207,68 @@ func ScreenshotHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc
 
 		base64Data := base64.StdEncoding.EncodeToString(screenshotBytes)
 		return mcp.NewToolResultImage("Page screenshot", base64Data, "image/png"), nil
+	}
+}
+
+// parseClipRegion extracts x, y, width, height from a viewport/clip parameter object.
+// Returns nil if the clip region cannot be parsed or is invalid.
+func parseClipRegion(vp map[string]any) *playwright.Rect {
+	var x, y, width, height float64
+	var hasX, hasY, hasWidth, hasHeight bool
+
+	// Parse x
+	switch v := vp["x"].(type) {
+	case float64:
+		x = v
+		hasX = true
+	case int:
+		x = float64(v)
+		hasX = true
+	}
+
+	// Parse y
+	switch v := vp["y"].(type) {
+	case float64:
+		y = v
+		hasY = true
+	case int:
+		y = float64(v)
+		hasY = true
+	}
+
+	// Parse width
+	switch v := vp["width"].(type) {
+	case float64:
+		width = v
+		hasWidth = true
+	case int:
+		width = float64(v)
+		hasWidth = true
+	}
+
+	// Parse height
+	switch v := vp["height"].(type) {
+	case float64:
+		height = v
+		hasHeight = true
+	case int:
+		height = float64(v)
+		hasHeight = true
+	}
+
+	// Require all four parameters and positive dimensions
+	if !hasX || !hasY || !hasWidth || !hasHeight {
+		return nil
+	}
+	if width <= 0 || height <= 0 {
+		return nil
+	}
+
+	return &playwright.Rect{
+		X:      x,
+		Y:      y,
+		Width:  width,
+		Height: height,
 	}
 }
 
@@ -230,6 +324,11 @@ func ExtractTextHandler(mgr session.BrowserSessionManager) server.ToolHandlerFun
 		result, err := page.Evaluate(extractTextJS, selector)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to extract text: %v", err)), nil
+		}
+
+		// Check if element was found (JavaScript returns null if selector doesn't match)
+		if result == nil {
+			return mcp.NewToolResultError(fmt.Sprintf("[%d] Element not found: %s", errors.CodeElementNotFound, selector)), nil
 		}
 
 		// Serialize result to JSON
@@ -514,10 +613,14 @@ func QuerySelectorHandler(mgr session.BrowserSessionManager) server.ToolHandlerF
 			}
 
 			infos := make([]ElementInfo, 0, len(elements))
-			for _, elem := range elements {
+			for i, elem := range elements {
 				info, err := extractElementInfo(elem)
 				if err != nil {
-					continue // Skip elements we can't extract info from
+					slog.Warn("Skipping element in QuerySelectorAll due to extraction error",
+						"selector", selector,
+						"elementIndex", i,
+						"error", err)
+					continue
 				}
 				infos = append(infos, *info)
 			}
@@ -602,9 +705,13 @@ func extractElementInfo(element playwright.ElementHandle) (*ElementInfo, error) 
 }
 
 // GetAccessibilityTreeTool returns the get_accessibility_tree MCP tool definition.
+// NOTE: This tool uses JavaScript-based accessibility extraction because playwright-go
+// does not expose the native Accessibility().Snapshot() API. The JavaScript implementation
+// provides a simplified accessibility tree based on ARIA attributes and semantic HTML roles,
+// which may differ from the browser's native accessibility tree in some edge cases.
 func GetAccessibilityTreeTool() mcp.Tool {
 	return mcp.NewTool("get_accessibility_tree",
-		mcp.WithDescription("Get accessibility snapshot of the page"),
+		mcp.WithDescription("Get accessibility snapshot of the page (JavaScript-based extraction using ARIA attributes and semantic roles)"),
 		mcp.WithString("sessionId",
 			mcp.Required(),
 			mcp.Description("Browser session ID"),
@@ -654,8 +761,21 @@ func GetAccessibilityTreeHandler(mgr session.BrowserSessionManager) server.ToolH
 	}
 }
 
-// accessibilityTreeJS extracts accessibility information from the DOM.
-// This provides a simplified accessibility tree using ARIA attributes and roles.
+// accessibilityTreeJS extracts accessibility information from the DOM using JavaScript.
+//
+// LIMITATION: playwright-go v0.5200.1 does not expose the native Accessibility().Snapshot() API.
+// This JavaScript-based implementation provides a simplified accessibility tree by:
+// - Extracting explicit ARIA attributes (aria-label, aria-labelledby, aria-expanded, etc.)
+// - Mapping semantic HTML elements to their implicit ARIA roles (button, link, heading, etc.)
+// - Traversing visible elements and building a hierarchical tree structure
+//
+// Differences from native accessibility API:
+// - May not capture all computed accessible names (e.g., from complex label algorithms)
+// - Does not include accessibility properties from browser internals
+// - Simplified role mapping compared to full ARIA specification
+//
+// This is suitable for most inspection and testing use cases but may not match
+// screen reader behavior exactly.
 const accessibilityTreeJS = `() => {
 	function getAccessibleName(element) {
 		// Try aria-label first
@@ -879,6 +999,11 @@ func NavigateAndExtractTextHandler(mgr session.BrowserSessionManager) server.Too
 		result, err := page.Evaluate(extractTextJS, selector)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to extract text: %v", err)), nil
+		}
+
+		// Check if element was found (JavaScript returns null if selector doesn't match)
+		if result == nil {
+			return mcp.NewToolResultError(fmt.Sprintf("[%d] Element not found: %s", errors.CodeElementNotFound, selector)), nil
 		}
 
 		// Serialize result to JSON

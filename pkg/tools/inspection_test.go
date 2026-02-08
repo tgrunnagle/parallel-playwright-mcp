@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/playwright-community/playwright-go"
 	"github.com/tgrunnagle/parallel-playwright-mcp/pkg/browser"
 	"github.com/tgrunnagle/parallel-playwright-mcp/pkg/session"
 )
@@ -532,6 +533,9 @@ func TestScreenshotTool(t *testing.T) {
 	if _, ok := props["selector"]; !ok {
 		t.Error("Expected 'selector' property in input schema")
 	}
+	if _, ok := props["viewport"]; !ok {
+		t.Error("Expected 'viewport' property in input schema")
+	}
 }
 
 // TestScreenshotHandler tests the screenshot handler.
@@ -569,6 +573,22 @@ func TestScreenshotHandler(t *testing.T) {
 			},
 			expectError:    true,
 			expectedResult: "[-32001] Session not found",
+		},
+		{
+			name: "no active page in session",
+			arguments: map[string]any{
+				"sessionId": "sess-test",
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				// Return session with empty Pages map - ActivePage() will return nil
+				return &session.BrowserSession{
+					ID:          "sess-test",
+					Pages:       map[string]playwright.Page{},
+					ActiveTabID: "non-existent-tab",
+				}, true
+			},
+			expectError:    true,
+			expectedResult: "no active page in session",
 		},
 	}
 
@@ -676,6 +696,21 @@ func TestExtractTextHandler(t *testing.T) {
 			},
 			expectError:    true,
 			expectedResult: "[-32001] Session not found",
+		},
+		{
+			name: "no active page in session",
+			arguments: map[string]any{
+				"sessionId": "sess-test",
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				return &session.BrowserSession{
+					ID:          "sess-test",
+					Pages:       map[string]playwright.Page{},
+					ActiveTabID: "non-existent-tab",
+				}, true
+			},
+			expectError:    true,
+			expectedResult: "no active page in session",
 		},
 	}
 
@@ -786,6 +821,21 @@ func TestGetHTMLHandler(t *testing.T) {
 			},
 			expectError:    true,
 			expectedResult: "[-32001] Session not found",
+		},
+		{
+			name: "no active page in session",
+			arguments: map[string]any{
+				"sessionId": "sess-test",
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				return &session.BrowserSession{
+					ID:          "sess-test",
+					Pages:       map[string]playwright.Page{},
+					ActiveTabID: "non-existent-tab",
+				}, true
+			},
+			expectError:    true,
+			expectedResult: "no active page in session",
 		},
 	}
 
@@ -911,6 +961,22 @@ func TestEvaluateHandler(t *testing.T) {
 			},
 			expectError:    true,
 			expectedResult: "[-32001] Session not found",
+		},
+		{
+			name: "no active page in session",
+			arguments: map[string]any{
+				"sessionId":  "sess-test",
+				"expression": "1 + 1",
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				return &session.BrowserSession{
+					ID:          "sess-test",
+					Pages:       map[string]playwright.Page{},
+					ActiveTabID: "non-existent-tab",
+				}, true
+			},
+			expectError:    true,
+			expectedResult: "no active page in session",
 		},
 	}
 
@@ -1040,6 +1106,22 @@ func TestQuerySelectorHandler(t *testing.T) {
 			expectError:    true,
 			expectedResult: "[-32001] Session not found",
 		},
+		{
+			name: "no active page in session",
+			arguments: map[string]any{
+				"sessionId": "sess-test",
+				"selector":  "#test",
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				return &session.BrowserSession{
+					ID:          "sess-test",
+					Pages:       map[string]playwright.Page{},
+					ActiveTabID: "non-existent-tab",
+				}, true
+			},
+			expectError:    true,
+			expectedResult: "no active page in session",
+		},
 	}
 
 	for _, tt := range tests {
@@ -1141,6 +1223,21 @@ func TestGetAccessibilityTreeHandler(t *testing.T) {
 			},
 			expectError:    true,
 			expectedResult: "[-32001] Session not found",
+		},
+		{
+			name: "no active page in session",
+			arguments: map[string]any{
+				"sessionId": "sess-test",
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				return &session.BrowserSession{
+					ID:          "sess-test",
+					Pages:       map[string]playwright.Page{},
+					ActiveTabID: "non-existent-tab",
+				}, true
+			},
+			expectError:    true,
+			expectedResult: "no active page in session",
 		},
 	}
 
