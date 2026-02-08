@@ -343,6 +343,12 @@ func TestBrowserSession_TabIDs(t *testing.T) {
 	})
 }
 
+// TestBrowserSession_ConcurrentAccess validates thread-safety of BrowserSession methods.
+// NOTE: These tests are designed to catch race conditions and should be run with
+// the Go race detector enabled: `go test -race ./pkg/session/...`
+// The race detector requires CGO to be enabled, which may not be available on
+// all platforms (e.g., Windows with CGO_ENABLED=0). CI pipelines should run
+// these tests on Linux or macOS with CGO enabled to fully validate thread safety.
 func TestBrowserSession_ConcurrentAccess(t *testing.T) {
 	t.Run("concurrent page operations are thread-safe", func(t *testing.T) {
 		session := &BrowserSession{
@@ -430,6 +436,466 @@ func TestBrowserSessionStruct(t *testing.T) {
 		}
 		if session.Metadata["key"] != "value" {
 			t.Error("Metadata not set correctly")
+		}
+	})
+}
+
+// mockPageWithEvents is a mock implementation of playwright.Page that tracks
+// both console and network event handlers for testing AddPageWithLogging.
+type mockPageWithEvents struct {
+	playwright.Page
+	id                    string
+	url                   string
+	title                 string
+	consoleHandlers       []func(playwright.ConsoleMessage)
+	requestHandlers       []func(playwright.Request)
+	responseHandlers      []func(playwright.Response)
+	requestFailedHandlers []func(playwright.Request)
+}
+
+func (m *mockPageWithEvents) URL() string {
+	return m.url
+}
+
+func (m *mockPageWithEvents) Title() (string, error) {
+	return m.title, nil
+}
+
+func (m *mockPageWithEvents) On(event string, handler interface{}) {
+	switch event {
+	case "console":
+		if h, ok := handler.(func(playwright.ConsoleMessage)); ok {
+			m.consoleHandlers = append(m.consoleHandlers, h)
+		}
+	case "request":
+		if h, ok := handler.(func(playwright.Request)); ok {
+			m.requestHandlers = append(m.requestHandlers, h)
+		}
+	case "response":
+		if h, ok := handler.(func(playwright.Response)); ok {
+			m.responseHandlers = append(m.responseHandlers, h)
+		}
+	case "requestfailed":
+		if h, ok := handler.(func(playwright.Request)); ok {
+			m.requestFailedHandlers = append(m.requestFailedHandlers, h)
+		}
+	}
+}
+
+func (m *mockPageWithEvents) RemoveListener(event string, handler interface{}) {
+	switch event {
+	case "console":
+		m.consoleHandlers = nil
+	case "request":
+		m.requestHandlers = nil
+	case "response":
+		m.responseHandlers = nil
+	case "requestfailed":
+		m.requestFailedHandlers = nil
+	}
+}
+
+func TestBrowserSession_CleanupNetworkListeners(t *testing.T) {
+	t.Run("calls all cleanup functions", func(t *testing.T) {
+		cleanup1Called := false
+		cleanup2Called := false
+
+		session := &BrowserSession{
+			Pages: make(map[string]playwright.Page),
+			networkCleanups: map[string]func(){
+				"tab-1": func() { cleanup1Called = true },
+				"tab-2": func() { cleanup2Called = true },
+			},
+		}
+
+		session.CleanupNetworkListeners()
+
+		if !cleanup1Called {
+			t.Error("Cleanup1 should have been called")
+		}
+		if !cleanup2Called {
+			t.Error("Cleanup2 should have been called")
+		}
+	})
+
+	t.Run("removes all cleanup functions from map", func(t *testing.T) {
+		session := &BrowserSession{
+			Pages: make(map[string]playwright.Page),
+			networkCleanups: map[string]func(){
+				"tab-1": func() {},
+				"tab-2": func() {},
+			},
+		}
+
+		session.CleanupNetworkListeners()
+
+		if len(session.networkCleanups) != 0 {
+			t.Errorf("Expected empty networkCleanups, got %d entries", len(session.networkCleanups))
+		}
+	})
+
+	t.Run("handles nil networkCleanups map gracefully", func(t *testing.T) {
+		session := &BrowserSession{
+			Pages: make(map[string]playwright.Page),
+			// networkCleanups is nil
+		}
+
+		// Should not panic
+		session.CleanupNetworkListeners()
+	})
+
+	t.Run("handles empty networkCleanups map gracefully", func(t *testing.T) {
+		session := &BrowserSession{
+			Pages:           make(map[string]playwright.Page),
+			networkCleanups: make(map[string]func()),
+		}
+
+		// Should not panic
+		session.CleanupNetworkListeners()
+	})
+
+	t.Run("handles nil cleanup function gracefully", func(t *testing.T) {
+		session := &BrowserSession{
+			Pages: make(map[string]playwright.Page),
+			networkCleanups: map[string]func(){
+				"tab-1": nil,
+				"tab-2": func() {},
+			},
+		}
+
+		// Should not panic
+		session.CleanupNetworkListeners()
+
+		if len(session.networkCleanups) != 0 {
+			t.Error("All entries should be removed even if cleanup was nil")
+		}
+	})
+}
+
+func TestBrowserSession_AddNetworkCleanup(t *testing.T) {
+	t.Run("stores cleanup function in map", func(t *testing.T) {
+		session := &BrowserSession{
+			Pages:           make(map[string]playwright.Page),
+			networkCleanups: make(map[string]func()),
+		}
+
+		cleanupCalled := false
+		cleanup := func() { cleanupCalled = true }
+
+		session.AddNetworkCleanup("tab-1", cleanup)
+
+		if _, exists := session.networkCleanups["tab-1"]; !exists {
+			t.Error("AddNetworkCleanup should store cleanup function in map")
+		}
+
+		// Verify the stored function works
+		session.networkCleanups["tab-1"]()
+		if !cleanupCalled {
+			t.Error("Stored cleanup function should be callable")
+		}
+	})
+
+	t.Run("initializes map if nil", func(t *testing.T) {
+		session := &BrowserSession{
+			Pages: make(map[string]playwright.Page),
+			// networkCleanups is nil
+		}
+
+		cleanup := func() {}
+		session.AddNetworkCleanup("tab-1", cleanup)
+
+		if session.networkCleanups == nil {
+			t.Error("AddNetworkCleanup should initialize networkCleanups map if nil")
+		}
+		if _, exists := session.networkCleanups["tab-1"]; !exists {
+			t.Error("AddNetworkCleanup should store cleanup function after initializing map")
+		}
+	})
+
+	t.Run("replaces existing cleanup function", func(t *testing.T) {
+		session := &BrowserSession{
+			Pages:           make(map[string]playwright.Page),
+			networkCleanups: make(map[string]func()),
+		}
+
+		firstCalled := false
+		secondCalled := false
+
+		session.AddNetworkCleanup("tab-1", func() { firstCalled = true })
+		session.AddNetworkCleanup("tab-1", func() { secondCalled = true })
+
+		// Call the stored cleanup
+		session.networkCleanups["tab-1"]()
+
+		if firstCalled {
+			t.Error("First cleanup should have been replaced")
+		}
+		if !secondCalled {
+			t.Error("Second cleanup should be called")
+		}
+	})
+
+	t.Run("handles multiple tabs", func(t *testing.T) {
+		session := &BrowserSession{
+			Pages:           make(map[string]playwright.Page),
+			networkCleanups: make(map[string]func()),
+		}
+
+		tab1Called := false
+		tab2Called := false
+
+		session.AddNetworkCleanup("tab-1", func() { tab1Called = true })
+		session.AddNetworkCleanup("tab-2", func() { tab2Called = true })
+
+		if len(session.networkCleanups) != 2 {
+			t.Errorf("Expected 2 cleanup functions, got %d", len(session.networkCleanups))
+		}
+
+		session.networkCleanups["tab-1"]()
+		session.networkCleanups["tab-2"]()
+
+		if !tab1Called || !tab2Called {
+			t.Error("Both cleanup functions should be callable")
+		}
+	})
+}
+
+func TestBrowserSession_AddPageWithLogging(t *testing.T) {
+	t.Run("adds page to Pages map", func(t *testing.T) {
+		page := &mockPageWithEvents{id: "test-page"}
+		session := &BrowserSession{
+			Pages: make(map[string]playwright.Page),
+		}
+
+		session.AddPageWithLogging("tab-1", page)
+
+		if stored, exists := session.Pages["tab-1"]; !exists || stored != page {
+			t.Error("AddPageWithLogging should add page to Pages map")
+		}
+	})
+
+	t.Run("attaches console handler when ConsoleLogs exists", func(t *testing.T) {
+		page := &mockPageWithEvents{id: "test-page"}
+		session := &BrowserSession{
+			Pages:       make(map[string]playwright.Page),
+			ConsoleLogs: NewConsoleLogBuffer(10),
+		}
+
+		session.AddPageWithLogging("tab-1", page)
+
+		if len(page.consoleHandlers) != 1 {
+			t.Errorf("Expected 1 console handler, got %d", len(page.consoleHandlers))
+		}
+	})
+
+	t.Run("attaches network handlers when NetworkLogs exists", func(t *testing.T) {
+		page := &mockPageWithEvents{id: "test-page"}
+		session := &BrowserSession{
+			Pages:       make(map[string]playwright.Page),
+			NetworkLogs: NewNetworkLogBuffer(10),
+		}
+
+		session.AddPageWithLogging("tab-1", page)
+
+		if len(page.requestHandlers) != 1 {
+			t.Errorf("Expected 1 request handler, got %d", len(page.requestHandlers))
+		}
+		if len(page.responseHandlers) != 1 {
+			t.Errorf("Expected 1 response handler, got %d", len(page.responseHandlers))
+		}
+		if len(page.requestFailedHandlers) != 1 {
+			t.Errorf("Expected 1 requestfailed handler, got %d", len(page.requestFailedHandlers))
+		}
+	})
+
+	t.Run("stores network cleanup function", func(t *testing.T) {
+		page := &mockPageWithEvents{id: "test-page"}
+		session := &BrowserSession{
+			Pages:       make(map[string]playwright.Page),
+			NetworkLogs: NewNetworkLogBuffer(10),
+		}
+
+		session.AddPageWithLogging("tab-1", page)
+
+		if session.networkCleanups == nil {
+			t.Error("networkCleanups map should be initialized")
+		}
+		if _, exists := session.networkCleanups["tab-1"]; !exists {
+			t.Error("Cleanup function should be stored for tab")
+		}
+	})
+
+	t.Run("attaches both console and network handlers", func(t *testing.T) {
+		page := &mockPageWithEvents{id: "test-page"}
+		session := &BrowserSession{
+			Pages:       make(map[string]playwright.Page),
+			ConsoleLogs: NewConsoleLogBuffer(10),
+			NetworkLogs: NewNetworkLogBuffer(10),
+		}
+
+		session.AddPageWithLogging("tab-1", page)
+
+		if len(page.consoleHandlers) != 1 {
+			t.Errorf("Expected 1 console handler, got %d", len(page.consoleHandlers))
+		}
+		if len(page.requestHandlers) != 1 {
+			t.Errorf("Expected 1 request handler, got %d", len(page.requestHandlers))
+		}
+	})
+
+	t.Run("handles nil ConsoleLogs gracefully", func(t *testing.T) {
+		page := &mockPageWithEvents{id: "test-page"}
+		session := &BrowserSession{
+			Pages:       make(map[string]playwright.Page),
+			ConsoleLogs: nil, // explicitly nil
+			NetworkLogs: NewNetworkLogBuffer(10),
+		}
+
+		// Should not panic
+		session.AddPageWithLogging("tab-1", page)
+
+		if len(page.consoleHandlers) != 0 {
+			t.Errorf("Expected 0 console handlers when ConsoleLogs is nil, got %d", len(page.consoleHandlers))
+		}
+	})
+
+	t.Run("handles nil NetworkLogs gracefully", func(t *testing.T) {
+		page := &mockPageWithEvents{id: "test-page"}
+		session := &BrowserSession{
+			Pages:       make(map[string]playwright.Page),
+			ConsoleLogs: NewConsoleLogBuffer(10),
+			NetworkLogs: nil, // explicitly nil
+		}
+
+		// Should not panic
+		session.AddPageWithLogging("tab-1", page)
+
+		if len(page.requestHandlers) != 0 {
+			t.Errorf("Expected 0 request handlers when NetworkLogs is nil, got %d", len(page.requestHandlers))
+		}
+		if session.networkCleanups != nil && len(session.networkCleanups) > 0 {
+			t.Error("No cleanup should be stored when NetworkLogs is nil")
+		}
+	})
+
+	t.Run("cleans up existing page cleanup before replacement", func(t *testing.T) {
+		oldCleanupCalled := false
+		oldPage := &mockPageWithEvents{id: "old-page"}
+		newPage := &mockPageWithEvents{id: "new-page"}
+
+		session := &BrowserSession{
+			Pages:           map[string]playwright.Page{"tab-1": oldPage},
+			NetworkLogs:     NewNetworkLogBuffer(10),
+			networkCleanups: map[string]func(){"tab-1": func() { oldCleanupCalled = true }},
+		}
+
+		session.AddPageWithLogging("tab-1", newPage)
+
+		if !oldCleanupCalled {
+			t.Error("Old cleanup function should be called when replacing page")
+		}
+		if session.Pages["tab-1"] != newPage {
+			t.Error("Page should be replaced with new page")
+		}
+	})
+
+	t.Run("handles nil buffers with no handlers attached", func(t *testing.T) {
+		page := &mockPageWithEvents{id: "test-page"}
+		session := &BrowserSession{
+			Pages:       make(map[string]playwright.Page),
+			ConsoleLogs: nil,
+			NetworkLogs: nil,
+		}
+
+		// Should not panic
+		session.AddPageWithLogging("tab-1", page)
+
+		if len(page.consoleHandlers) != 0 {
+			t.Error("No console handlers should be attached")
+		}
+		if len(page.requestHandlers) != 0 {
+			t.Error("No request handlers should be attached")
+		}
+	})
+
+	t.Run("concurrent AddPageWithLogging is thread-safe", func(t *testing.T) {
+		session := &BrowserSession{
+			Pages:       make(map[string]playwright.Page),
+			ConsoleLogs: NewConsoleLogBuffer(100),
+			NetworkLogs: NewNetworkLogBuffer(100),
+		}
+
+		var wg sync.WaitGroup
+
+		// Concurrent adds
+		for i := 0; i < 50; i++ {
+			wg.Add(1)
+			go func(idx int) {
+				defer wg.Done()
+				tabID := string(rune('a' + (idx % 26)))
+				page := &mockPageWithEvents{id: tabID}
+				session.AddPageWithLogging(tabID, page)
+			}(i)
+		}
+
+		wg.Wait()
+
+		// Should not panic and should have some pages
+		if session.PageCount() == 0 {
+			t.Error("Should have added some pages")
+		}
+	})
+}
+
+func TestBrowserSession_RemovePage_WithNetworkCleanup(t *testing.T) {
+	t.Run("calls cleanup function when removing page", func(t *testing.T) {
+		cleanupCalled := false
+		page := &mockPageWithEvents{id: "test-page"}
+
+		session := &BrowserSession{
+			Pages:           map[string]playwright.Page{"tab-1": page},
+			networkCleanups: map[string]func(){"tab-1": func() { cleanupCalled = true }},
+		}
+
+		session.RemovePage("tab-1")
+
+		if !cleanupCalled {
+			t.Error("Network cleanup should be called when removing page")
+		}
+		if _, exists := session.networkCleanups["tab-1"]; exists {
+			t.Error("Cleanup function should be removed from map")
+		}
+	})
+
+	t.Run("handles missing cleanup function gracefully", func(t *testing.T) {
+		page := &mockPageWithEvents{id: "test-page"}
+
+		session := &BrowserSession{
+			Pages:           map[string]playwright.Page{"tab-1": page},
+			networkCleanups: make(map[string]func()), // Empty map, no cleanup registered
+		}
+
+		// Should not panic
+		removed := session.RemovePage("tab-1")
+
+		if removed != page {
+			t.Error("Should return the removed page")
+		}
+	})
+
+	t.Run("handles nil networkCleanups map gracefully", func(t *testing.T) {
+		page := &mockPageWithEvents{id: "test-page"}
+
+		session := &BrowserSession{
+			Pages: map[string]playwright.Page{"tab-1": page},
+			// networkCleanups is nil
+		}
+
+		// Should not panic
+		removed := session.RemovePage("tab-1")
+
+		if removed != page {
+			t.Error("Should return the removed page")
 		}
 	})
 }

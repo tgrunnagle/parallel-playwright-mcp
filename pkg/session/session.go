@@ -140,6 +140,20 @@ func (s *BrowserSession) TabIDs() []string {
 	return ids
 }
 
+// CleanupNetworkListeners calls and removes all network cleanup functions for the session.
+// This should be called before closing the session to properly remove event listeners.
+// Safe to call even if networkCleanups is nil or empty.
+func (s *BrowserSession) CleanupNetworkListeners() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for tabID, cleanup := range s.networkCleanups {
+		if cleanup != nil {
+			cleanup()
+		}
+		delete(s.networkCleanups, tabID)
+	}
+}
+
 // AddNetworkCleanup registers a cleanup function for network logging on a page.
 // This should be called after SetupNetworkLogging when adding a new tab.
 func (s *BrowserSession) AddNetworkCleanup(tabID string, cleanup func()) {

@@ -123,9 +123,17 @@ type pendingRequest struct {
 	ResourceType string
 }
 
-// requestKey generates a unique key for correlating requests with responses.
-// Uses method + URL + frame URL to better handle concurrent identical requests
-// from different frames or iframes.
+// requestKey generates a key for correlating requests with responses.
+// Uses method + URL + frame URL to handle concurrent identical requests from
+// different frames or iframes.
+//
+// Limitation: Truly concurrent identical requests from the SAME frame (e.g., two
+// simultaneous GETs to the same URL triggered by the same script) may still
+// collide. In this case, the first response would match and remove the pending
+// entry, causing subsequent responses to have Duration=0. Playwright does not
+// expose a unique request ID that could be used to avoid this edge case.
+// This limitation is acceptable for typical browsing scenarios where such
+// truly concurrent identical requests are rare.
 func requestKey(request playwright.Request) string {
 	frameURL := ""
 	if frame := request.Frame(); frame != nil {
@@ -194,7 +202,13 @@ func SetupNetworkLogging(page playwright.Page, buffer *NetworkLogBuffer) func() 
 			timestamp = time.Now()
 		}
 
-		// Get response size from Content-Length header
+		// Get response size from Content-Length header.
+		// Note: We intentionally don't fall back to reading the response body for size
+		// because response.Body() is a blocking operation that would wait for the entire
+		// response to be received, potentially causing significant delays for large
+		// responses or slow connections. The Content-Length header provides the size
+		// without this overhead. For responses without Content-Length (e.g., chunked
+		// transfer encoding), ResponseSize will be 0.
 		var responseSize int64
 		headers, err := response.HeadersArray()
 		if err == nil {

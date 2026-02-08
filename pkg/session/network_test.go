@@ -384,6 +384,12 @@ func TestNetworkLogBuffer_Len(t *testing.T) {
 	})
 }
 
+// TestNetworkLogBuffer_Concurrency validates thread-safety of the NetworkLogBuffer.
+// NOTE: These tests are designed to catch race conditions and should be run with
+// the Go race detector enabled: `go test -race ./pkg/session/...`
+// The race detector requires CGO to be enabled, which may not be available on
+// all platforms (e.g., Windows with CGO_ENABLED=0). CI pipelines should run
+// these tests on Linux or macOS with CGO enabled to fully validate thread safety.
 func TestNetworkLogBuffer_Concurrency(t *testing.T) {
 	t.Run("concurrent adds are thread-safe", func(t *testing.T) {
 		buf := NewNetworkLogBuffer(100)
@@ -1227,6 +1233,8 @@ func TestSetupNetworkLogging(t *testing.T) {
 		}
 	})
 
+	// NOTE: This test is designed to catch race conditions. Run with -race flag
+	// on a platform with CGO enabled (Linux/macOS) for full validation.
 	t.Run("concurrent access is thread-safe", func(t *testing.T) {
 		page := &mockNetworkPage{}
 		buffer := NewNetworkLogBuffer(1000)

@@ -551,4 +551,129 @@ func TestNetworkLoggingIntegration(t *testing.T) {
 			t.Errorf("expected at least 3 network entries, got %d", len(entries))
 		}
 	})
+
+	t.Run("captures failed requests with status 0", func(t *testing.T) {
+		session, err := mgr.CreateSession(ctx, "mcp-1", SessionOptions{
+			BrowserType: browser.BrowserChromium,
+		})
+		if err != nil {
+			skipIfPlaywrightNotInstalled(t, err)
+			t.Fatalf("CreateSession failed: %v", err)
+		}
+		defer mgr.CloseSession(ctx, "mcp-1", session.ID)
+
+		page := session.ActivePage()
+		if page == nil {
+			t.Fatal("ActivePage should not be nil")
+		}
+
+		// Clear any existing entries
+		session.NetworkLogs.Clear()
+
+		// Set up a route to abort requests to a specific URL
+		err = page.Route("**/abort-this-request", func(route playwright.Route) {
+			route.Abort()
+		})
+		if err != nil {
+			t.Fatalf("Failed to set up route: %v", err)
+		}
+
+		// Navigate to a page that will make a request we'll abort
+		htmlWithAbortedFetch := `data:text/html,<html><script>
+			fetch('/abort-this-request').catch(() => {});
+		</script></html>`
+		_, err = page.Goto(htmlWithAbortedFetch)
+		if err != nil {
+			t.Fatalf("Page.Goto failed: %v", err)
+		}
+
+		// Give time for network events to be processed
+		time.Sleep(200 * time.Millisecond)
+
+		// Check for a failed request entry (status 0)
+		entries := session.NetworkLogs.Entries(0)
+		var foundAborted bool
+		for _, entry := range entries {
+			if strings.Contains(entry.URL, "abort-this-request") && entry.Status == 0 {
+				foundAborted = true
+				break
+			}
+		}
+
+		if !foundAborted {
+			t.Error("expected to find an aborted request with status 0")
+		}
+	})
+
+	t.Run("captures POST request with body size", func(t *testing.T) {
+		session, err := mgr.CreateSession(ctx, "mcp-1", SessionOptions{
+			BrowserType: browser.BrowserChromium,
+		})
+		if err != nil {
+			skipIfPlaywrightNotInstalled(t, err)
+			t.Fatalf("CreateSession failed: %v", err)
+		}
+		defer mgr.CloseSession(ctx, "mcp-1", session.ID)
+
+		page := session.ActivePage()
+		if page == nil {
+			t.Fatal("ActivePage should not be nil")
+		}
+
+		// Clear any existing entries
+		session.NetworkLogs.Clear()
+
+		// Set up a route to intercept and fulfill POST requests
+		postBody := `{"test": "data", "value": 12345}`
+		err = page.Route("**/post-endpoint", func(route playwright.Route) {
+			route.Fulfill(playwright.RouteFulfillOptions{
+				Status:      playwright.Int(200),
+				ContentType: playwright.String("application/json"),
+				Body:        []byte(`{"status": "ok"}`),
+			})
+		})
+		if err != nil {
+			t.Fatalf("Failed to set up route: %v", err)
+		}
+
+		// Navigate to a page that will make a POST request
+		htmlWithPost := `data:text/html,<html><script>
+			fetch('/post-endpoint', {
+				method: 'POST',
+				headers: {'Content-Type': 'application/json'},
+				body: '` + postBody + `'
+			});
+		</script></html>`
+		_, err = page.Goto(htmlWithPost)
+		if err != nil {
+			t.Fatalf("Page.Goto failed: %v", err)
+		}
+
+		// Give time for network events to be processed
+		time.Sleep(200 * time.Millisecond)
+
+		// Check for the POST request entry
+		entries := session.NetworkLogs.Entries(0)
+		var foundPost *NetworkLogEntry
+		for i := range entries {
+			if entries[i].Method == "POST" && strings.Contains(entries[i].URL, "post-endpoint") {
+				foundPost = &entries[i]
+				break
+			}
+		}
+
+		if foundPost == nil {
+			t.Fatal("expected to find POST request entry")
+		}
+
+		// Verify the request had a body
+		expectedSize := int64(len(postBody))
+		if foundPost.RequestSize != expectedSize {
+			t.Errorf("RequestSize = %d, want %d", foundPost.RequestSize, expectedSize)
+		}
+
+		if foundPost.Status != 200 {
+			t.Errorf("Status = %d, want 200", foundPost.Status)
+		}
+	})
 }
