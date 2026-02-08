@@ -90,63 +90,123 @@ func (m *mockLocator) SelectOption(values playwright.SelectOptionValues, opts ..
 }
 
 // Stub implementations for playwright.Locator interface methods not used in tests
-func (m *mockLocator) All() ([]playwright.Locator, error)                                         { return nil, nil }
-func (m *mockLocator) AllInnerTexts() ([]string, error)                                           { return nil, nil }
-func (m *mockLocator) AllTextContents() ([]string, error)                                         { return nil, nil }
-func (m *mockLocator) And(locator playwright.Locator) playwright.Locator                          { return m }
-func (m *mockLocator) AriaSnapshot(options ...playwright.LocatorAriaSnapshotOptions) (string, error) { return "", nil }
-func (m *mockLocator) Blur(options ...playwright.LocatorBlurOptions) error                        { return nil }
-func (m *mockLocator) BoundingBox(options ...playwright.LocatorBoundingBoxOptions) (*playwright.Rect, error) { return nil, nil }
-func (m *mockLocator) Check(options ...playwright.LocatorCheckOptions) error                      { return nil }
-func (m *mockLocator) Clear(options ...playwright.LocatorClearOptions) error                      { return nil }
-func (m *mockLocator) Count() (int, error)                                                        { return 0, nil }
-func (m *mockLocator) Dblclick(options ...playwright.LocatorDblclickOptions) error                { return nil }
-func (m *mockLocator) DispatchEvent(typ string, eventInit interface{}, options ...playwright.LocatorDispatchEventOptions) error { return nil }
-func (m *mockLocator) DragTo(target playwright.Locator, options ...playwright.LocatorDragToOptions) error { return nil }
-func (m *mockLocator) ElementHandle(options ...playwright.LocatorElementHandleOptions) (playwright.ElementHandle, error) { return nil, nil }
-func (m *mockLocator) ElementHandles() ([]playwright.ElementHandle, error)                        { return nil, nil }
-func (m *mockLocator) ContentFrame() playwright.FrameLocator                                      { return nil }
-func (m *mockLocator) Evaluate(expression string, arg interface{}, options ...playwright.LocatorEvaluateOptions) (interface{}, error) { return nil, nil }
-func (m *mockLocator) EvaluateAll(expression string, arg ...interface{}) (interface{}, error)     { return nil, nil }
-func (m *mockLocator) EvaluateHandle(expression string, arg interface{}, options ...playwright.LocatorEvaluateHandleOptions) (playwright.JSHandle, error) { return nil, nil }
-func (m *mockLocator) Filter(options ...playwright.LocatorFilterOptions) playwright.Locator       { return m }
-func (m *mockLocator) First() playwright.Locator                                                  { return m }
-func (m *mockLocator) Focus(options ...playwright.LocatorFocusOptions) error                      { return nil }
-func (m *mockLocator) FrameLocator(selector string) playwright.FrameLocator                       { return nil }
-func (m *mockLocator) GetAttribute(name string, options ...playwright.LocatorGetAttributeOptions) (string, error) { return "", nil }
-func (m *mockLocator) GetByAltText(text interface{}, options ...playwright.LocatorGetByAltTextOptions) playwright.Locator { return m }
-func (m *mockLocator) GetByLabel(text interface{}, options ...playwright.LocatorGetByLabelOptions) playwright.Locator { return m }
-func (m *mockLocator) GetByPlaceholder(text interface{}, options ...playwright.LocatorGetByPlaceholderOptions) playwright.Locator { return m }
-func (m *mockLocator) GetByRole(role playwright.AriaRole, options ...playwright.LocatorGetByRoleOptions) playwright.Locator { return m }
-func (m *mockLocator) GetByTestId(testId interface{}) playwright.Locator                          { return m }
-func (m *mockLocator) GetByText(text interface{}, options ...playwright.LocatorGetByTextOptions) playwright.Locator { return m }
-func (m *mockLocator) GetByTitle(text interface{}, options ...playwright.LocatorGetByTitleOptions) playwright.Locator { return m }
-func (m *mockLocator) Highlight() error                                                           { return nil }
-func (m *mockLocator) InnerHTML(options ...playwright.LocatorInnerHTMLOptions) (string, error)    { return "", nil }
-func (m *mockLocator) InnerText(options ...playwright.LocatorInnerTextOptions) (string, error)    { return "", nil }
-func (m *mockLocator) InputValue(options ...playwright.LocatorInputValueOptions) (string, error)  { return "", nil }
-func (m *mockLocator) IsChecked(options ...playwright.LocatorIsCheckedOptions) (bool, error)      { return false, nil }
-func (m *mockLocator) IsDisabled(options ...playwright.LocatorIsDisabledOptions) (bool, error)    { return false, nil }
-func (m *mockLocator) IsEditable(options ...playwright.LocatorIsEditableOptions) (bool, error)    { return false, nil }
-func (m *mockLocator) IsEnabled(options ...playwright.LocatorIsEnabledOptions) (bool, error)      { return false, nil }
-func (m *mockLocator) IsHidden(options ...playwright.LocatorIsHiddenOptions) (bool, error)        { return false, nil }
-func (m *mockLocator) IsVisible(options ...playwright.LocatorIsVisibleOptions) (bool, error)      { return false, nil }
-func (m *mockLocator) Last() playwright.Locator                                                   { return m }
-func (m *mockLocator) Locator(selectorOrLocator interface{}, options ...playwright.LocatorLocatorOptions) playwright.Locator { return m }
-func (m *mockLocator) Nth(index int) playwright.Locator                                           { return m }
-func (m *mockLocator) Or(locator playwright.Locator) playwright.Locator                           { return m }
-func (m *mockLocator) Page() (playwright.Page, error)                                             { return nil, nil }
-func (m *mockLocator) Screenshot(options ...playwright.LocatorScreenshotOptions) ([]byte, error)  { return nil, nil }
-func (m *mockLocator) ScrollIntoViewIfNeeded(options ...playwright.LocatorScrollIntoViewIfNeededOptions) error { return nil }
-func (m *mockLocator) SelectText(options ...playwright.LocatorSelectTextOptions) error            { return nil }
-func (m *mockLocator) SetChecked(checked bool, options ...playwright.LocatorSetCheckedOptions) error { return nil }
-func (m *mockLocator) SetInputFiles(files interface{}, options ...playwright.LocatorSetInputFilesOptions) error { return nil }
-func (m *mockLocator) Tap(options ...playwright.LocatorTapOptions) error                          { return nil }
-func (m *mockLocator) TextContent(options ...playwright.LocatorTextContentOptions) (string, error) { return "", nil }
-func (m *mockLocator) Type(text string, options ...playwright.LocatorTypeOptions) error           { return nil }
-func (m *mockLocator) Uncheck(options ...playwright.LocatorUncheckOptions) error                  { return nil }
-func (m *mockLocator) WaitFor(options ...playwright.LocatorWaitForOptions) error                  { return nil }
-func (m *mockLocator) Err() error                                                                 { return nil }
+func (m *mockLocator) All() ([]playwright.Locator, error)                { return nil, nil }
+func (m *mockLocator) AllInnerTexts() ([]string, error)                  { return nil, nil }
+func (m *mockLocator) AllTextContents() ([]string, error)                { return nil, nil }
+func (m *mockLocator) And(locator playwright.Locator) playwright.Locator { return m }
+func (m *mockLocator) AriaSnapshot(options ...playwright.LocatorAriaSnapshotOptions) (string, error) {
+	return "", nil
+}
+func (m *mockLocator) Blur(options ...playwright.LocatorBlurOptions) error { return nil }
+func (m *mockLocator) BoundingBox(options ...playwright.LocatorBoundingBoxOptions) (*playwright.Rect, error) {
+	return nil, nil
+}
+func (m *mockLocator) Check(options ...playwright.LocatorCheckOptions) error       { return nil }
+func (m *mockLocator) Clear(options ...playwright.LocatorClearOptions) error       { return nil }
+func (m *mockLocator) Count() (int, error)                                         { return 0, nil }
+func (m *mockLocator) Dblclick(options ...playwright.LocatorDblclickOptions) error { return nil }
+func (m *mockLocator) DispatchEvent(typ string, eventInit interface{}, options ...playwright.LocatorDispatchEventOptions) error {
+	return nil
+}
+func (m *mockLocator) DragTo(target playwright.Locator, options ...playwright.LocatorDragToOptions) error {
+	return nil
+}
+func (m *mockLocator) ElementHandle(options ...playwright.LocatorElementHandleOptions) (playwright.ElementHandle, error) {
+	return nil, nil
+}
+func (m *mockLocator) ElementHandles() ([]playwright.ElementHandle, error) { return nil, nil }
+func (m *mockLocator) ContentFrame() playwright.FrameLocator               { return nil }
+func (m *mockLocator) Evaluate(expression string, arg interface{}, options ...playwright.LocatorEvaluateOptions) (interface{}, error) {
+	return nil, nil
+}
+func (m *mockLocator) EvaluateAll(expression string, arg ...interface{}) (interface{}, error) {
+	return nil, nil
+}
+func (m *mockLocator) EvaluateHandle(expression string, arg interface{}, options ...playwright.LocatorEvaluateHandleOptions) (playwright.JSHandle, error) {
+	return nil, nil
+}
+func (m *mockLocator) Filter(options ...playwright.LocatorFilterOptions) playwright.Locator { return m }
+func (m *mockLocator) First() playwright.Locator                                            { return m }
+func (m *mockLocator) Focus(options ...playwright.LocatorFocusOptions) error                { return nil }
+func (m *mockLocator) FrameLocator(selector string) playwright.FrameLocator                 { return nil }
+func (m *mockLocator) GetAttribute(name string, options ...playwright.LocatorGetAttributeOptions) (string, error) {
+	return "", nil
+}
+func (m *mockLocator) GetByAltText(text interface{}, options ...playwright.LocatorGetByAltTextOptions) playwright.Locator {
+	return m
+}
+func (m *mockLocator) GetByLabel(text interface{}, options ...playwright.LocatorGetByLabelOptions) playwright.Locator {
+	return m
+}
+func (m *mockLocator) GetByPlaceholder(text interface{}, options ...playwright.LocatorGetByPlaceholderOptions) playwright.Locator {
+	return m
+}
+func (m *mockLocator) GetByRole(role playwright.AriaRole, options ...playwright.LocatorGetByRoleOptions) playwright.Locator {
+	return m
+}
+func (m *mockLocator) GetByTestId(testId interface{}) playwright.Locator { return m }
+func (m *mockLocator) GetByText(text interface{}, options ...playwright.LocatorGetByTextOptions) playwright.Locator {
+	return m
+}
+func (m *mockLocator) GetByTitle(text interface{}, options ...playwright.LocatorGetByTitleOptions) playwright.Locator {
+	return m
+}
+func (m *mockLocator) Highlight() error { return nil }
+func (m *mockLocator) InnerHTML(options ...playwright.LocatorInnerHTMLOptions) (string, error) {
+	return "", nil
+}
+func (m *mockLocator) InnerText(options ...playwright.LocatorInnerTextOptions) (string, error) {
+	return "", nil
+}
+func (m *mockLocator) InputValue(options ...playwright.LocatorInputValueOptions) (string, error) {
+	return "", nil
+}
+func (m *mockLocator) IsChecked(options ...playwright.LocatorIsCheckedOptions) (bool, error) {
+	return false, nil
+}
+func (m *mockLocator) IsDisabled(options ...playwright.LocatorIsDisabledOptions) (bool, error) {
+	return false, nil
+}
+func (m *mockLocator) IsEditable(options ...playwright.LocatorIsEditableOptions) (bool, error) {
+	return false, nil
+}
+func (m *mockLocator) IsEnabled(options ...playwright.LocatorIsEnabledOptions) (bool, error) {
+	return false, nil
+}
+func (m *mockLocator) IsHidden(options ...playwright.LocatorIsHiddenOptions) (bool, error) {
+	return false, nil
+}
+func (m *mockLocator) IsVisible(options ...playwright.LocatorIsVisibleOptions) (bool, error) {
+	return false, nil
+}
+func (m *mockLocator) Last() playwright.Locator { return m }
+func (m *mockLocator) Locator(selectorOrLocator interface{}, options ...playwright.LocatorLocatorOptions) playwright.Locator {
+	return m
+}
+func (m *mockLocator) Nth(index int) playwright.Locator                 { return m }
+func (m *mockLocator) Or(locator playwright.Locator) playwright.Locator { return m }
+func (m *mockLocator) Page() (playwright.Page, error)                   { return nil, nil }
+func (m *mockLocator) Screenshot(options ...playwright.LocatorScreenshotOptions) ([]byte, error) {
+	return nil, nil
+}
+func (m *mockLocator) ScrollIntoViewIfNeeded(options ...playwright.LocatorScrollIntoViewIfNeededOptions) error {
+	return nil
+}
+func (m *mockLocator) SelectText(options ...playwright.LocatorSelectTextOptions) error { return nil }
+func (m *mockLocator) SetChecked(checked bool, options ...playwright.LocatorSetCheckedOptions) error {
+	return nil
+}
+func (m *mockLocator) SetInputFiles(files interface{}, options ...playwright.LocatorSetInputFilesOptions) error {
+	return nil
+}
+func (m *mockLocator) Tap(options ...playwright.LocatorTapOptions) error { return nil }
+func (m *mockLocator) TextContent(options ...playwright.LocatorTextContentOptions) (string, error) {
+	return "", nil
+}
+func (m *mockLocator) Type(text string, options ...playwright.LocatorTypeOptions) error { return nil }
+func (m *mockLocator) Uncheck(options ...playwright.LocatorUncheckOptions) error        { return nil }
+func (m *mockLocator) WaitFor(options ...playwright.LocatorWaitForOptions) error        { return nil }
+func (m *mockLocator) Err() error                                                       { return nil }
 
 // mockInteractionPage is a mock implementation of playwright.Page for interaction testing.
 type mockInteractionPage struct {
@@ -517,6 +577,9 @@ func TestPressKeyTool(t *testing.T) {
 	if _, ok := props["selector"]; !ok {
 		t.Error("Expected 'selector' property in input schema")
 	}
+	if _, ok := props["modifiers"]; !ok {
+		t.Error("Expected 'modifiers' property in input schema")
+	}
 	if _, ok := props["timeout"]; !ok {
 		t.Error("Expected 'timeout' property in input schema")
 	}
@@ -796,6 +859,19 @@ func TestTypeHandler(t *testing.T) {
 			expectedResult: "[-32001] Session not found",
 		},
 		{
+			name: "nil page in session",
+			arguments: map[string]any{
+				"sessionId": "sess-123",
+				"selector":  "#input",
+				"text":      "hello",
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				return createInteractionSessionWithMockPage(nil), true
+			},
+			expectError:    true,
+			expectedResult: "no active page in session",
+		},
+		{
 			name: "successful type",
 			arguments: map[string]any{
 				"sessionId": "sess-123",
@@ -925,6 +1001,19 @@ func TestFillHandler(t *testing.T) {
 			},
 			expectError:    true,
 			expectedResult: "[-32001] Session not found",
+		},
+		{
+			name: "nil page in session",
+			arguments: map[string]any{
+				"sessionId": "sess-123",
+				"selector":  "#input",
+				"value":     "test value",
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				return createInteractionSessionWithMockPage(nil), true
+			},
+			expectError:    true,
+			expectedResult: "no active page in session",
 		},
 		{
 			name: "successful fill",
@@ -1064,6 +1153,19 @@ func TestSelectOptionHandler(t *testing.T) {
 			},
 			expectError:    true,
 			expectedResult: "[-32001] Session not found",
+		},
+		{
+			name: "nil page in session",
+			arguments: map[string]any{
+				"sessionId": "sess-123",
+				"selector":  "#select",
+				"value":     "option1",
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				return createInteractionSessionWithMockPage(nil), true
+			},
+			expectError:    true,
+			expectedResult: "no active page in session",
 		},
 		{
 			name: "successful select by value",
@@ -1241,6 +1343,18 @@ func TestHoverHandler(t *testing.T) {
 			expectedResult: "[-32001] Session not found",
 		},
 		{
+			name: "nil page in session",
+			arguments: map[string]any{
+				"sessionId": "sess-123",
+				"selector":  "#element",
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				return createInteractionSessionWithMockPage(nil), true
+			},
+			expectError:    true,
+			expectedResult: "no active page in session",
+		},
+		{
 			name: "successful hover",
 			arguments: map[string]any{
 				"sessionId": "sess-123",
@@ -1364,6 +1478,18 @@ func TestPressKeyHandler(t *testing.T) {
 			expectedResult: "[-32001] Session not found",
 		},
 		{
+			name: "nil page in session",
+			arguments: map[string]any{
+				"sessionId": "sess-123",
+				"key":       "Enter",
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				return createInteractionSessionWithMockPage(nil), true
+			},
+			expectError:    true,
+			expectedResult: "no active page in session",
+		},
+		{
 			name: "successful press key on page (no selector)",
 			arguments: map[string]any{
 				"sessionId": "sess-123",
@@ -1439,6 +1565,59 @@ func TestPressKeyHandler(t *testing.T) {
 			},
 			expectError:    false,
 			expectedResult: "Pressed key 'Control+a' on element: #input",
+		},
+		{
+			name: "press key with modifiers array",
+			arguments: map[string]any{
+				"sessionId": "sess-123",
+				"key":       "a",
+				"selector":  "#input",
+				"modifiers": []interface{}{"Control", "Shift"},
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				loc := &mockLocator{
+					pressFunc: func(key string, opts playwright.LocatorPressOptions) error {
+						if key != "Control+Shift+a" {
+							return errors.New("expected key Control+Shift+a, got " + key)
+						}
+						return nil
+					},
+				}
+				page := &mockInteractionPage{
+					locatorFunc: func(selector string, opts ...playwright.PageLocatorOptions) playwright.Locator {
+						return loc
+					},
+				}
+				return createInteractionSessionWithMockPage(page), true
+			},
+			expectError:    false,
+			expectedResult: "Pressed key 'Control+Shift+a' on element: #input",
+		},
+		{
+			name: "press key with single modifier",
+			arguments: map[string]any{
+				"sessionId": "sess-123",
+				"key":       "c",
+				"modifiers": []interface{}{"Meta"},
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				keyboard := &mockKeyboard{
+					pressFunc: func(key string, opts ...playwright.KeyboardPressOptions) error {
+						if key != "Meta+c" {
+							return errors.New("expected key Meta+c, got " + key)
+						}
+						return nil
+					},
+				}
+				page := &mockInteractionPage{
+					keyboardFunc: func() playwright.Keyboard {
+						return keyboard
+					},
+				}
+				return createInteractionSessionWithMockPage(page), true
+			},
+			expectError:    false,
+			expectedResult: "Pressed key 'Meta+c'",
 		},
 	}
 
@@ -1523,11 +1702,11 @@ func TestHandleInteractionError(t *testing.T) {
 			expectedCode: "[-32002]",
 		},
 		{
-			name:         "generic error defaults to element not found",
+			name:         "generic error uses interaction failed code",
 			err:          errors.New("some other error"),
 			operation:    "type",
 			selector:     "#input",
-			expectedCode: "[-32002]",
+			expectedCode: "[-32005]",
 		},
 	}
 
@@ -1545,9 +1724,9 @@ func TestHandleInteractionError(t *testing.T) {
 // TestBuildClickOptions tests the click options builder.
 func TestBuildClickOptions(t *testing.T) {
 	tests := []struct {
-		name       string
-		args       map[string]any
-		checkOpts  func(opts playwright.LocatorClickOptions) error
+		name      string
+		args      map[string]any
+		checkOpts func(opts playwright.LocatorClickOptions) error
 	}{
 		{
 			name: "empty args",
@@ -1652,6 +1831,62 @@ func TestBuildTypeOptions(t *testing.T) {
 			opts := buildTypeOptions(tt.args)
 			if err := tt.checkOpts(opts); err != nil {
 				t.Error(err)
+			}
+		})
+	}
+}
+
+// TestBuildKeyWithModifiers tests the key with modifiers builder.
+func TestBuildKeyWithModifiers(t *testing.T) {
+	tests := []struct {
+		name     string
+		key      string
+		args     map[string]any
+		expected string
+	}{
+		{
+			name:     "no modifiers",
+			key:      "Enter",
+			args:     map[string]any{},
+			expected: "Enter",
+		},
+		{
+			name:     "nil modifiers",
+			key:      "Tab",
+			args:     map[string]any{"modifiers": nil},
+			expected: "Tab",
+		},
+		{
+			name:     "empty modifiers array",
+			key:      "a",
+			args:     map[string]any{"modifiers": []interface{}{}},
+			expected: "a",
+		},
+		{
+			name:     "single modifier",
+			key:      "c",
+			args:     map[string]any{"modifiers": []interface{}{"Control"}},
+			expected: "Control+c",
+		},
+		{
+			name:     "multiple modifiers",
+			key:      "a",
+			args:     map[string]any{"modifiers": []interface{}{"Control", "Shift"}},
+			expected: "Control+Shift+a",
+		},
+		{
+			name:     "all modifiers",
+			key:      "x",
+			args:     map[string]any{"modifiers": []interface{}{"Control", "Shift", "Alt", "Meta"}},
+			expected: "Control+Shift+Alt+Meta+x",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := buildKeyWithModifiers(tt.key, tt.args)
+			if result != tt.expected {
+				t.Errorf("Expected '%s', got '%s'", tt.expected, result)
 			}
 		})
 	}

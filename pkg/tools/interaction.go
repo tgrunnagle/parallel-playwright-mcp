@@ -366,10 +366,17 @@ func PressKeyTool() mcp.Tool {
 		),
 		mcp.WithString("key",
 			mcp.Required(),
-			mcp.Description("Key to press (e.g., 'Enter', 'Tab', 'a', 'Control+c')"),
+			mcp.Description("Key to press (e.g., 'Enter', 'Tab', 'a')"),
 		),
 		mcp.WithString("selector",
 			mcp.Description("Optional CSS selector to focus before pressing key"),
+		),
+		mcp.WithArray("modifiers",
+			mcp.Description("Modifier keys to hold during press"),
+			mcp.Items(map[string]any{
+				"type": "string",
+				"enum": []string{"Control", "Shift", "Alt", "Meta"},
+			}),
 		),
 		mcp.WithNumber("timeout",
 			mcp.Description("Maximum time to wait for element in milliseconds"),
@@ -394,6 +401,9 @@ func PressKeyHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
 
 		selector := req.GetString("selector", "")
 
+		// Build key string with modifiers if provided
+		keyWithModifiers := buildKeyWithModifiers(key, req.GetArguments())
+
 		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
 		if !ok {
 			return newInteractionSessionNotFoundError(sessionID), nil
@@ -409,19 +419,19 @@ func PressKeyHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
 			locator := page.Locator(selector)
 			opts := buildPressOptions(req.GetArguments())
 
-			if err := locator.Press(key, opts); err != nil {
+			if err := locator.Press(keyWithModifiers, opts); err != nil {
 				return handleInteractionError(err, "press_key", selector), nil
 			}
 
-			return mcp.NewToolResultText(fmt.Sprintf("Pressed key '%s' on element: %s", key, selector)), nil
+			return mcp.NewToolResultText(fmt.Sprintf("Pressed key '%s' on element: %s", keyWithModifiers, selector)), nil
 		}
 
 		// Press key without focusing specific element
-		if err := page.Keyboard().Press(key); err != nil {
+		if err := page.Keyboard().Press(keyWithModifiers); err != nil {
 			return handleInteractionError(err, "press_key", "page"), nil
 		}
 
-		return mcp.NewToolResultText(fmt.Sprintf("Pressed key '%s'", key)), nil
+		return mcp.NewToolResultText(fmt.Sprintf("Pressed key '%s'", keyWithModifiers)), nil
 	}
 }
 
@@ -505,6 +515,36 @@ func buildPressOptions(args map[string]any) playwright.LocatorPressOptions {
 	return opts
 }
 
+// buildKeyWithModifiers combines the key with any modifiers provided.
+// Returns a key string in Playwright format (e.g., "Control+Shift+a").
+func buildKeyWithModifiers(key string, args map[string]any) string {
+	modifiersArg, ok := args["modifiers"]
+	if !ok || modifiersArg == nil {
+		return key
+	}
+
+	// modifiers comes as []interface{} from JSON
+	modifiersSlice, ok := modifiersArg.([]interface{})
+	if !ok || len(modifiersSlice) == 0 {
+		return key
+	}
+
+	// Build modifier prefix
+	var modifiers []string
+	for _, m := range modifiersSlice {
+		if modStr, ok := m.(string); ok && modStr != "" {
+			modifiers = append(modifiers, modStr)
+		}
+	}
+
+	if len(modifiers) == 0 {
+		return key
+	}
+
+	// Combine modifiers with key (e.g., "Control+Shift+a")
+	return strings.Join(append(modifiers, key), "+")
+}
+
 // newInteractionSessionNotFoundError creates an error result for invalid session ID.
 // Uses error code -32001 (Session Not Found).
 func newInteractionSessionNotFoundError(sessionID string) *mcp.CallToolResult {
@@ -512,16 +552,21 @@ func newInteractionSessionNotFoundError(sessionID string) *mcp.CallToolResult {
 }
 
 // handleInteractionError classifies interaction errors and returns appropriate error results.
-// Element not found errors get code -32002, timeout errors get code -32003.
+// Element not found errors get code -32002, timeout errors get code -32003,
+// unclassified interaction errors get code -32005.
 func handleInteractionError(err error, operation, selector string) *mcp.CallToolResult {
 	errMsg := strings.ToLower(err.Error())
 
-	// Check for element not found errors
+	// Check for element not found or not actionable errors
 	if strings.Contains(errMsg, "strict mode violation") ||
 		strings.Contains(errMsg, "resolved to") ||
 		strings.Contains(errMsg, "no element matches") ||
 		strings.Contains(errMsg, "element is not attached") ||
-		strings.Contains(errMsg, "element is not visible") {
+		strings.Contains(errMsg, "element is not visible") ||
+		strings.Contains(errMsg, "element is outside of the viewport") ||
+		strings.Contains(errMsg, "element is not stable") ||
+		strings.Contains(errMsg, "element is not editable") ||
+		strings.Contains(errMsg, "element is disabled") {
 		return mcp.NewToolResultError(fmt.Sprintf("[%d] Element not found or not actionable: %s - %v", errors.CodeElementNotFound, selector, err))
 	}
 
@@ -530,6 +575,6 @@ func handleInteractionError(err error, operation, selector string) *mcp.CallTool
 		return mcp.NewToolResultError(fmt.Sprintf("[%d] Timeout waiting for element: %s - %v", errors.CodeTimeout, selector, err))
 	}
 
-	// Default to element not found for other interaction errors
-	return mcp.NewToolResultError(fmt.Sprintf("[%d] %s failed on element: %s - %v", errors.CodeElementNotFound, operation, selector, err))
+	// Return generic interaction error for unclassified errors
+	return mcp.NewToolResultError(fmt.Sprintf("[%d] %s failed: %s - %v", errors.CodeInteractionFailed, operation, selector, err))
 }

@@ -16,10 +16,11 @@ const (
 
 // Custom Playwright MCP error codes.
 const (
-	CodeSessionNotFound  = -32001
-	CodeElementNotFound  = -32002
-	CodeTimeout          = -32003
-	CodeNavigationFailed = -32004
+	CodeSessionNotFound   = -32001
+	CodeElementNotFound   = -32002
+	CodeTimeout           = -32003
+	CodeNavigationFailed  = -32004
+	CodeInteractionFailed = -32005
 )
 
 // MCPError is the interface all custom MCP errors implement.
