@@ -62,7 +62,7 @@ func (e *SessionNotFoundError) ErrorCode() int {
 // ErrorData returns additional context for the error response.
 func (e *SessionNotFoundError) ErrorData() map[string]any {
 	data := map[string]any{
-		"suggestion": "Verify the session ID or create a new session",
+		"suggestion": SuggestSessionNotFound,
 	}
 	if e.SessionID != "" {
 		data["sessionId"] = e.SessionID
@@ -123,7 +123,7 @@ func (e *ElementNotFoundError) ErrorCode() int {
 // ErrorData returns additional context for the error response.
 func (e *ElementNotFoundError) ErrorData() map[string]any {
 	data := map[string]any{
-		"suggestion": "Verify the selector or increase timeout",
+		"suggestion": SuggestElementNotFound,
 	}
 	if e.Selector != "" {
 		data["selector"] = e.Selector
@@ -193,7 +193,7 @@ func (e *TimeoutError) ErrorCode() int {
 // ErrorData returns additional context for the error response.
 func (e *TimeoutError) ErrorData() map[string]any {
 	data := map[string]any{
-		"suggestion": "Increase timeout or verify the operation can complete",
+		"suggestion": SuggestTimeout,
 	}
 	if e.Operation != "" {
 		data["operation"] = e.Operation
@@ -263,7 +263,7 @@ func (e *NavigationError) ErrorCode() int {
 // ErrorData returns additional context for the error response.
 func (e *NavigationError) ErrorData() map[string]any {
 	data := map[string]any{
-		"suggestion": "Verify the URL is accessible and correctly formatted",
+		"suggestion": SuggestNavigationFailed,
 	}
 	if e.URL != "" {
 		data["url"] = e.URL
