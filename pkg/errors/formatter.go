@@ -3,6 +3,7 @@ package errors
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 )
 
@@ -53,53 +54,64 @@ const (
 )
 
 // Suggestion messages for each error type.
+// These are exported so they can be used consistently in ErrorData() methods.
 const (
-	suggestSessionNotFound  = "Verify the session ID or create a new session with session_create"
-	suggestElementNotFound  = "Verify the selector is correct, ensure the element exists, or increase timeout"
-	suggestTimeout          = "Increase the timeout value or check if the page/element is responsive"
-	suggestNavigationFailed = "Verify the URL is accessible and correctly formatted"
-	suggestInternalError    = "An unexpected error occurred. Check server logs for details."
-	suggestParseError       = "Check that the request body is valid JSON"
-	suggestInvalidRequest   = "Verify the request follows JSON-RPC 2.0 format"
-	suggestMethodNotFound   = "Check the method name is correct and the tool is registered"
-	suggestInvalidParams    = "Verify all required parameters are provided with correct types"
+	SuggestSessionNotFound  = "Verify the session ID or create a new session with session_create"
+	SuggestElementNotFound  = "Verify the selector is correct, ensure the element exists, or increase timeout"
+	SuggestTimeout          = "Increase the timeout value or check if the page/element is responsive"
+	SuggestNavigationFailed = "Verify the URL is accessible and correctly formatted"
+	SuggestInternalError    = "An unexpected error occurred. Check server logs for details."
+	SuggestParseError       = "Check that the request body is valid JSON"
+	SuggestInvalidRequest   = "Verify the request follows JSON-RPC 2.0 format"
+	SuggestMethodNotFound   = "Check the method name is correct and the tool is registered"
+	SuggestInvalidParams    = "Verify all required parameters are provided with correct types"
 )
 
 // FormatError converts any error to an MCP-compliant ErrorResponse.
 // It handles custom MCP error types, standard JSON-RPC errors, and generic errors.
+// Uses errors.As to properly handle wrapped errors in the error chain.
 // Returns nil if the input error is nil.
 func FormatError(err error) *ErrorResponse {
 	if err == nil {
 		return nil
 	}
 
-	// Handle custom MCP error types using type switch
-	switch e := err.(type) {
-	case *SessionNotFoundError:
-		return formatSessionNotFoundError(e)
-	case *ElementNotFoundError:
-		return formatElementNotFoundError(e)
-	case *TimeoutError:
-		return formatTimeoutError(e)
-	case *NavigationError:
-		return formatNavigationError(e)
-	default:
-		// Handle as generic internal error
-		return &ErrorResponse{
-			Code:    CodeInternalError,
-			Message: msgInternalError,
-			Data: &ErrorData{
-				Suggestion: suggestInternalError,
-				Cause:      err.Error(),
-			},
-		}
+	// Handle custom MCP error types using errors.As to support wrapped errors
+	var sessionErr *SessionNotFoundError
+	if errors.As(err, &sessionErr) {
+		return formatSessionNotFoundError(sessionErr)
+	}
+
+	var elementErr *ElementNotFoundError
+	if errors.As(err, &elementErr) {
+		return formatElementNotFoundError(elementErr)
+	}
+
+	var timeoutErr *TimeoutError
+	if errors.As(err, &timeoutErr) {
+		return formatTimeoutError(timeoutErr)
+	}
+
+	var navErr *NavigationError
+	if errors.As(err, &navErr) {
+		return formatNavigationError(navErr)
+	}
+
+	// Handle as generic internal error
+	return &ErrorResponse{
+		Code:    CodeInternalError,
+		Message: msgInternalError,
+		Data: &ErrorData{
+			Suggestion: SuggestInternalError,
+			Cause:      err.Error(),
+		},
 	}
 }
 
 // formatSessionNotFoundError formats a SessionNotFoundError into an ErrorResponse.
 func formatSessionNotFoundError(e *SessionNotFoundError) *ErrorResponse {
 	data := &ErrorData{
-		Suggestion: suggestSessionNotFound,
+		Suggestion: SuggestSessionNotFound,
 	}
 
 	if e.SessionID != "" {
@@ -119,7 +131,7 @@ func formatSessionNotFoundError(e *SessionNotFoundError) *ErrorResponse {
 // formatElementNotFoundError formats an ElementNotFoundError into an ErrorResponse.
 func formatElementNotFoundError(e *ElementNotFoundError) *ErrorResponse {
 	data := &ErrorData{
-		Suggestion: suggestElementNotFound,
+		Suggestion: SuggestElementNotFound,
 	}
 
 	if e.Selector != "" {
@@ -142,7 +154,7 @@ func formatElementNotFoundError(e *ElementNotFoundError) *ErrorResponse {
 // formatTimeoutError formats a TimeoutError into an ErrorResponse.
 func formatTimeoutError(e *TimeoutError) *ErrorResponse {
 	data := &ErrorData{
-		Suggestion: suggestTimeout,
+		Suggestion: SuggestTimeout,
 	}
 
 	if e.Operation != "" {
@@ -165,7 +177,7 @@ func formatTimeoutError(e *TimeoutError) *ErrorResponse {
 // formatNavigationError formats a NavigationError into an ErrorResponse.
 func formatNavigationError(e *NavigationError) *ErrorResponse {
 	data := &ErrorData{
-		Suggestion: suggestNavigationFailed,
+		Suggestion: SuggestNavigationFailed,
 	}
 
 	if e.URL != "" {
@@ -193,17 +205,17 @@ func FormatErrorWithCode(code int, message string) *ErrorResponse {
 
 	switch code {
 	case CodeParseError:
-		data.Suggestion = suggestParseError
+		data.Suggestion = SuggestParseError
 	case CodeInvalidRequest:
-		data.Suggestion = suggestInvalidRequest
+		data.Suggestion = SuggestInvalidRequest
 	case CodeMethodNotFound:
-		data.Suggestion = suggestMethodNotFound
+		data.Suggestion = SuggestMethodNotFound
 	case CodeInvalidParams:
-		data.Suggestion = suggestInvalidParams
+		data.Suggestion = SuggestInvalidParams
 	case CodeInternalError:
-		data.Suggestion = suggestInternalError
+		data.Suggestion = SuggestInternalError
 	default:
-		data.Suggestion = suggestInternalError
+		data.Suggestion = SuggestInternalError
 	}
 
 	if message != "" {

@@ -3,6 +3,7 @@ package errors
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -355,6 +356,122 @@ func TestFormatError_GenericError(t *testing.T) {
 	})
 }
 
+func TestFormatError_WrappedErrors(t *testing.T) {
+	t.Run("handles wrapped SessionNotFoundError", func(t *testing.T) {
+		inner := NewSessionNotFoundError("sess-123")
+		wrapped := fmt.Errorf("handler context: %w", inner)
+		result := FormatError(wrapped)
+
+		if result.Code != CodeSessionNotFound {
+			t.Errorf("Code = %d, want %d", result.Code, CodeSessionNotFound)
+		}
+		if result.Message != msgSessionNotFound {
+			t.Errorf("Message = %q, want %q", result.Message, msgSessionNotFound)
+		}
+		if result.Data.SessionID != "sess-123" {
+			t.Errorf("Data.SessionID = %q, want %q", result.Data.SessionID, "sess-123")
+		}
+	})
+
+	t.Run("handles wrapped ElementNotFoundError", func(t *testing.T) {
+		inner := NewElementNotFoundError("#button", 5000)
+		wrapped := fmt.Errorf("click handler failed: %w", inner)
+		result := FormatError(wrapped)
+
+		if result.Code != CodeElementNotFound {
+			t.Errorf("Code = %d, want %d", result.Code, CodeElementNotFound)
+		}
+		if result.Message != msgElementNotFound {
+			t.Errorf("Message = %q, want %q", result.Message, msgElementNotFound)
+		}
+		if result.Data.Selector != "#button" {
+			t.Errorf("Data.Selector = %q, want %q", result.Data.Selector, "#button")
+		}
+		if result.Data.Timeout != 5000 {
+			t.Errorf("Data.Timeout = %d, want %d", result.Data.Timeout, 5000)
+		}
+	})
+
+	t.Run("handles wrapped TimeoutError", func(t *testing.T) {
+		inner := NewTimeoutError("navigation", 30000)
+		wrapped := fmt.Errorf("page load failed: %w", inner)
+		result := FormatError(wrapped)
+
+		if result.Code != CodeTimeout {
+			t.Errorf("Code = %d, want %d", result.Code, CodeTimeout)
+		}
+		if result.Message != msgTimeout {
+			t.Errorf("Message = %q, want %q", result.Message, msgTimeout)
+		}
+		if result.Data.Operation != "navigation" {
+			t.Errorf("Data.Operation = %q, want %q", result.Data.Operation, "navigation")
+		}
+		if result.Data.Timeout != 30000 {
+			t.Errorf("Data.Timeout = %d, want %d", result.Data.Timeout, 30000)
+		}
+	})
+
+	t.Run("handles wrapped NavigationError", func(t *testing.T) {
+		inner := NewNavigationError("https://example.com", "connection refused")
+		wrapped := fmt.Errorf("navigate tool failed: %w", inner)
+		result := FormatError(wrapped)
+
+		if result.Code != CodeNavigationFailed {
+			t.Errorf("Code = %d, want %d", result.Code, CodeNavigationFailed)
+		}
+		if result.Message != msgNavigationFailed {
+			t.Errorf("Message = %q, want %q", result.Message, msgNavigationFailed)
+		}
+		if result.Data.URL != "https://example.com" {
+			t.Errorf("Data.URL = %q, want %q", result.Data.URL, "https://example.com")
+		}
+		if result.Data.Reason != "connection refused" {
+			t.Errorf("Data.Reason = %q, want %q", result.Data.Reason, "connection refused")
+		}
+	})
+
+	t.Run("handles double-wrapped errors", func(t *testing.T) {
+		inner := NewSessionNotFoundError("sess-abc")
+		wrapped1 := fmt.Errorf("handler failed: %w", inner)
+		wrapped2 := fmt.Errorf("tool execution error: %w", wrapped1)
+		result := FormatError(wrapped2)
+
+		if result.Code != CodeSessionNotFound {
+			t.Errorf("Code = %d, want %d", result.Code, CodeSessionNotFound)
+		}
+		if result.Data.SessionID != "sess-abc" {
+			t.Errorf("Data.SessionID = %q, want %q", result.Data.SessionID, "sess-abc")
+		}
+	})
+
+	t.Run("wrapped errors preserve suggestion", func(t *testing.T) {
+		inner := NewSessionNotFoundError("sess-123")
+		wrapped := fmt.Errorf("context: %w", inner)
+		result := FormatError(wrapped)
+
+		if result.Data.Suggestion == "" {
+			t.Error("Data.Suggestion should not be empty for wrapped error")
+		}
+		if !strings.Contains(result.Data.Suggestion, "session_create") {
+			t.Errorf("Suggestion %q should mention session_create", result.Data.Suggestion)
+		}
+	})
+
+	t.Run("wrapped error with additional context in inner error", func(t *testing.T) {
+		underlying := errors.New("database error")
+		inner := WrapSessionNotFoundError("sess-123", underlying)
+		wrapped := fmt.Errorf("handler context: %w", inner)
+		result := FormatError(wrapped)
+
+		if result.Code != CodeSessionNotFound {
+			t.Errorf("Code = %d, want %d", result.Code, CodeSessionNotFound)
+		}
+		if result.Data.Cause != "database error" {
+			t.Errorf("Data.Cause = %q, want %q", result.Data.Cause, "database error")
+		}
+	})
+}
+
 func TestFormatErrorWithCode(t *testing.T) {
 	t.Run("formats parse error", func(t *testing.T) {
 		result := FormatErrorWithCode(CodeParseError, "invalid JSON at position 10")
@@ -365,8 +482,8 @@ func TestFormatErrorWithCode(t *testing.T) {
 		if result.Message != msgParseError {
 			t.Errorf("Message = %q, want %q", result.Message, msgParseError)
 		}
-		if result.Data.Suggestion != suggestParseError {
-			t.Errorf("Suggestion = %q, want %q", result.Data.Suggestion, suggestParseError)
+		if result.Data.Suggestion != SuggestParseError {
+			t.Errorf("Suggestion = %q, want %q", result.Data.Suggestion, SuggestParseError)
 		}
 		if result.Data.Cause != "invalid JSON at position 10" {
 			t.Errorf("Cause = %q, want %q", result.Data.Cause, "invalid JSON at position 10")
@@ -382,8 +499,8 @@ func TestFormatErrorWithCode(t *testing.T) {
 		if result.Message != msgInvalidRequest {
 			t.Errorf("Message = %q, want %q", result.Message, msgInvalidRequest)
 		}
-		if result.Data.Suggestion != suggestInvalidRequest {
-			t.Errorf("Suggestion = %q, want %q", result.Data.Suggestion, suggestInvalidRequest)
+		if result.Data.Suggestion != SuggestInvalidRequest {
+			t.Errorf("Suggestion = %q, want %q", result.Data.Suggestion, SuggestInvalidRequest)
 		}
 	})
 
@@ -396,8 +513,8 @@ func TestFormatErrorWithCode(t *testing.T) {
 		if result.Message != msgMethodNotFound {
 			t.Errorf("Message = %q, want %q", result.Message, msgMethodNotFound)
 		}
-		if result.Data.Suggestion != suggestMethodNotFound {
-			t.Errorf("Suggestion = %q, want %q", result.Data.Suggestion, suggestMethodNotFound)
+		if result.Data.Suggestion != SuggestMethodNotFound {
+			t.Errorf("Suggestion = %q, want %q", result.Data.Suggestion, SuggestMethodNotFound)
 		}
 	})
 
@@ -410,8 +527,8 @@ func TestFormatErrorWithCode(t *testing.T) {
 		if result.Message != msgInvalidParams {
 			t.Errorf("Message = %q, want %q", result.Message, msgInvalidParams)
 		}
-		if result.Data.Suggestion != suggestInvalidParams {
-			t.Errorf("Suggestion = %q, want %q", result.Data.Suggestion, suggestInvalidParams)
+		if result.Data.Suggestion != SuggestInvalidParams {
+			t.Errorf("Suggestion = %q, want %q", result.Data.Suggestion, SuggestInvalidParams)
 		}
 	})
 
@@ -430,8 +547,8 @@ func TestFormatErrorWithCode(t *testing.T) {
 		result := FormatErrorWithCode(-99999, "unknown error")
 
 		// Should use internal error suggestion as fallback
-		if result.Data.Suggestion != suggestInternalError {
-			t.Errorf("Suggestion = %q, want %q", result.Data.Suggestion, suggestInternalError)
+		if result.Data.Suggestion != SuggestInternalError {
+			t.Errorf("Suggestion = %q, want %q", result.Data.Suggestion, SuggestInternalError)
 		}
 	})
 
