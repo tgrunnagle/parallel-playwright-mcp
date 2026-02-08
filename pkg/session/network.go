@@ -2,6 +2,7 @@ package session
 
 import (
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -123,9 +124,14 @@ type pendingRequest struct {
 }
 
 // requestKey generates a unique key for correlating requests with responses.
-// Uses URL + method combination to handle concurrent requests to same endpoint.
+// Uses method + URL + frame URL to better handle concurrent identical requests
+// from different frames or iframes.
 func requestKey(request playwright.Request) string {
-	return request.Method() + "|" + request.URL()
+	frameURL := ""
+	if frame := request.Frame(); frame != nil {
+		frameURL = frame.URL()
+	}
+	return request.Method() + "|" + request.URL() + "|" + frameURL
 }
 
 // SetupNetworkLogging attaches request/response event listeners to a page
@@ -193,7 +199,7 @@ func SetupNetworkLogging(page playwright.Page, buffer *NetworkLogBuffer) func() 
 		headers, err := response.HeadersArray()
 		if err == nil {
 			for _, h := range headers {
-				if h.Name == "content-length" {
+				if strings.EqualFold(h.Name, "content-length") {
 					if size, parseErr := strconv.ParseInt(h.Value, 10, 64); parseErr == nil {
 						responseSize = size
 					}

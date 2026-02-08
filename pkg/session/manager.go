@@ -240,6 +240,14 @@ func (m *manager) CloseSession(ctx context.Context, mcpSessionID, browserSession
 		return ErrUnauthorized
 	}
 
+	// Call network cleanup functions for all pages
+	for tabID, cleanup := range session.networkCleanups {
+		if cleanup != nil {
+			cleanup()
+		}
+		delete(session.networkCleanups, tabID)
+	}
+
 	// Close all pages in the session
 	for _, page := range session.Pages {
 		_ = page.Close() // Log but continue - we still want to close the context
@@ -324,6 +332,14 @@ func (m *manager) CloseAllForMCP(ctx context.Context, mcpSessionID string) error
 			continue // Session already removed somehow
 		}
 
+		// Call network cleanup functions for all pages
+		for tabID, cleanup := range session.networkCleanups {
+			if cleanup != nil {
+				cleanup()
+			}
+			delete(session.networkCleanups, tabID)
+		}
+
 		// Close all pages in the session
 		for _, page := range session.Pages {
 			_ = page.Close()
@@ -370,6 +386,14 @@ func (m *manager) CloseAll(ctx context.Context) error {
 			errs = append(errs, ctx.Err())
 			return errors.Join(errs...)
 		default:
+		}
+
+		// Call network cleanup functions for all pages
+		for tabID, cleanup := range session.networkCleanups {
+			if cleanup != nil {
+				cleanup()
+			}
+			delete(session.networkCleanups, tabID)
 		}
 
 		// Close all pages in the session

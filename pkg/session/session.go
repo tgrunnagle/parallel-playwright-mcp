@@ -150,3 +150,38 @@ func (s *BrowserSession) AddNetworkCleanup(tabID string, cleanup func()) {
 	}
 	s.networkCleanups[tabID] = cleanup
 }
+
+// AddPageWithLogging adds a new page to the session with console and network logging
+// automatically configured. This is the recommended method for adding new tabs/pages
+// as it ensures all event handlers are properly attached.
+// If a page with the same tab ID already exists, it will be replaced (and its cleanup
+// functions will be called first).
+func (s *BrowserSession) AddPageWithLogging(tabID string, page playwright.Page) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Clean up existing page if present
+	if _, exists := s.Pages[tabID]; exists {
+		if cleanup, ok := s.networkCleanups[tabID]; ok {
+			cleanup()
+			delete(s.networkCleanups, tabID)
+		}
+	}
+
+	// Add the page
+	s.Pages[tabID] = page
+
+	// Attach console handler if buffer exists
+	if s.ConsoleLogs != nil {
+		AttachConsoleHandler(page, s.ConsoleLogs)
+	}
+
+	// Setup network logging if buffer exists
+	if s.NetworkLogs != nil {
+		cleanup := SetupNetworkLogging(page, s.NetworkLogs)
+		if s.networkCleanups == nil {
+			s.networkCleanups = make(map[string]func())
+		}
+		s.networkCleanups[tabID] = cleanup
+	}
+}

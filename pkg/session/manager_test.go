@@ -68,6 +68,11 @@ func (m *mockPage) On(event string, handler interface{}) {
 			m.consoleHandlers = append(m.consoleHandlers, h)
 		}
 	}
+	// Network events are handled but not stored (for simplicity in these tests)
+}
+
+func (m *mockPage) RemoveListener(event string, handler interface{}) {
+	// No-op for mock - just prevents panic when cleanup is called
 }
 
 // simulateConsoleMessage simulates a console message being emitted for testing.

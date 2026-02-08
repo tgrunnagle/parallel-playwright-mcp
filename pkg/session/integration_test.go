@@ -400,3 +400,155 @@ func TestCleanupIntegration(t *testing.T) {
 		}
 	})
 }
+
+func TestNetworkLoggingIntegration(t *testing.T) {
+	pool := setupPool(t)
+	defer pool.Stop(context.Background())
+
+	mgr := NewManager(pool)
+	ctx := context.Background()
+
+	t.Run("network buffer is initialized for new session", func(t *testing.T) {
+		session, err := mgr.CreateSession(ctx, "mcp-1", SessionOptions{
+			BrowserType: browser.BrowserChromium,
+		})
+		if err != nil {
+			skipIfPlaywrightNotInstalled(t, err)
+			t.Fatalf("CreateSession failed: %v", err)
+		}
+		defer mgr.CloseSession(ctx, "mcp-1", session.ID)
+
+		if session.NetworkLogs == nil {
+			t.Fatal("NetworkLogs should not be nil")
+		}
+	})
+
+	t.Run("captures network activity during navigation", func(t *testing.T) {
+		session, err := mgr.CreateSession(ctx, "mcp-1", SessionOptions{
+			BrowserType: browser.BrowserChromium,
+		})
+		if err != nil {
+			skipIfPlaywrightNotInstalled(t, err)
+			t.Fatalf("CreateSession failed: %v", err)
+		}
+		defer mgr.CloseSession(ctx, "mcp-1", session.ID)
+
+		page := session.ActivePage()
+		if page == nil {
+			t.Fatal("ActivePage should not be nil")
+		}
+
+		// Navigate to a data URL that generates a network request
+		dataURL := "data:text/html,<html><body>Test</body></html>"
+		_, err = page.Goto(dataURL)
+		if err != nil {
+			t.Fatalf("Page.Goto failed: %v", err)
+		}
+
+		// Give some time for network events to be processed
+		time.Sleep(100 * time.Millisecond)
+
+		// Verify network entries were captured
+		entries := session.NetworkLogs.Entries(0)
+		if len(entries) == 0 {
+			t.Error("expected at least one network entry from navigation")
+		}
+
+		// Verify the captured entry has expected fields
+		if len(entries) > 0 {
+			entry := entries[0]
+			if entry.Method == "" {
+				t.Error("Method should not be empty")
+			}
+			if entry.URL == "" {
+				t.Error("URL should not be empty")
+			}
+			// Data URLs may have status 0 in some browsers, so we just check it's set
+			if entry.Timestamp.IsZero() {
+				t.Error("Timestamp should not be zero")
+			}
+		}
+	})
+
+	t.Run("captures HTTP navigation with status code", func(t *testing.T) {
+		session, err := mgr.CreateSession(ctx, "mcp-1", SessionOptions{
+			BrowserType: browser.BrowserChromium,
+		})
+		if err != nil {
+			skipIfPlaywrightNotInstalled(t, err)
+			t.Fatalf("CreateSession failed: %v", err)
+		}
+		defer mgr.CloseSession(ctx, "mcp-1", session.ID)
+
+		page := session.ActivePage()
+		if page == nil {
+			t.Fatal("ActivePage should not be nil")
+		}
+
+		// Navigate to example.com (a stable public URL)
+		_, err = page.Goto("https://example.com", nil)
+		if err != nil {
+			// If network is unavailable, skip this test
+			t.Skipf("Could not navigate to example.com (network may be unavailable): %v", err)
+		}
+
+		// Give time for network events to be processed
+		time.Sleep(200 * time.Millisecond)
+
+		entries := session.NetworkLogs.Entries(0)
+		if len(entries) == 0 {
+			t.Error("expected at least one network entry from HTTP navigation")
+		}
+
+		// Find the main document request
+		var docEntry *NetworkLogEntry
+		for i := range entries {
+			if entries[i].ResourceType == "document" || strings.Contains(entries[i].URL, "example.com") {
+				docEntry = &entries[i]
+				break
+			}
+		}
+
+		if docEntry != nil {
+			if docEntry.Status != 200 {
+				t.Errorf("expected status 200, got %d", docEntry.Status)
+			}
+			if docEntry.Method != "GET" {
+				t.Errorf("expected method GET, got %s", docEntry.Method)
+			}
+			if docEntry.Duration <= 0 {
+				t.Error("expected positive duration for HTTP request")
+			}
+		}
+	})
+
+	t.Run("multiple navigations accumulate entries", func(t *testing.T) {
+		session, err := mgr.CreateSession(ctx, "mcp-1", SessionOptions{
+			BrowserType: browser.BrowserChromium,
+		})
+		if err != nil {
+			skipIfPlaywrightNotInstalled(t, err)
+			t.Fatalf("CreateSession failed: %v", err)
+		}
+		defer mgr.CloseSession(ctx, "mcp-1", session.ID)
+
+		page := session.ActivePage()
+
+		// Navigate to multiple data URLs
+		for i := 0; i < 3; i++ {
+			dataURL := "data:text/html,<html><body>Page " + string(rune('A'+i)) + "</body></html>"
+			_, err = page.Goto(dataURL)
+			if err != nil {
+				t.Fatalf("Page.Goto failed: %v", err)
+			}
+		}
+
+		// Give time for network events to be processed
+		time.Sleep(100 * time.Millisecond)
+
+		entries := session.NetworkLogs.Entries(0)
+		if len(entries) < 3 {
+			t.Errorf("expected at least 3 network entries, got %d", len(entries))
+		}
+	})
+}

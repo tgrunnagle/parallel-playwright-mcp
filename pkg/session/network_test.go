@@ -815,6 +815,16 @@ func (m *mockNetworkPage) simulateRequestFailed(req playwright.Request) {
 	}
 }
 
+// mockFrame is a mock implementation of playwright.Frame.
+type mockFrame struct {
+	playwright.Frame
+	url string
+}
+
+func (m *mockFrame) URL() string {
+	return m.url
+}
+
 // mockRequest is a mock implementation of playwright.Request.
 type mockRequest struct {
 	playwright.Request
@@ -822,6 +832,7 @@ type mockRequest struct {
 	url          string
 	postData     []byte
 	resourceType string
+	frame        playwright.Frame
 }
 
 func (m *mockRequest) Method() string {
@@ -838,6 +849,13 @@ func (m *mockRequest) PostDataBuffer() ([]byte, error) {
 
 func (m *mockRequest) ResourceType() string {
 	return m.resourceType
+}
+
+func (m *mockRequest) Frame() playwright.Frame {
+	if m.frame == nil {
+		return &mockFrame{url: ""}
+	}
+	return m.frame
 }
 
 // mockResponse is a mock implementation of playwright.Response.
@@ -899,6 +917,35 @@ func TestRequestKey(t *testing.T) {
 
 		if key1 == key2 {
 			t.Errorf("keys should be different: %s vs %s", key1, key2)
+		}
+	})
+
+	t.Run("generates different keys for same URL from different frames", func(t *testing.T) {
+		frame1 := &mockFrame{url: "https://main.example.com"}
+		frame2 := &mockFrame{url: "https://iframe.example.com"}
+
+		req1 := &mockRequest{method: "GET", url: "https://example.com/api", frame: frame1}
+		req2 := &mockRequest{method: "GET", url: "https://example.com/api", frame: frame2}
+
+		key1 := requestKey(req1)
+		key2 := requestKey(req2)
+
+		if key1 == key2 {
+			t.Errorf("keys should be different for different frames: %s vs %s", key1, key2)
+		}
+	})
+
+	t.Run("generates same key for same URL from same frame", func(t *testing.T) {
+		frame := &mockFrame{url: "https://main.example.com"}
+
+		req1 := &mockRequest{method: "GET", url: "https://example.com/api", frame: frame}
+		req2 := &mockRequest{method: "GET", url: "https://example.com/api", frame: frame}
+
+		key1 := requestKey(req1)
+		key2 := requestKey(req2)
+
+		if key1 != key2 {
+			t.Errorf("keys should be same for same frame: %s vs %s", key1, key2)
 		}
 	})
 }
