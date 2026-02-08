@@ -1826,3 +1826,615 @@ func TestGetConsoleLogsToolIntegration(t *testing.T) {
 		}
 	})
 }
+
+// TestClickToolIntegration tests the click tool with real browser instances.
+func TestClickToolIntegration(t *testing.T) {
+	pool, mgr := setupPoolAndManager(t)
+	defer pool.Stop(context.Background())
+
+	createHandler := SessionCreateHandler(mgr)
+	navigateHandler := NavigateHandler(mgr)
+	clickHandler := ClickHandler(mgr)
+	ctx := context.Background()
+
+	// Create a session
+	createReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "session_create",
+			Arguments: map[string]any{},
+		},
+	}
+	createResult, err := createHandler(ctx, createReq)
+	if err != nil {
+		t.Fatalf("Create handler returned error: %v", err)
+	}
+	if createResult.IsError {
+		skipIfPlaywrightNotInstalled(t, extractErrorFromResult(createResult))
+		t.Fatalf("Create failed: %s", extractTextContent(createResult.Content))
+	}
+	sessionID := strings.TrimPrefix(extractTextContent(createResult.Content), "Created session: ")
+	defer mgr.CloseSession(ctx, "", sessionID)
+
+	// Navigate to a page with a clickable button
+	testPage := `data:text/html,<html><body><button id="btn" onclick="this.textContent='clicked'">Click me</button></body></html>`
+	navReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "navigate",
+			Arguments: map[string]any{
+				"sessionId": sessionID,
+				"url":       testPage,
+			},
+		},
+	}
+	navResult, err := navigateHandler(ctx, navReq)
+	if err != nil || navResult.IsError {
+		t.Fatalf("Navigation failed: %v", extractTextContent(navResult.Content))
+	}
+
+	t.Run("clicks element successfully", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "click",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"selector":  "#btn",
+				},
+			},
+		}
+
+		result, err := clickHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+
+		text := extractTextContent(result.Content)
+		if !strings.Contains(text, "Clicked element") {
+			t.Errorf("Expected click success message, got: %s", text)
+		}
+	})
+
+	t.Run("returns error for non-existent element", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "click",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"selector":  "#non-existent",
+					"timeout":   float64(1000),
+				},
+			},
+		}
+
+		result, err := clickHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if !result.IsError {
+			t.Error("Expected error for non-existent element")
+		}
+	})
+
+	t.Run("returns error for invalid session", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "click",
+				Arguments: map[string]any{
+					"sessionId": "sess-invalid",
+					"selector":  "#btn",
+				},
+			},
+		}
+
+		result, err := clickHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if !result.IsError {
+			t.Error("Expected error for invalid session")
+		}
+
+		text := extractTextContent(result.Content)
+		if !strings.Contains(text, "[-32001]") {
+			t.Errorf("Expected session not found error code, got: %s", text)
+		}
+	})
+}
+
+// TestTypeToolIntegration tests the type tool with real browser instances.
+func TestTypeToolIntegration(t *testing.T) {
+	pool, mgr := setupPoolAndManager(t)
+	defer pool.Stop(context.Background())
+
+	createHandler := SessionCreateHandler(mgr)
+	navigateHandler := NavigateHandler(mgr)
+	typeHandler := TypeHandler(mgr)
+	ctx := context.Background()
+
+	// Create a session
+	createReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "session_create",
+			Arguments: map[string]any{},
+		},
+	}
+	createResult, err := createHandler(ctx, createReq)
+	if err != nil {
+		t.Fatalf("Create handler returned error: %v", err)
+	}
+	if createResult.IsError {
+		skipIfPlaywrightNotInstalled(t, extractErrorFromResult(createResult))
+		t.Fatalf("Create failed: %s", extractTextContent(createResult.Content))
+	}
+	sessionID := strings.TrimPrefix(extractTextContent(createResult.Content), "Created session: ")
+	defer mgr.CloseSession(ctx, "", sessionID)
+
+	// Navigate to a page with an input field
+	testPage := `data:text/html,<html><body><input id="input" type="text" /></body></html>`
+	navReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "navigate",
+			Arguments: map[string]any{
+				"sessionId": sessionID,
+				"url":       testPage,
+			},
+		},
+	}
+	navResult, err := navigateHandler(ctx, navReq)
+	if err != nil || navResult.IsError {
+		t.Fatalf("Navigation failed: %v", extractTextContent(navResult.Content))
+	}
+
+	t.Run("types text into input", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "type",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"selector":  "#input",
+					"text":      "Hello World",
+				},
+			},
+		}
+
+		result, err := typeHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+
+		text := extractTextContent(result.Content)
+		if !strings.Contains(text, "Typed text into element") {
+			t.Errorf("Expected type success message, got: %s", text)
+		}
+	})
+
+	t.Run("returns error for invalid session", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "type",
+				Arguments: map[string]any{
+					"sessionId": "sess-invalid",
+					"selector":  "#input",
+					"text":      "test",
+				},
+			},
+		}
+
+		result, err := typeHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if !result.IsError {
+			t.Error("Expected error for invalid session")
+		}
+	})
+}
+
+// TestFillToolIntegration tests the fill tool with real browser instances.
+func TestFillToolIntegration(t *testing.T) {
+	pool, mgr := setupPoolAndManager(t)
+	defer pool.Stop(context.Background())
+
+	createHandler := SessionCreateHandler(mgr)
+	navigateHandler := NavigateHandler(mgr)
+	fillHandler := FillHandler(mgr)
+	ctx := context.Background()
+
+	// Create a session
+	createReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "session_create",
+			Arguments: map[string]any{},
+		},
+	}
+	createResult, err := createHandler(ctx, createReq)
+	if err != nil {
+		t.Fatalf("Create handler returned error: %v", err)
+	}
+	if createResult.IsError {
+		skipIfPlaywrightNotInstalled(t, extractErrorFromResult(createResult))
+		t.Fatalf("Create failed: %s", extractTextContent(createResult.Content))
+	}
+	sessionID := strings.TrimPrefix(extractTextContent(createResult.Content), "Created session: ")
+	defer mgr.CloseSession(ctx, "", sessionID)
+
+	// Navigate to a page with an input field
+	testPage := `data:text/html,<html><body><input id="input" type="text" value="existing" /></body></html>`
+	navReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "navigate",
+			Arguments: map[string]any{
+				"sessionId": sessionID,
+				"url":       testPage,
+			},
+		},
+	}
+	navResult, err := navigateHandler(ctx, navReq)
+	if err != nil || navResult.IsError {
+		t.Fatalf("Navigation failed: %v", extractTextContent(navResult.Content))
+	}
+
+	t.Run("fills input with text", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "fill",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"selector":  "#input",
+					"value":     "New Value",
+				},
+			},
+		}
+
+		result, err := fillHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+
+		text := extractTextContent(result.Content)
+		if !strings.Contains(text, "Filled element") {
+			t.Errorf("Expected fill success message, got: %s", text)
+		}
+	})
+
+	t.Run("returns error for invalid session", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "fill",
+				Arguments: map[string]any{
+					"sessionId": "sess-invalid",
+					"selector":  "#input",
+					"value":     "test",
+				},
+			},
+		}
+
+		result, err := fillHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if !result.IsError {
+			t.Error("Expected error for invalid session")
+		}
+	})
+}
+
+// TestSelectOptionToolIntegration tests the select_option tool with real browser instances.
+func TestSelectOptionToolIntegration(t *testing.T) {
+	pool, mgr := setupPoolAndManager(t)
+	defer pool.Stop(context.Background())
+
+	createHandler := SessionCreateHandler(mgr)
+	navigateHandler := NavigateHandler(mgr)
+	selectHandler := SelectOptionHandler(mgr)
+	ctx := context.Background()
+
+	// Create a session
+	createReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "session_create",
+			Arguments: map[string]any{},
+		},
+	}
+	createResult, err := createHandler(ctx, createReq)
+	if err != nil {
+		t.Fatalf("Create handler returned error: %v", err)
+	}
+	if createResult.IsError {
+		skipIfPlaywrightNotInstalled(t, extractErrorFromResult(createResult))
+		t.Fatalf("Create failed: %s", extractTextContent(createResult.Content))
+	}
+	sessionID := strings.TrimPrefix(extractTextContent(createResult.Content), "Created session: ")
+	defer mgr.CloseSession(ctx, "", sessionID)
+
+	// Navigate to a page with a select dropdown
+	testPage := `data:text/html,<html><body><select id="select"><option value="a">Option A</option><option value="b">Option B</option><option value="c">Option C</option></select></body></html>`
+	navReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "navigate",
+			Arguments: map[string]any{
+				"sessionId": sessionID,
+				"url":       testPage,
+			},
+		},
+	}
+	navResult, err := navigateHandler(ctx, navReq)
+	if err != nil || navResult.IsError {
+		t.Fatalf("Navigation failed: %v", extractTextContent(navResult.Content))
+	}
+
+	t.Run("selects option by value", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "select_option",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"selector":  "#select",
+					"values":    []any{"b"},
+				},
+			},
+		}
+
+		result, err := selectHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+
+		text := extractTextContent(result.Content)
+		if !strings.Contains(text, "Selected option") {
+			t.Errorf("Expected select success message, got: %s", text)
+		}
+	})
+
+	t.Run("returns error for invalid session", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "select_option",
+				Arguments: map[string]any{
+					"sessionId": "sess-invalid",
+					"selector":  "#select",
+					"values":    []any{"a"},
+				},
+			},
+		}
+
+		result, err := selectHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if !result.IsError {
+			t.Error("Expected error for invalid session")
+		}
+	})
+}
+
+// TestHoverToolIntegration tests the hover tool with real browser instances.
+func TestHoverToolIntegration(t *testing.T) {
+	pool, mgr := setupPoolAndManager(t)
+	defer pool.Stop(context.Background())
+
+	createHandler := SessionCreateHandler(mgr)
+	navigateHandler := NavigateHandler(mgr)
+	hoverHandler := HoverHandler(mgr)
+	ctx := context.Background()
+
+	// Create a session
+	createReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "session_create",
+			Arguments: map[string]any{},
+		},
+	}
+	createResult, err := createHandler(ctx, createReq)
+	if err != nil {
+		t.Fatalf("Create handler returned error: %v", err)
+	}
+	if createResult.IsError {
+		skipIfPlaywrightNotInstalled(t, extractErrorFromResult(createResult))
+		t.Fatalf("Create failed: %s", extractTextContent(createResult.Content))
+	}
+	sessionID := strings.TrimPrefix(extractTextContent(createResult.Content), "Created session: ")
+	defer mgr.CloseSession(ctx, "", sessionID)
+
+	// Navigate to a page with a hoverable element
+	testPage := `data:text/html,<html><body><div id="hover-target" style="width:100px;height:100px;background:blue;">Hover me</div></body></html>`
+	navReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "navigate",
+			Arguments: map[string]any{
+				"sessionId": sessionID,
+				"url":       testPage,
+			},
+		},
+	}
+	navResult, err := navigateHandler(ctx, navReq)
+	if err != nil || navResult.IsError {
+		t.Fatalf("Navigation failed: %v", extractTextContent(navResult.Content))
+	}
+
+	t.Run("hovers over element successfully", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "hover",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"selector":  "#hover-target",
+				},
+			},
+		}
+
+		result, err := hoverHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+
+		text := extractTextContent(result.Content)
+		if !strings.Contains(text, "Hovered over element") {
+			t.Errorf("Expected hover success message, got: %s", text)
+		}
+	})
+
+	t.Run("returns error for invalid session", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "hover",
+				Arguments: map[string]any{
+					"sessionId": "sess-invalid",
+					"selector":  "#hover-target",
+				},
+			},
+		}
+
+		result, err := hoverHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if !result.IsError {
+			t.Error("Expected error for invalid session")
+		}
+	})
+}
+
+// TestPressKeyToolIntegration tests the press_key tool with real browser instances.
+func TestPressKeyToolIntegration(t *testing.T) {
+	pool, mgr := setupPoolAndManager(t)
+	defer pool.Stop(context.Background())
+
+	createHandler := SessionCreateHandler(mgr)
+	navigateHandler := NavigateHandler(mgr)
+	pressKeyHandler := PressKeyHandler(mgr)
+	ctx := context.Background()
+
+	// Create a session
+	createReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "session_create",
+			Arguments: map[string]any{},
+		},
+	}
+	createResult, err := createHandler(ctx, createReq)
+	if err != nil {
+		t.Fatalf("Create handler returned error: %v", err)
+	}
+	if createResult.IsError {
+		skipIfPlaywrightNotInstalled(t, extractErrorFromResult(createResult))
+		t.Fatalf("Create failed: %s", extractTextContent(createResult.Content))
+	}
+	sessionID := strings.TrimPrefix(extractTextContent(createResult.Content), "Created session: ")
+	defer mgr.CloseSession(ctx, "", sessionID)
+
+	// Navigate to a page with a text area
+	testPage := `data:text/html,<html><body><textarea id="textarea"></textarea></body></html>`
+	navReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "navigate",
+			Arguments: map[string]any{
+				"sessionId": sessionID,
+				"url":       testPage,
+			},
+		},
+	}
+	navResult, err := navigateHandler(ctx, navReq)
+	if err != nil || navResult.IsError {
+		t.Fatalf("Navigation failed: %v", extractTextContent(navResult.Content))
+	}
+
+	t.Run("presses key successfully", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "press_key",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"key":       "Tab",
+				},
+			},
+		}
+
+		result, err := pressKeyHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+
+		text := extractTextContent(result.Content)
+		if !strings.Contains(text, "Pressed key") {
+			t.Errorf("Expected press key success message, got: %s", text)
+		}
+	})
+
+	t.Run("presses key with modifiers", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "press_key",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"key":       "a",
+					"modifiers": []any{"Control"},
+				},
+			},
+		}
+
+		result, err := pressKeyHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+
+		text := extractTextContent(result.Content)
+		if !strings.Contains(text, "Pressed key") {
+			t.Errorf("Expected press key success message, got: %s", text)
+		}
+	})
+
+	t.Run("returns error for invalid session", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "press_key",
+				Arguments: map[string]any{
+					"sessionId": "sess-invalid",
+					"key":       "Enter",
+				},
+			},
+		}
+
+		result, err := pressKeyHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if !result.IsError {
+			t.Error("Expected error for invalid session")
+		}
+	})
+}

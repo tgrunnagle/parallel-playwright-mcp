@@ -130,6 +130,14 @@ func run(ctx context.Context, emergencyCleanup **shutdown.EmergencyCleanup) erro
 	mcpServer.AddTool(tools.GoForwardTool(), tools.GoForwardHandler(sessionMgr))
 	mcpServer.AddTool(tools.ReloadTool(), tools.ReloadHandler(sessionMgr))
 
+	// Register interaction tools
+	mcpServer.AddTool(tools.ClickTool(), tools.ClickHandler(sessionMgr))
+	mcpServer.AddTool(tools.TypeTool(), tools.TypeHandler(sessionMgr))
+	mcpServer.AddTool(tools.FillTool(), tools.FillHandler(sessionMgr))
+	mcpServer.AddTool(tools.SelectOptionTool(), tools.SelectOptionHandler(sessionMgr))
+	mcpServer.AddTool(tools.HoverTool(), tools.HoverHandler(sessionMgr))
+	mcpServer.AddTool(tools.PressKeyTool(), tools.PressKeyHandler(sessionMgr))
+
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 
 	// Create streamable HTTP server (implements http.Handler)
