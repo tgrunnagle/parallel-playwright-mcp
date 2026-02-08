@@ -72,8 +72,8 @@ func TestConsoleLogBuffer_Add(t *testing.T) {
 
 		buf.Add(entry)
 
-		if buf.Count() != 1 {
-			t.Errorf("Count() = %d, want 1", buf.Count())
+		if buf.Len() != 1 {
+			t.Errorf("Len() = %d, want 1", buf.Len())
 		}
 	})
 
@@ -89,8 +89,8 @@ func TestConsoleLogBuffer_Add(t *testing.T) {
 			buf.Add(entry)
 		}
 
-		if buf.Count() != 5 {
-			t.Errorf("Count() = %d, want 5", buf.Count())
+		if buf.Len() != 5 {
+			t.Errorf("Len() = %d, want 5", buf.Len())
 		}
 	})
 
@@ -108,8 +108,8 @@ func TestConsoleLogBuffer_Add(t *testing.T) {
 		}
 
 		// Count should be capped at maxSize
-		if buf.Count() != 3 {
-			t.Errorf("Count() = %d, want 3", buf.Count())
+		if buf.Len() != 3 {
+			t.Errorf("Len() = %d, want 3", buf.Len())
 		}
 	})
 
@@ -295,14 +295,14 @@ func TestConsoleLogBuffer_Clear(t *testing.T) {
 			})
 		}
 
-		if buf.Count() != 5 {
-			t.Fatalf("Count() = %d, want 5 before clear", buf.Count())
+		if buf.Len() != 5 {
+			t.Fatalf("Len() = %d, want 5 before clear", buf.Len())
 		}
 
 		buf.Clear()
 
-		if buf.Count() != 0 {
-			t.Errorf("Count() = %d after clear, want 0", buf.Count())
+		if buf.Len() != 0 {
+			t.Errorf("Len() = %d after clear, want 0", buf.Len())
 		}
 	})
 
@@ -338,11 +338,11 @@ func TestConsoleLogBuffer_Clear(t *testing.T) {
 	})
 }
 
-func TestConsoleLogBuffer_Count(t *testing.T) {
+func TestConsoleLogBuffer_Len(t *testing.T) {
 	t.Run("count on empty buffer", func(t *testing.T) {
 		buf := NewConsoleLogBuffer(10)
-		if buf.Count() != 0 {
-			t.Errorf("Count() = %d, want 0", buf.Count())
+		if buf.Len() != 0 {
+			t.Errorf("Len() = %d, want 0", buf.Len())
 		}
 	})
 
@@ -353,8 +353,8 @@ func TestConsoleLogBuffer_Count(t *testing.T) {
 			buf.Add(ConsoleLogEntry{Level: ConsoleLogLevelLog, Text: "message"})
 		}
 
-		if buf.Count() != 5 {
-			t.Errorf("Count() = %d, want 5", buf.Count())
+		if buf.Len() != 5 {
+			t.Errorf("Len() = %d, want 5", buf.Len())
 		}
 	})
 
@@ -365,8 +365,8 @@ func TestConsoleLogBuffer_Count(t *testing.T) {
 			buf.Add(ConsoleLogEntry{Level: ConsoleLogLevelLog, Text: "message"})
 		}
 
-		if buf.Count() != 5 {
-			t.Errorf("Count() = %d, want 5", buf.Count())
+		if buf.Len() != 5 {
+			t.Errorf("Len() = %d, want 5", buf.Len())
 		}
 	})
 }
@@ -394,8 +394,8 @@ func TestConsoleLogBuffer_Concurrency(t *testing.T) {
 		wg.Wait()
 
 		// Should have exactly 100 entries
-		if buf.Count() != 100 {
-			t.Errorf("Count() = %d, want 100", buf.Count())
+		if buf.Len() != 100 {
+			t.Errorf("Len() = %d, want 100", buf.Len())
 		}
 	})
 
@@ -472,8 +472,8 @@ func TestConsoleLogBuffer_Concurrency(t *testing.T) {
 		wg.Wait()
 
 		// Buffer should be at max capacity
-		if buf.Count() != 50 {
-			t.Errorf("Count() = %d, want 50", buf.Count())
+		if buf.Len() != 50 {
+			t.Errorf("Len() = %d, want 50", buf.Len())
 		}
 	})
 }

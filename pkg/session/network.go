@@ -32,7 +32,7 @@ type NetworkLogEntry struct {
 type NetworkLogBuffer struct {
 	entries    []NetworkLogEntry
 	maxSize    int
-	writeIndex int // Next position to write
+	head int // Index where next entry will be written
 	count      int // Number of valid entries (0 to maxSize)
 	mu         sync.RWMutex
 }
@@ -55,8 +55,8 @@ func (b *NetworkLogBuffer) Add(entry NetworkLogEntry) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.entries[b.writeIndex] = entry
-	b.writeIndex = (b.writeIndex + 1) % b.maxSize
+	b.entries[b.head] = entry
+	b.head = (b.head + 1) % b.maxSize
 	if b.count < b.maxSize {
 		b.count++
 	}
@@ -83,7 +83,7 @@ func (b *NetworkLogBuffer) Entries(limit int) []NetworkLogEntry {
 	// Calculate start index for reading (oldest entry we want)
 	// Skip (count - n) oldest entries if limit is less than count
 	startOffset := b.count - n
-	startIndex := (b.writeIndex - b.count + startOffset + b.maxSize) % b.maxSize
+	startIndex := (b.head - b.count + startOffset + b.maxSize) % b.maxSize
 
 	for i := 0; i < n; i++ {
 		result[i] = b.entries[(startIndex+i)%b.maxSize]
@@ -97,7 +97,7 @@ func (b *NetworkLogBuffer) Clear() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.writeIndex = 0
+	b.head = 0
 	b.count = 0
 }
 

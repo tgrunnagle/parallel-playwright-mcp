@@ -57,8 +57,8 @@ func TestNewNetworkLogBuffer(t *testing.T) {
 			if buf.count != 0 {
 				t.Errorf("count = %d, want 0", buf.count)
 			}
-			if buf.writeIndex != 0 {
-				t.Errorf("writeIndex = %d, want 0", buf.writeIndex)
+			if buf.head != 0 {
+				t.Errorf("head = %d, want 0", buf.head)
 			}
 			if len(buf.entries) != tt.expectedMaxSize {
 				t.Errorf("entries length = %d, want %d", len(buf.entries), tt.expectedMaxSize)

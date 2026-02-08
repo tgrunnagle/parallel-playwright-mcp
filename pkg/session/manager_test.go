@@ -1044,11 +1044,11 @@ func TestAttachConsoleHandler(t *testing.T) {
 		page.simulateConsoleMessage(msg)
 
 		// Both buffers should receive the message
-		if buffer1.Count() != 1 {
-			t.Errorf("buffer1 should have 1 entry, got %d", buffer1.Count())
+		if buffer1.Len() != 1 {
+			t.Errorf("buffer1 should have 1 entry, got %d", buffer1.Len())
 		}
-		if buffer2.Count() != 1 {
-			t.Errorf("buffer2 should have 1 entry, got %d", buffer2.Count())
+		if buffer2.Len() != 1 {
+			t.Errorf("buffer2 should have 1 entry, got %d", buffer2.Len())
 		}
 	})
 }
