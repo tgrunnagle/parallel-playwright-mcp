@@ -51,6 +51,23 @@ func TestLoadWithDefaults(t *testing.T) {
 	if cfg.Logging.Format != DefaultLogFormat {
 		t.Errorf("Logging.Format = %q, want %q", cfg.Logging.Format, DefaultLogFormat)
 	}
+
+	// Retry defaults
+	if cfg.Retry.MaxAttempts != DefaultMaxAttempts {
+		t.Errorf("Retry.MaxAttempts = %d, want %d", cfg.Retry.MaxAttempts, DefaultMaxAttempts)
+	}
+	if cfg.Retry.InitialBackoff != DefaultInitialBackoff {
+		t.Errorf("Retry.InitialBackoff = %v, want %v", cfg.Retry.InitialBackoff, DefaultInitialBackoff)
+	}
+	if cfg.Retry.MaxBackoff != DefaultMaxBackoff {
+		t.Errorf("Retry.MaxBackoff = %v, want %v", cfg.Retry.MaxBackoff, DefaultMaxBackoff)
+	}
+	if cfg.Retry.BackoffFactor != DefaultBackoffFactor {
+		t.Errorf("Retry.BackoffFactor = %v, want %v", cfg.Retry.BackoffFactor, DefaultBackoffFactor)
+	}
+	if cfg.Retry.Jitter != DefaultJitter {
+		t.Errorf("Retry.Jitter = %v, want %v", cfg.Retry.Jitter, DefaultJitter)
+	}
 }
 
 func TestLoadValidYAMLFile(t *testing.T) {
@@ -621,5 +638,249 @@ func TestParseBoolInvalidReturnsFalse(t *testing.T) {
 	_, ok = parseBool("maybe")
 	if ok {
 		t.Error("parseBool with 'maybe' should return ok=false")
+	}
+}
+
+func TestValidateRetrySettings(t *testing.T) {
+	tests := []struct {
+		name    string
+		retry   RetrySettings
+		wantErr bool
+	}{
+		{
+			name: "valid default settings",
+			retry: RetrySettings{
+				MaxAttempts:    3,
+				InitialBackoff: 100 * time.Millisecond,
+				MaxBackoff:     5 * time.Second,
+				BackoffFactor:  2.0,
+				Jitter:         0.1,
+			},
+			wantErr: false,
+		},
+		{
+			name: "zero max attempts invalid",
+			retry: RetrySettings{
+				MaxAttempts:    0,
+				InitialBackoff: 100 * time.Millisecond,
+				MaxBackoff:     5 * time.Second,
+				BackoffFactor:  2.0,
+				Jitter:         0.1,
+			},
+			wantErr: true,
+		},
+		{
+			name: "negative max attempts invalid",
+			retry: RetrySettings{
+				MaxAttempts:    -1,
+				InitialBackoff: 100 * time.Millisecond,
+				MaxBackoff:     5 * time.Second,
+				BackoffFactor:  2.0,
+				Jitter:         0.1,
+			},
+			wantErr: true,
+		},
+		{
+			name: "negative initial backoff invalid",
+			retry: RetrySettings{
+				MaxAttempts:    3,
+				InitialBackoff: -100 * time.Millisecond,
+				MaxBackoff:     5 * time.Second,
+				BackoffFactor:  2.0,
+				Jitter:         0.1,
+			},
+			wantErr: true,
+		},
+		{
+			name: "negative max backoff invalid",
+			retry: RetrySettings{
+				MaxAttempts:    3,
+				InitialBackoff: 100 * time.Millisecond,
+				MaxBackoff:     -5 * time.Second,
+				BackoffFactor:  2.0,
+				Jitter:         0.1,
+			},
+			wantErr: true,
+		},
+		{
+			name: "negative backoff factor invalid",
+			retry: RetrySettings{
+				MaxAttempts:    3,
+				InitialBackoff: 100 * time.Millisecond,
+				MaxBackoff:     5 * time.Second,
+				BackoffFactor:  -2.0,
+				Jitter:         0.1,
+			},
+			wantErr: true,
+		},
+		{
+			name: "jitter below 0 invalid",
+			retry: RetrySettings{
+				MaxAttempts:    3,
+				InitialBackoff: 100 * time.Millisecond,
+				MaxBackoff:     5 * time.Second,
+				BackoffFactor:  2.0,
+				Jitter:         -0.1,
+			},
+			wantErr: true,
+		},
+		{
+			name: "jitter above 1 invalid",
+			retry: RetrySettings{
+				MaxAttempts:    3,
+				InitialBackoff: 100 * time.Millisecond,
+				MaxBackoff:     5 * time.Second,
+				BackoffFactor:  2.0,
+				Jitter:         1.5,
+			},
+			wantErr: true,
+		},
+		{
+			name: "jitter at 0 valid",
+			retry: RetrySettings{
+				MaxAttempts:    3,
+				InitialBackoff: 100 * time.Millisecond,
+				MaxBackoff:     5 * time.Second,
+				BackoffFactor:  2.0,
+				Jitter:         0.0,
+			},
+			wantErr: false,
+		},
+		{
+			name: "jitter at 1 valid",
+			retry: RetrySettings{
+				MaxAttempts:    3,
+				InitialBackoff: 100 * time.Millisecond,
+				MaxBackoff:     5 * time.Second,
+				BackoffFactor:  2.0,
+				Jitter:         1.0,
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := LoadWithDefaults()
+			cfg.Retry = tt.retry
+			errs := cfg.Validate()
+
+			hasErr := len(errs) > 0
+			if hasErr != tt.wantErr {
+				t.Errorf("Validate(): hasErr = %v, wantErr = %v, errs = %v", hasErr, tt.wantErr, errs)
+			}
+		})
+	}
+}
+
+func TestLoadValidYAMLWithRetrySettings(t *testing.T) {
+	yamlContent := `
+retry:
+  maxAttempts: 5
+  initialBackoff: 200ms
+  maxBackoff: 10s
+  backoffFactor: 3.0
+  jitter: 0.2
+  retryableErrors: [-32002, -32004]
+`
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("Failed to write temp config: %v", err)
+	}
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.Retry.MaxAttempts != 5 {
+		t.Errorf("Retry.MaxAttempts = %d, want %d", cfg.Retry.MaxAttempts, 5)
+	}
+	if cfg.Retry.InitialBackoff != 200*time.Millisecond {
+		t.Errorf("Retry.InitialBackoff = %v, want %v", cfg.Retry.InitialBackoff, 200*time.Millisecond)
+	}
+	if cfg.Retry.MaxBackoff != 10*time.Second {
+		t.Errorf("Retry.MaxBackoff = %v, want %v", cfg.Retry.MaxBackoff, 10*time.Second)
+	}
+	if cfg.Retry.BackoffFactor != 3.0 {
+		t.Errorf("Retry.BackoffFactor = %v, want %v", cfg.Retry.BackoffFactor, 3.0)
+	}
+	if cfg.Retry.Jitter != 0.2 {
+		t.Errorf("Retry.Jitter = %v, want %v", cfg.Retry.Jitter, 0.2)
+	}
+	if len(cfg.Retry.RetryableErrors) != 2 {
+		t.Errorf("Retry.RetryableErrors length = %d, want %d", len(cfg.Retry.RetryableErrors), 2)
+	}
+	if len(cfg.Retry.RetryableErrors) >= 1 && cfg.Retry.RetryableErrors[0] != -32002 {
+		t.Errorf("Retry.RetryableErrors[0] = %d, want %d", cfg.Retry.RetryableErrors[0], -32002)
+	}
+	if len(cfg.Retry.RetryableErrors) >= 2 && cfg.Retry.RetryableErrors[1] != -32004 {
+		t.Errorf("Retry.RetryableErrors[1] = %d, want %d", cfg.Retry.RetryableErrors[1], -32004)
+	}
+}
+
+func TestRetrySettings_ToRetryConfig(t *testing.T) {
+	settings := &RetrySettings{
+		MaxAttempts:     5,
+		InitialBackoff:  200 * time.Millisecond,
+		MaxBackoff:      10 * time.Second,
+		BackoffFactor:   3.0,
+		Jitter:          0.2,
+		RetryableErrors: []int{-32002, -32003, -32004},
+	}
+
+	retryConfig := settings.ToRetryConfig()
+
+	if retryConfig.MaxAttempts != settings.MaxAttempts {
+		t.Errorf("MaxAttempts = %d, want %d", retryConfig.MaxAttempts, settings.MaxAttempts)
+	}
+	if retryConfig.InitialBackoff != settings.InitialBackoff {
+		t.Errorf("InitialBackoff = %v, want %v", retryConfig.InitialBackoff, settings.InitialBackoff)
+	}
+	if retryConfig.MaxBackoff != settings.MaxBackoff {
+		t.Errorf("MaxBackoff = %v, want %v", retryConfig.MaxBackoff, settings.MaxBackoff)
+	}
+	if retryConfig.BackoffFactor != settings.BackoffFactor {
+		t.Errorf("BackoffFactor = %v, want %v", retryConfig.BackoffFactor, settings.BackoffFactor)
+	}
+	if retryConfig.Jitter != settings.Jitter {
+		t.Errorf("Jitter = %v, want %v", retryConfig.Jitter, settings.Jitter)
+	}
+	if len(retryConfig.RetryableErrors) != len(settings.RetryableErrors) {
+		t.Errorf("RetryableErrors length = %d, want %d", len(retryConfig.RetryableErrors), len(settings.RetryableErrors))
+	}
+
+	// Verify that modifying the original doesn't affect the converted config (defensive copy)
+	settings.RetryableErrors[0] = -99999
+	if retryConfig.RetryableErrors[0] == -99999 {
+		t.Error("ToRetryConfig should create a defensive copy of RetryableErrors")
+	}
+}
+
+func TestLoadWithDefaults_RetryableErrors(t *testing.T) {
+	cfg := LoadWithDefaults()
+
+	if len(cfg.Retry.RetryableErrors) != 2 {
+		t.Errorf("default RetryableErrors length = %d, want 2", len(cfg.Retry.RetryableErrors))
+	}
+
+	// Check for CodeElementNotFound (-32002) and CodeTimeout (-32003)
+	hasElementNotFound := false
+	hasTimeout := false
+	for _, code := range cfg.Retry.RetryableErrors {
+		if code == -32002 {
+			hasElementNotFound = true
+		}
+		if code == -32003 {
+			hasTimeout = true
+		}
+	}
+
+	if !hasElementNotFound {
+		t.Error("default RetryableErrors should include CodeElementNotFound (-32002)")
+	}
+	if !hasTimeout {
+		t.Error("default RetryableErrors should include CodeTimeout (-32003)")
 	}
 }
