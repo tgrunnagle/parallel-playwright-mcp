@@ -25,6 +25,11 @@ const (
 	DefaultIdleTimeout      = 5 * time.Minute
 	DefaultLogLevel         = "info"
 	DefaultLogFormat        = "json"
+	DefaultMaxAttempts      = 3
+	DefaultInitialBackoff   = 100 * time.Millisecond
+	DefaultMaxBackoff       = 5 * time.Second
+	DefaultBackoffFactor    = 2.0
+	DefaultJitter           = 0.1
 )
 
 // Valid values for validation.
@@ -40,6 +45,7 @@ type Config struct {
 	Browser BrowserConfig `yaml:"browser"`
 	Session SessionConfig `yaml:"session"`
 	Logging LoggingConfig `yaml:"logging"`
+	Retry   RetrySettings `yaml:"retry"`
 }
 
 // ServerConfig contains HTTP server settings.
@@ -77,6 +83,15 @@ type LoggingConfig struct {
 	Format string `yaml:"format"`
 }
 
+// RetrySettings holds retry-related settings for transient failures.
+type RetrySettings struct {
+	MaxAttempts    int           `yaml:"maxAttempts"`
+	InitialBackoff time.Duration `yaml:"initialBackoff"`
+	MaxBackoff     time.Duration `yaml:"maxBackoff"`
+	BackoffFactor  float64       `yaml:"backoffFactor"`
+	Jitter         float64       `yaml:"jitter"`
+}
+
 // LoadWithDefaults creates a configuration with all default values set.
 func LoadWithDefaults() *Config {
 	return &Config{
@@ -101,6 +116,13 @@ func LoadWithDefaults() *Config {
 		Logging: LoggingConfig{
 			Level:  DefaultLogLevel,
 			Format: DefaultLogFormat,
+		},
+		Retry: RetrySettings{
+			MaxAttempts:    DefaultMaxAttempts,
+			InitialBackoff: DefaultInitialBackoff,
+			MaxBackoff:     DefaultMaxBackoff,
+			BackoffFactor:  DefaultBackoffFactor,
+			Jitter:         DefaultJitter,
 		},
 	}
 }
@@ -243,6 +265,23 @@ func (c *Config) Validate() []error {
 	// Validate log format
 	if !isValidValue(c.Logging.Format, ValidLogFormats) {
 		errs = append(errs, fmt.Errorf("invalid log format %q: must be one of %v", c.Logging.Format, ValidLogFormats))
+	}
+
+	// Validate retry settings
+	if c.Retry.MaxAttempts < 0 {
+		errs = append(errs, fmt.Errorf("invalid retry maxAttempts %d: must be non-negative", c.Retry.MaxAttempts))
+	}
+	if c.Retry.InitialBackoff < 0 {
+		errs = append(errs, fmt.Errorf("invalid retry initialBackoff %v: must be non-negative", c.Retry.InitialBackoff))
+	}
+	if c.Retry.MaxBackoff < 0 {
+		errs = append(errs, fmt.Errorf("invalid retry maxBackoff %v: must be non-negative", c.Retry.MaxBackoff))
+	}
+	if c.Retry.BackoffFactor < 0 {
+		errs = append(errs, fmt.Errorf("invalid retry backoffFactor %v: must be non-negative", c.Retry.BackoffFactor))
+	}
+	if c.Retry.Jitter < 0 || c.Retry.Jitter > 1 {
+		errs = append(errs, fmt.Errorf("invalid retry jitter %v: must be between 0.0 and 1.0", c.Retry.Jitter))
 	}
 
 	return errs
