@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Test Page</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        button {
+            background: #0066cc;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0052a3;
+        }
+        #message {
+            margin-top: 20px;
+            padding: 10px;
+            background: #e0f0e0;
+            border-radius: 4px;
+            display: none;
+        }
+        #counter {
+            font-size: 24px;
+            font-weight: bold;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 id="title">Simple Test Page</h1>
+        <p id="description">This is a simple test page for E2E testing.</p>
+
+        <div id="counter">Count: 0</div>
+
+        <button id="increment-btn" onclick="increment()">Increment</button>
+        <button id="decrement-btn" onclick="decrement()">Decrement</button>
+        <button id="reset-btn" onclick="reset()">Reset</button>
+        <button id="show-message-btn" onclick="showMessage()">Show Message</button>
+
+        <div id="message">Hello from the test page!</div>
+    </div>
+
+    <script>
+        let count = 0;
+
+        function updateCounter() {
+            document.getElementById('counter').textContent = 'Count: ' + count;
+        }
+
+        function increment() {
+            count++;
+            updateCounter();
+            console.log('Incremented to:', count);
+        }
+
+        function decrement() {
+            count--;
+            updateCounter();
+            console.log('Decremented to:', count);
+        }
+
+        function reset() {
+            count = 0;
+            updateCounter();
+            console.log('Reset to:', count);
+        }
+
+        function showMessage() {
+            const msg = document.getElementById('message');
+            msg.style.display = msg.style.display === 'none' ? 'block' : 'none';
+            console.log('Message visibility toggled');
+        }
+    </script>
+</body>
+</html>
