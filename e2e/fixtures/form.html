@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Form Test Page</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+        }
+        input, textarea, select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        input:focus, textarea:focus, select:focus {
+            outline: none;
+            border-color: #0066cc;
+        }
+        button {
+            background: #0066cc;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #0052a3;
+        }
+        #result {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f5f5f5;
+            border-radius: 4px;
+            display: none;
+        }
+        .checkbox-group, .radio-group {
+            display: flex;
+            gap: 15px;
+        }
+        .checkbox-group label, .radio-group label {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-weight: normal;
+        }
+        .checkbox-group input, .radio-group input {
+            width: auto;
+        }
+        .error {
+            color: #cc0000;
+            font-size: 12px;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Form Test Page</h1>
+
+    <form id="test-form" onsubmit="return handleSubmit(event)">
+        <div class="form-group">
+            <label for="username">Username</label>
+            <input type="text" id="username" name="username" placeholder="Enter username" required>
+        </div>
+
+        <div class="form-group">
+            <label for="email">Email</label>
+            <input type="email" id="email" name="email" placeholder="Enter email">
+        </div>
+
+        <div class="form-group">
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" placeholder="Enter password">
+        </div>
+
+        <div class="form-group">
+            <label for="country">Country</label>
+            <select id="country" name="country">
+                <option value="">Select a country</option>
+                <option value="us">United States</option>
+                <option value="uk">United Kingdom</option>
+                <option value="ca">Canada</option>
+                <option value="au">Australia</option>
+                <option value="de">Germany</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="bio">Bio</label>
+            <textarea id="bio" name="bio" rows="4" placeholder="Tell us about yourself"></textarea>
+        </div>
+
+        <div class="form-group">
+            <label>Interests</label>
+            <div class="checkbox-group">
+                <label>
+                    <input type="checkbox" name="interests" value="technology" id="interest-tech">
+                    Technology
+                </label>
+                <label>
+                    <input type="checkbox" name="interests" value="sports" id="interest-sports">
+                    Sports
+                </label>
+                <label>
+                    <input type="checkbox" name="interests" value="music" id="interest-music">
+                    Music
+                </label>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>Notification Preference</label>
+            <div class="radio-group">
+                <label>
+                    <input type="radio" name="notification" value="email" id="notify-email">
+                    Email
+                </label>
+                <label>
+                    <input type="radio" name="notification" value="sms" id="notify-sms">
+                    SMS
+                </label>
+                <label>
+                    <input type="radio" name="notification" value="none" id="notify-none">
+                    None
+                </label>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>
+                <input type="checkbox" id="terms" name="terms" required>
+                I agree to the terms and conditions
+            </label>
+        </div>
+
+        <button type="submit" id="submit-btn">Submit</button>
+        <button type="reset" id="reset-btn">Reset</button>
+    </form>
+
+    <div id="result">
+        <h3>Form Submitted!</h3>
+        <pre id="form-data"></pre>
+    </div>
+
+    <script>
+        function handleSubmit(event) {
+            event.preventDefault();
+
+            const formData = new FormData(event.target);
+            const data = {};
+
+            for (const [key, value] of formData.entries()) {
+                if (data[key]) {
+                    if (!Array.isArray(data[key])) {
+                        data[key] = [data[key]];
+                    }
+                    data[key].push(value);
+                } else {
+                    data[key] = value;
+                }
+            }
+
+            document.getElementById('form-data').textContent = JSON.stringify(data, null, 2);
+            document.getElementById('result').style.display = 'block';
+
+            console.log('Form submitted:', data);
+            return false;
+        }
+
+        // Log input changes
+        document.querySelectorAll('input, textarea, select').forEach(el => {
+            el.addEventListener('change', function() {
+                console.log('Field changed:', this.name, '=', this.value);
+            });
+            el.addEventListener('input', function() {
+                console.log('Field input:', this.name, '=', this.value);
+            });
+        });
+    </script>
+</body>
+</html>

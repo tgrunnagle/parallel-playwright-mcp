@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Navigation Test Page</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        nav {
+            background: #333;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        nav a {
+            color: white;
+            text-decoration: none;
+            padding: 10px 15px;
+            margin-right: 5px;
+        }
+        nav a:hover {
+            background: #555;
+            border-radius: 4px;
+        }
+        .content {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        #history {
+            margin-top: 20px;
+            padding: 10px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .link-list {
+            list-style: none;
+            padding: 0;
+        }
+        .link-list li {
+            margin: 10px 0;
+        }
+        .link-list a {
+            color: #0066cc;
+            text-decoration: none;
+        }
+        .link-list a:hover {
+            text-decoration: underline;
+        }
+        #current-page {
+            font-weight: bold;
+            color: #0066cc;
+        }
+        #navigation-count {
+            font-size: 14px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <a href="#home" id="nav-home">Home</a>
+        <a href="#about" id="nav-about">About</a>
+        <a href="#contact" id="nav-contact">Contact</a>
+        <a href="#products" id="nav-products">Products</a>
+    </nav>
+
+    <div class="content">
+        <h1 id="page-title">Navigation Test Page</h1>
+        <p>Current page: <span id="current-page">home</span></p>
+        <p id="navigation-count">Navigation count: 0</p>
+
+        <h2>Internal Links</h2>
+        <ul class="link-list">
+            <li><a href="#section1" id="link-section1">Go to Section 1</a></li>
+            <li><a href="#section2" id="link-section2">Go to Section 2</a></li>
+            <li><a href="#section3" id="link-section3">Go to Section 3</a></li>
+        </ul>
+
+        <h2>External Links (for testing)</h2>
+        <ul class="link-list">
+            <li><a href="simple.html" id="link-simple">Simple Page</a></li>
+            <li><a href="form.html" id="link-form">Form Page</a></li>
+        </ul>
+
+        <section id="section1">
+            <h2>Section 1</h2>
+            <p>This is section 1 content. You can use anchor links to navigate here.</p>
+        </section>
+
+        <section id="section2">
+            <h2>Section 2</h2>
+            <p>This is section 2 content. Navigation to this section is tracked.</p>
+        </section>
+
+        <section id="section3">
+            <h2>Section 3</h2>
+            <p>This is section 3 content. The navigation counter increments with each navigation.</p>
+        </section>
+
+        <div id="history">
+            Navigation history will appear here...
+        </div>
+    </div>
+
+    <script>
+        let navigationCount = 0;
+        const history = [];
+
+        function updatePage(page) {
+            navigationCount++;
+            history.push({
+                page: page,
+                timestamp: new Date().toISOString()
+            });
+
+            document.getElementById('current-page').textContent = page;
+            document.getElementById('navigation-count').textContent = 'Navigation count: ' + navigationCount;
+            document.getElementById('history').textContent = 'History: ' + history.map(h => h.page).join(' -> ');
+
+            console.log('Navigated to:', page, 'Count:', navigationCount);
+        }
+
+        // Handle hash changes
+        window.addEventListener('hashchange', function() {
+            const hash = window.location.hash.slice(1) || 'home';
+            updatePage(hash);
+        });
+
+        // Handle initial hash
+        if (window.location.hash) {
+            updatePage(window.location.hash.slice(1));
+        }
+
+        // Track all link clicks
+        document.querySelectorAll('a').forEach(link => {
+            link.addEventListener('click', function(e) {
+                console.log('Link clicked:', this.href);
+            });
+        });
+
+        // Track popstate for back/forward navigation
+        window.addEventListener('popstate', function(e) {
+            console.log('Popstate event:', window.location.href);
+        });
+    </script>
+</body>
+</html>
