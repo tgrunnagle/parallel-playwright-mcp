@@ -272,6 +272,13 @@ func (s *TestServer) Addr() string {
 }
 
 // getFreePort returns an available port for testing.
+//
+// Note: This function has a TOCTOU (Time-Of-Check-Time-Of-Use) race condition.
+// After this function returns the port and closes the listener, another process
+// could potentially bind to the same port before our server starts. In practice,
+// this is rare and the test will fail fast with a clear "address already in use"
+// error if it occurs. This approach is simpler than passing an open listener to
+// the server subprocess, which would require significant architectural changes.
 func getFreePort(t *testing.T) int {
 	t.Helper()
 

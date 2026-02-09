@@ -5,6 +5,9 @@ package e2e
 
 import (
 	"context"
+	"io"
+	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,6 +23,8 @@ const (
 // TestServerStartsAndAcceptsConnections verifies that the MCP server
 // starts correctly and accepts client connections.
 func TestServerStartsAndAcceptsConnections(t *testing.T) {
+	t.Parallel()
+
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
 
@@ -36,6 +41,7 @@ func TestServerStartsAndAcceptsConnections(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to initialize MCP client: %v", err)
 	}
+	defer client.Close(ctx)
 
 	// Verify server info
 	if result.ServerInfo.Name != "playwright-mcp" {
@@ -48,6 +54,8 @@ func TestServerStartsAndAcceptsConnections(t *testing.T) {
 // TestSessionListReturnsEmptyInitially verifies that a fresh server
 // has no browser sessions.
 func TestSessionListReturnsEmptyInitially(t *testing.T) {
+	t.Parallel()
+
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
 
@@ -61,6 +69,7 @@ func TestSessionListReturnsEmptyInitially(t *testing.T) {
 	if _, err := client.Initialize(ctx); err != nil {
 		t.Fatalf("failed to initialize: %v", err)
 	}
+	defer client.Close(ctx)
 
 	// List sessions - should return empty or zero sessions
 	result, err := client.CallTool(ctx, "session_list", nil)
@@ -78,6 +87,8 @@ func TestSessionListReturnsEmptyInitially(t *testing.T) {
 // TestListToolsReturnsRegisteredTools verifies that the server
 // returns all registered tools.
 func TestListToolsReturnsRegisteredTools(t *testing.T) {
+	t.Parallel()
+
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
 
@@ -91,6 +102,7 @@ func TestListToolsReturnsRegisteredTools(t *testing.T) {
 	if _, err := client.Initialize(ctx); err != nil {
 		t.Fatalf("failed to initialize: %v", err)
 	}
+	defer client.Close(ctx)
 
 	tools, err := client.ListTools(ctx)
 	if err != nil {
@@ -146,6 +158,7 @@ func TestCreateAndCloseSession(t *testing.T) {
 	if _, err := client.Initialize(ctx); err != nil {
 		t.Fatalf("failed to initialize: %v", err)
 	}
+	defer client.Close(ctx)
 
 	// Create a session
 	sessionID, err := client.CreateSession(ctx, "chromium", true)
@@ -188,6 +201,7 @@ func TestNavigateToPage(t *testing.T) {
 	if _, err := client.Initialize(ctx); err != nil {
 		t.Fatalf("failed to initialize: %v", err)
 	}
+	defer client.Close(ctx)
 
 	// Create session
 	sessionID, err := client.CreateSession(ctx, "chromium", true)
@@ -214,9 +228,11 @@ func TestNavigateToPage(t *testing.T) {
 	t.Logf("Successfully navigated to data URL")
 }
 
-// TestMultipleSessionsAreIsolated verifies that multiple browser sessions
-// are properly isolated from each other.
-func TestMultipleSessionsAreIsolated(t *testing.T) {
+// TestMultipleSessionsCanCoexist verifies that multiple browser sessions
+// can be created and used concurrently within the same MCP connection.
+// Each session can navigate to different URLs independently.
+func TestMultipleSessionsCanCoexist(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
 
@@ -231,6 +247,7 @@ func TestMultipleSessionsAreIsolated(t *testing.T) {
 	if _, err := client.Initialize(ctx); err != nil {
 		t.Fatalf("failed to initialize: %v", err)
 	}
+	defer client.Close(ctx)
 
 	// Create two sessions
 	session1, err := client.CreateSession(ctx, "chromium", true)
@@ -294,6 +311,7 @@ func TestParallelServerInstances(t *testing.T) {
 	if _, err := client.Initialize(ctx); err != nil {
 		t.Fatalf("failed to initialize: %v", err)
 	}
+	defer client.Close(ctx)
 
 	t.Logf("Server running on port %d", server.Port())
 }
@@ -301,6 +319,8 @@ func TestParallelServerInstances(t *testing.T) {
 // TestDataURLNavigation verifies that navigation to data URLs works,
 // which is useful for tests that don't require network access.
 func TestDataURLNavigation(t *testing.T) {
+	t.Parallel()
+
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
 
@@ -315,6 +335,7 @@ func TestDataURLNavigation(t *testing.T) {
 	if _, err := client.Initialize(ctx); err != nil {
 		t.Fatalf("failed to initialize: %v", err)
 	}
+	defer client.Close(ctx)
 
 	// Create session and navigate to data URL
 	sessionID, err := client.CreateSession(ctx, "chromium", true)
@@ -358,6 +379,7 @@ func TestMultipleNavigations(t *testing.T) {
 	if _, err := client.Initialize(ctx); err != nil {
 		t.Fatalf("failed to initialize: %v", err)
 	}
+	defer client.Close(ctx)
 
 	// Create session
 	sessionID, err := client.CreateSession(ctx, "chromium", true)
@@ -390,7 +412,13 @@ func TestMultipleNavigations(t *testing.T) {
 }
 
 // TestServerShutdownCleansUpResources verifies that stopping the server
-// properly cleans up all resources.
+// properly cleans up all resources including browser sessions.
+//
+// Note: Browser process cleanup is delegated to the server's shutdown logic
+// (pkg/shutdown). The server's graceful shutdown sequence closes all browser
+// sessions and stops the browser pool, which terminates browser processes.
+// Directly verifying process termination would require platform-specific
+// process inspection that adds complexity without additional coverage value.
 func TestServerShutdownCleansUpResources(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
@@ -404,6 +432,8 @@ func TestServerShutdownCleansUpResources(t *testing.T) {
 	if _, err := client.Initialize(ctx); err != nil {
 		t.Fatalf("failed to initialize: %v", err)
 	}
+	// Note: We don't defer client.Close() here because this test specifically
+	// verifies server shutdown cleanup - the server will be stopped before cleanup.
 
 	// Create a session
 	sessionID, err := client.CreateSession(ctx, "chromium", true)
@@ -412,10 +442,55 @@ func TestServerShutdownCleansUpResources(t *testing.T) {
 	}
 	t.Logf("Created session: %s", sessionID)
 
-	// Stop the server - should clean up the session
+	// Stop the server - should clean up the session and browser processes
 	if err := server.Stop(); err != nil {
 		t.Fatalf("failed to stop server: %v", err)
 	}
 
 	t.Log("Server stopped successfully")
+}
+
+// TestFixtureServerServesPages verifies that the FixtureServer correctly
+// serves HTML fixture files from the fixtures directory.
+func TestFixtureServerServesPages(t *testing.T) {
+	t.Parallel()
+
+	// Start fixture server
+	fixtures := helpers.NewFixtureServer(t)
+	defer fixtures.Close()
+
+	// Test that simple.html is served correctly
+	httpClient := &http.Client{Timeout: 5 * time.Second}
+	resp, err := httpClient.Get(fixtures.URL("simple.html"))
+	if err != nil {
+		t.Fatalf("failed to fetch simple.html: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected status 200, got %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("failed to read response body: %v", err)
+	}
+
+	// Verify the page contains expected content
+	if !strings.Contains(string(body), "Simple Test Page") {
+		t.Error("simple.html does not contain expected title")
+	}
+
+	// Test form.html
+	resp2, err := httpClient.Get(fixtures.URL("form.html"))
+	if err != nil {
+		t.Fatalf("failed to fetch form.html: %v", err)
+	}
+	defer resp2.Body.Close()
+
+	if resp2.StatusCode != http.StatusOK {
+		t.Errorf("expected status 200 for form.html, got %d", resp2.StatusCode)
+	}
+
+	t.Log("FixtureServer serves HTML fixtures correctly")
 }
