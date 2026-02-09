@@ -4,6 +4,7 @@ package errors
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"math/rand"
 	"time"
@@ -12,6 +13,7 @@ import (
 // RetryConfig configures retry behavior for transient failures.
 type RetryConfig struct {
 	// MaxAttempts is the maximum number of attempts (including initial attempt).
+	// Must be at least 1. A value of 1 means no retries (just the initial attempt).
 	// Default: 3 (1 initial + 2 retries)
 	MaxAttempts int
 
@@ -34,6 +36,54 @@ type RetryConfig struct {
 	// Jitter adds randomization to backoff delays (0.0 to 1.0).
 	// Default: 0.1 (10% jitter)
 	Jitter float64
+}
+
+// RetryExhaustedError wraps an error that failed after exhausting all retry attempts.
+// It includes metadata about the number of attempts made, which is useful for
+// debugging and observability.
+type RetryExhaustedError struct {
+	// Err is the underlying error that caused the final failure.
+	Err error
+	// Attempts is the number of attempts made before giving up.
+	Attempts int
+}
+
+// Error implements the error interface.
+func (e *RetryExhaustedError) Error() string {
+	if e.Attempts == 1 {
+		return fmt.Sprintf("operation failed after %d attempt: %v", e.Attempts, e.Err)
+	}
+	return fmt.Sprintf("operation failed after %d attempts: %v", e.Attempts, e.Err)
+}
+
+// Unwrap returns the underlying error for error chain traversal.
+func (e *RetryExhaustedError) Unwrap() error {
+	return e.Err
+}
+
+// ErrorCode returns the error code if the underlying error implements MCPError.
+func (e *RetryExhaustedError) ErrorCode() int {
+	if mcpErr, ok := e.Err.(MCPError); ok {
+		return mcpErr.ErrorCode()
+	}
+	return CodeInternalError
+}
+
+// ErrorData returns error data including attempt count.
+// If the underlying error implements MCPError, its data is merged with attempt metadata.
+func (e *RetryExhaustedError) ErrorData() map[string]any {
+	data := map[string]any{
+		"attempts": e.Attempts,
+	}
+
+	// Merge underlying error data if it's an MCPError
+	if mcpErr, ok := e.Err.(MCPError); ok {
+		for k, v := range mcpErr.ErrorData() {
+			data[k] = v
+		}
+	}
+
+	return data
 }
 
 // DefaultRetryConfig returns a RetryConfig with sensible defaults.
@@ -82,7 +132,7 @@ func IsRetryable(err error, config *RetryConfig) bool {
 }
 
 // WithRetry wraps an operation with retry logic.
-// Returns the last error if all attempts fail.
+// Returns a RetryExhaustedError wrapping the last error if all attempts fail.
 func WithRetry(ctx context.Context, config *RetryConfig, operation func() error) error {
 	if config == nil {
 		config = DefaultRetryConfig()
@@ -118,10 +168,15 @@ func WithRetry(ctx context.Context, config *RetryConfig, operation func() error)
 		}
 	}
 
-	return lastErr
+	// All retry attempts exhausted, wrap the error with attempt count
+	return &RetryExhaustedError{
+		Err:      lastErr,
+		Attempts: config.MaxAttempts,
+	}
 }
 
 // RetryableOperation wraps an operation that returns a value with retry logic.
+// Returns a RetryExhaustedError wrapping the last error if all attempts fail.
 func RetryableOperation[T any](ctx context.Context, config *RetryConfig, operation func() (T, error)) (T, error) {
 	if config == nil {
 		config = DefaultRetryConfig()
@@ -155,11 +210,17 @@ func RetryableOperation[T any](ctx context.Context, config *RetryConfig, operati
 		}
 	}
 
-	return zero, lastErr
+	// All retry attempts exhausted, wrap the error with attempt count
+	return zero, &RetryExhaustedError{
+		Err:      lastErr,
+		Attempts: config.MaxAttempts,
+	}
 }
 
 // calculateBackoff computes the backoff duration for a given attempt.
 // Uses exponential backoff with optional jitter.
+// Jitter is applied as +/- config.Jitter% of the backoff value.
+// The result is clamped to ensure non-negative delays.
 func calculateBackoff(attempt int, config *RetryConfig) time.Duration {
 	// Exponential backoff: InitialBackoff * BackoffFactor^attempt
 	backoff := float64(config.InitialBackoff) * math.Pow(config.BackoffFactor, float64(attempt))
@@ -173,6 +234,11 @@ func calculateBackoff(attempt int, config *RetryConfig) time.Duration {
 	if config.Jitter > 0 {
 		jitter := backoff * config.Jitter * (rand.Float64()*2 - 1) // +/- jitter%
 		backoff += jitter
+	}
+
+	// Ensure non-negative result
+	if backoff < 0 {
+		backoff = 0
 	}
 
 	return time.Duration(backoff)

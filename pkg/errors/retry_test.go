@@ -305,8 +305,18 @@ func TestWithRetry_ExhaustedAttempts(t *testing.T) {
 	if attempts != 3 {
 		t.Errorf("expected 3 attempts, got %d", attempts)
 	}
-	if !errors.Is(err, expectedErr) {
-		t.Errorf("expected error to be %v, got %v", expectedErr, err)
+
+	// Check that error is wrapped in RetryExhaustedError
+	var retryErr *RetryExhaustedError
+	if !errors.As(err, &retryErr) {
+		t.Errorf("expected error to be RetryExhaustedError, got %T", err)
+	} else {
+		if retryErr.Attempts != 3 {
+			t.Errorf("expected RetryExhaustedError.Attempts to be 3, got %d", retryErr.Attempts)
+		}
+		if !errors.Is(retryErr.Err, expectedErr) {
+			t.Errorf("expected wrapped error to be %v, got %v", expectedErr, retryErr.Err)
+		}
 	}
 }
 
@@ -436,31 +446,8 @@ func TestWithRetry_MaxAttempts1(t *testing.T) {
 	}
 }
 
-func TestWithRetry_MaxAttempts0(t *testing.T) {
-	config := &RetryConfig{
-		MaxAttempts:     0,
-		InitialBackoff:  1 * time.Millisecond,
-		MaxBackoff:      10 * time.Millisecond,
-		BackoffFactor:   2.0,
-		RetryableErrors: []int{CodeElementNotFound},
-		Jitter:          0.0,
-	}
-	ctx := context.Background()
-
-	attempts := 0
-	operation := func() error {
-		attempts++
-		return NewElementNotFoundError("button", 5000)
-	}
-
-	err := WithRetry(ctx, config, operation)
-	if err != nil {
-		t.Errorf("expected no error with MaxAttempts=0 (no attempts), got %v", err)
-	}
-	if attempts != 0 {
-		t.Errorf("expected 0 attempts with MaxAttempts=0, got %d", attempts)
-	}
-}
+// TestWithRetry_MaxAttempts0 removed - MaxAttempts=0 is no longer valid.
+// Configuration validation now requires MaxAttempts >= 1.
 
 func TestRetryableOperation_SuccessOnFirstAttempt(t *testing.T) {
 	config := DefaultRetryConfig()
@@ -528,9 +515,10 @@ func TestRetryableOperation_ExhaustedAttempts(t *testing.T) {
 	ctx := context.Background()
 
 	attempts := 0
+	expectedErr := NewElementNotFoundError("button", 5000)
 	operation := func() (string, error) {
 		attempts++
-		return "", NewElementNotFoundError("button", 5000)
+		return "", expectedErr
 	}
 
 	result, err := RetryableOperation(ctx, config, operation)
@@ -542,6 +530,19 @@ func TestRetryableOperation_ExhaustedAttempts(t *testing.T) {
 	}
 	if attempts != 3 {
 		t.Errorf("expected 3 attempts, got %d", attempts)
+	}
+
+	// Check that error is wrapped in RetryExhaustedError
+	var retryErr *RetryExhaustedError
+	if !errors.As(err, &retryErr) {
+		t.Errorf("expected error to be RetryExhaustedError, got %T", err)
+	} else {
+		if retryErr.Attempts != 3 {
+			t.Errorf("expected RetryExhaustedError.Attempts to be 3, got %d", retryErr.Attempts)
+		}
+		if !errors.Is(retryErr.Err, expectedErr) {
+			t.Errorf("expected wrapped error to be %v, got %v", expectedErr, retryErr.Err)
+		}
 	}
 }
 
@@ -688,5 +689,136 @@ func TestWithRetry_TimingBetweenRetries(t *testing.T) {
 	delay2 := attemptTimes[2].Sub(attemptTimes[1])
 	if delay2 < 90*time.Millisecond || delay2 > 110*time.Millisecond {
 		t.Errorf("expected second retry delay to be ~100ms, got %v", delay2)
+	}
+}
+
+func TestRetryExhaustedError_ErrorMessage(t *testing.T) {
+	innerErr := NewElementNotFoundError("button", 5000)
+
+	tests := []struct {
+		name     string
+		attempts int
+		want     string
+	}{
+		{
+			name:     "single attempt",
+			attempts: 1,
+			want:     "operation failed after 1 attempt:",
+		},
+		{
+			name:     "multiple attempts",
+			attempts: 3,
+			want:     "operation failed after 3 attempts:",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := &RetryExhaustedError{
+				Err:      innerErr,
+				Attempts: tt.attempts,
+			}
+
+			msg := err.Error()
+			if !errors.Is(err, innerErr) {
+				t.Error("RetryExhaustedError should wrap inner error")
+			}
+			if len(msg) < len(tt.want) || msg[:len(tt.want)] != tt.want {
+				t.Errorf("expected error message to start with %q, got %q", tt.want, msg)
+			}
+		})
+	}
+}
+
+func TestRetryExhaustedError_Unwrap(t *testing.T) {
+	innerErr := NewElementNotFoundError("button", 5000)
+	err := &RetryExhaustedError{
+		Err:      innerErr,
+		Attempts: 3,
+	}
+
+	unwrapped := errors.Unwrap(err)
+	if unwrapped != innerErr {
+		t.Errorf("expected unwrapped error to be %v, got %v", innerErr, unwrapped)
+	}
+}
+
+func TestRetryExhaustedError_ImplementsMCPError(t *testing.T) {
+	innerErr := NewElementNotFoundError("button", 5000)
+	err := &RetryExhaustedError{
+		Err:      innerErr,
+		Attempts: 3,
+	}
+
+	// Should implement MCPError interface
+	var _ MCPError = err
+
+	// ErrorCode should delegate to inner error
+	if err.ErrorCode() != CodeElementNotFound {
+		t.Errorf("expected error code %d, got %d", CodeElementNotFound, err.ErrorCode())
+	}
+
+	// ErrorData should include attempts
+	data := err.ErrorData()
+	if attempts, ok := data["attempts"].(int); !ok || attempts != 3 {
+		t.Errorf("expected ErrorData to include attempts=3, got %v", data["attempts"])
+	}
+
+	// ErrorData should merge inner error data
+	if selector, ok := data["selector"].(string); !ok || selector != "button" {
+		t.Errorf("expected ErrorData to include selector from inner error, got %v", data["selector"])
+	}
+}
+
+func TestRetryExhaustedError_WithNonMCPError(t *testing.T) {
+	innerErr := errors.New("generic error")
+	err := &RetryExhaustedError{
+		Err:      innerErr,
+		Attempts: 2,
+	}
+
+	// ErrorCode should return internal error for non-MCP errors
+	if err.ErrorCode() != CodeInternalError {
+		t.Errorf("expected error code %d for non-MCP error, got %d", CodeInternalError, err.ErrorCode())
+	}
+
+	// ErrorData should still include attempts
+	data := err.ErrorData()
+	if attempts, ok := data["attempts"].(int); !ok || attempts != 2 {
+		t.Errorf("expected ErrorData to include attempts=2, got %v", data["attempts"])
+	}
+}
+
+func TestCalculateBackoff_NoNegativeDelays(t *testing.T) {
+	// Test with very small backoff and high jitter to ensure it never goes negative
+	config := &RetryConfig{
+		InitialBackoff: 1 * time.Millisecond,
+		MaxBackoff:     10 * time.Millisecond,
+		BackoffFactor:  2.0,
+		Jitter:         1.0, // Maximum jitter (100%)
+	}
+
+	// Run many iterations to catch edge cases with random jitter
+	for i := 0; i < 1000; i++ {
+		for attempt := 0; attempt < 10; attempt++ {
+			backoff := calculateBackoff(attempt, config)
+			if backoff < 0 {
+				t.Errorf("calculateBackoff produced negative delay: %v (attempt %d, iteration %d)", backoff, attempt, i)
+			}
+		}
+	}
+}
+
+func TestCalculateBackoff_ZeroInitialBackoff(t *testing.T) {
+	config := &RetryConfig{
+		InitialBackoff: 0,
+		MaxBackoff:     1 * time.Second,
+		BackoffFactor:  2.0,
+		Jitter:         0.1,
+	}
+
+	backoff := calculateBackoff(0, config)
+	if backoff < 0 {
+		t.Errorf("calculateBackoff with zero InitialBackoff produced negative delay: %v", backoff)
 	}
 }

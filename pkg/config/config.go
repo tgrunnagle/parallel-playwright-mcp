@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	pkgerrors "github.com/tgrunnagle/parallel-playwright-mcp/pkg/errors"
 	"gopkg.in/yaml.v3"
 )
 
@@ -84,12 +85,53 @@ type LoggingConfig struct {
 }
 
 // RetrySettings holds retry-related settings for transient failures.
+// These settings are loaded from YAML configuration and can be converted
+// to errors.RetryConfig using the ToRetryConfig() method.
+//
+// Example YAML configuration:
+//
+//	retry:
+//	  maxAttempts: 3
+//	  initialBackoff: 100ms
+//	  maxBackoff: 5s
+//	  backoffFactor: 2.0
+//	  jitter: 0.1
+//	  retryableErrors: [-32002, -32003]  # Optional, defaults to ElementNotFound and Timeout
 type RetrySettings struct {
-	MaxAttempts    int           `yaml:"maxAttempts"`
-	InitialBackoff time.Duration `yaml:"initialBackoff"`
-	MaxBackoff     time.Duration `yaml:"maxBackoff"`
-	BackoffFactor  float64       `yaml:"backoffFactor"`
-	Jitter         float64       `yaml:"jitter"`
+	MaxAttempts     int           `yaml:"maxAttempts"`
+	InitialBackoff  time.Duration `yaml:"initialBackoff"`
+	MaxBackoff      time.Duration `yaml:"maxBackoff"`
+	BackoffFactor   float64       `yaml:"backoffFactor"`
+	Jitter          float64       `yaml:"jitter"`
+	RetryableErrors []int         `yaml:"retryableErrors,omitempty"`
+}
+
+// ToRetryConfig converts RetrySettings to errors.RetryConfig for use with retry operations.
+// This method creates a defensive copy of the retryable errors slice to prevent mutations.
+//
+// Example usage:
+//
+//	cfg, err := config.Load("config.yaml")
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	retryConfig := cfg.Retry.ToRetryConfig()
+//	err = errors.WithRetry(ctx, retryConfig, func() error {
+//	    return page.Goto(url)
+//	})
+func (rs *RetrySettings) ToRetryConfig() *pkgerrors.RetryConfig {
+	// Create a copy of RetryableErrors to avoid mutations
+	retryableErrors := make([]int, len(rs.RetryableErrors))
+	copy(retryableErrors, rs.RetryableErrors)
+
+	return &pkgerrors.RetryConfig{
+		MaxAttempts:     rs.MaxAttempts,
+		InitialBackoff:  rs.InitialBackoff,
+		MaxBackoff:      rs.MaxBackoff,
+		BackoffFactor:   rs.BackoffFactor,
+		Jitter:          rs.Jitter,
+		RetryableErrors: retryableErrors,
+	}
 }
 
 // LoadWithDefaults creates a configuration with all default values set.
@@ -118,11 +160,12 @@ func LoadWithDefaults() *Config {
 			Format: DefaultLogFormat,
 		},
 		Retry: RetrySettings{
-			MaxAttempts:    DefaultMaxAttempts,
-			InitialBackoff: DefaultInitialBackoff,
-			MaxBackoff:     DefaultMaxBackoff,
-			BackoffFactor:  DefaultBackoffFactor,
-			Jitter:         DefaultJitter,
+			MaxAttempts:     DefaultMaxAttempts,
+			InitialBackoff:  DefaultInitialBackoff,
+			MaxBackoff:      DefaultMaxBackoff,
+			BackoffFactor:   DefaultBackoffFactor,
+			Jitter:          DefaultJitter,
+			RetryableErrors: []int{-32002, -32003}, // CodeElementNotFound, CodeTimeout
 		},
 	}
 }
@@ -268,8 +311,8 @@ func (c *Config) Validate() []error {
 	}
 
 	// Validate retry settings
-	if c.Retry.MaxAttempts < 0 {
-		errs = append(errs, fmt.Errorf("invalid retry maxAttempts %d: must be non-negative", c.Retry.MaxAttempts))
+	if c.Retry.MaxAttempts < 1 {
+		errs = append(errs, fmt.Errorf("invalid retry maxAttempts %d: must be at least 1 (1 means no retries, just initial attempt)", c.Retry.MaxAttempts))
 	}
 	if c.Retry.InitialBackoff < 0 {
 		errs = append(errs, fmt.Errorf("invalid retry initialBackoff %v: must be non-negative", c.Retry.InitialBackoff))
