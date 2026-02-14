@@ -10,6 +10,7 @@ import (
 	"time"
 
 	pkgerrors "github.com/tgrunnagle/parallel-playwright-mcp/pkg/errors"
+	"github.com/tgrunnagle/parallel-playwright-mcp/pkg/tools"
 	"gopkg.in/yaml.v3"
 )
 
@@ -42,11 +43,12 @@ var (
 
 // Config represents the complete server configuration.
 type Config struct {
-	Server  ServerConfig  `yaml:"server"`
-	Browser BrowserConfig `yaml:"browser"`
-	Session SessionConfig `yaml:"session"`
-	Logging LoggingConfig `yaml:"logging"`
-	Retry   RetrySettings `yaml:"retry"`
+	Server  ServerConfig    `yaml:"server"`
+	Browser BrowserConfig   `yaml:"browser"`
+	Session SessionConfig   `yaml:"session"`
+	Logging LoggingConfig   `yaml:"logging"`
+	Retry   RetrySettings   `yaml:"retry"`
+	Timeout TimeoutSettings `yaml:"timeout"`
 }
 
 // ServerConfig contains HTTP server settings.
@@ -134,6 +136,40 @@ func (rs *RetrySettings) ToRetryConfig() *pkgerrors.RetryConfig {
 	}
 }
 
+// TimeoutSettings holds timeout-related settings (in milliseconds for YAML convenience).
+//
+// Example YAML configuration:
+//
+//	timeout:
+//	  default: 30000      # 30 seconds
+//	  navigation: 30000   # 30 seconds
+//	  element: 5000       # 5 seconds
+//	  script: 30000       # 30 seconds
+type TimeoutSettings struct {
+	DefaultMs    int `yaml:"default"`    // Default timeout (ms), default: 30000
+	NavigationMs int `yaml:"navigation"` // Navigation timeout (ms), default: 30000
+	ElementMs    int `yaml:"element"`    // Element wait timeout (ms), default: 5000
+	ScriptMs     int `yaml:"script"`     // Script timeout (ms), default: 30000
+}
+
+// ToTimeoutConfig converts TimeoutSettings to tools.TimeoutConfig for use with timeout operations.
+//
+// Example usage:
+//
+//	cfg, err := config.Load("config.yaml")
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	timeoutConfig := cfg.Timeout.ToTimeoutConfig()
+func (ts *TimeoutSettings) ToTimeoutConfig() *tools.TimeoutConfig {
+	return &tools.TimeoutConfig{
+		Default:    time.Duration(ts.DefaultMs) * time.Millisecond,
+		Navigation: time.Duration(ts.NavigationMs) * time.Millisecond,
+		Element:    time.Duration(ts.ElementMs) * time.Millisecond,
+		Script:     time.Duration(ts.ScriptMs) * time.Millisecond,
+	}
+}
+
 // LoadWithDefaults creates a configuration with all default values set.
 func LoadWithDefaults() *Config {
 	return &Config{
@@ -166,6 +202,12 @@ func LoadWithDefaults() *Config {
 			BackoffFactor:   DefaultBackoffFactor,
 			Jitter:          DefaultJitter,
 			RetryableErrors: []int{-32002, -32003}, // CodeElementNotFound, CodeTimeout
+		},
+		Timeout: TimeoutSettings{
+			DefaultMs:    30000, // 30 seconds
+			NavigationMs: 30000, // 30 seconds
+			ElementMs:    5000,  // 5 seconds
+			ScriptMs:     30000, // 30 seconds
 		},
 	}
 }
@@ -241,6 +283,43 @@ func (c *Config) applyEnvironmentOverrides() []error {
 
 	if level := os.Getenv("MCP_LOG_LEVEL"); level != "" {
 		c.Logging.Level = strings.ToLower(level)
+	}
+
+	// Timeout settings
+	if defaultTimeout := os.Getenv("MCP_TIMEOUT_DEFAULT"); defaultTimeout != "" {
+		val, err := strconv.Atoi(defaultTimeout)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("invalid MCP_TIMEOUT_DEFAULT %q: must be a valid integer", defaultTimeout))
+		} else {
+			c.Timeout.DefaultMs = val
+		}
+	}
+
+	if navigationTimeout := os.Getenv("MCP_TIMEOUT_NAVIGATION"); navigationTimeout != "" {
+		val, err := strconv.Atoi(navigationTimeout)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("invalid MCP_TIMEOUT_NAVIGATION %q: must be a valid integer", navigationTimeout))
+		} else {
+			c.Timeout.NavigationMs = val
+		}
+	}
+
+	if elementTimeout := os.Getenv("MCP_TIMEOUT_ELEMENT"); elementTimeout != "" {
+		val, err := strconv.Atoi(elementTimeout)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("invalid MCP_TIMEOUT_ELEMENT %q: must be a valid integer", elementTimeout))
+		} else {
+			c.Timeout.ElementMs = val
+		}
+	}
+
+	if scriptTimeout := os.Getenv("MCP_TIMEOUT_SCRIPT"); scriptTimeout != "" {
+		val, err := strconv.Atoi(scriptTimeout)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("invalid MCP_TIMEOUT_SCRIPT %q: must be a valid integer", scriptTimeout))
+		} else {
+			c.Timeout.ScriptMs = val
+		}
 	}
 
 	return errs
@@ -325,6 +404,20 @@ func (c *Config) Validate() []error {
 	}
 	if c.Retry.Jitter < 0 || c.Retry.Jitter > 1 {
 		errs = append(errs, fmt.Errorf("invalid retry jitter %v: must be between 0.0 and 1.0", c.Retry.Jitter))
+	}
+
+	// Validate timeout settings
+	if c.Timeout.DefaultMs <= 0 {
+		errs = append(errs, fmt.Errorf("invalid timeout default %dms: must be positive", c.Timeout.DefaultMs))
+	}
+	if c.Timeout.NavigationMs <= 0 {
+		errs = append(errs, fmt.Errorf("invalid timeout navigation %dms: must be positive", c.Timeout.NavigationMs))
+	}
+	if c.Timeout.ElementMs <= 0 {
+		errs = append(errs, fmt.Errorf("invalid timeout element %dms: must be positive", c.Timeout.ElementMs))
+	}
+	if c.Timeout.ScriptMs <= 0 {
+		errs = append(errs, fmt.Errorf("invalid timeout script %dms: must be positive", c.Timeout.ScriptMs))
 	}
 
 	return errs

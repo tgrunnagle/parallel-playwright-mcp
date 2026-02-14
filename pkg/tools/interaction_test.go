@@ -779,7 +779,7 @@ func TestClickHandler(t *testing.T) {
 				getSessionFunc: tt.getSessionFunc,
 			}
 
-			handler := ClickHandler(mgr)
+			handler := ClickHandler(mgr, DefaultTimeoutConfig())
 			req := mcp.CallToolRequest{}
 			req.Params.Name = "click"
 			req.Params.Arguments = tt.arguments
@@ -932,7 +932,7 @@ func TestTypeHandler(t *testing.T) {
 				getSessionFunc: tt.getSessionFunc,
 			}
 
-			handler := TypeHandler(mgr)
+			handler := TypeHandler(mgr, DefaultTimeoutConfig())
 			req := mcp.CallToolRequest{}
 			req.Params.Name = "type"
 			req.Params.Arguments = tt.arguments
@@ -1075,7 +1075,7 @@ func TestFillHandler(t *testing.T) {
 				getSessionFunc: tt.getSessionFunc,
 			}
 
-			handler := FillHandler(mgr)
+			handler := FillHandler(mgr, DefaultTimeoutConfig())
 			req := mcp.CallToolRequest{}
 			req.Params.Name = "fill"
 			req.Params.Arguments = tt.arguments
@@ -1275,7 +1275,7 @@ func TestSelectOptionHandler(t *testing.T) {
 				getSessionFunc: tt.getSessionFunc,
 			}
 
-			handler := SelectOptionHandler(mgr)
+			handler := SelectOptionHandler(mgr, DefaultTimeoutConfig())
 			req := mcp.CallToolRequest{}
 			req.Params.Name = "select_option"
 			req.Params.Arguments = tt.arguments
@@ -1410,7 +1410,7 @@ func TestHoverHandler(t *testing.T) {
 				getSessionFunc: tt.getSessionFunc,
 			}
 
-			handler := HoverHandler(mgr)
+			handler := HoverHandler(mgr, DefaultTimeoutConfig())
 			req := mcp.CallToolRequest{}
 			req.Params.Name = "hover"
 			req.Params.Arguments = tt.arguments
@@ -1627,7 +1627,7 @@ func TestPressKeyHandler(t *testing.T) {
 				getSessionFunc: tt.getSessionFunc,
 			}
 
-			handler := PressKeyHandler(mgr)
+			handler := PressKeyHandler(mgr, DefaultTimeoutConfig())
 			req := mcp.CallToolRequest{}
 			req.Params.Name = "press_key"
 			req.Params.Arguments = tt.arguments

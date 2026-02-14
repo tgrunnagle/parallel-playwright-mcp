@@ -50,7 +50,7 @@ func TestSessionCreateToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	handler := SessionCreateHandler(mgr)
+	handler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	t.Run("creates session with default options", func(t *testing.T) {
@@ -166,8 +166,8 @@ func TestSessionListToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	listHandler := SessionListHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	listHandler := SessionListHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	t.Run("lists empty sessions for new connection", func(t *testing.T) {
@@ -256,9 +256,9 @@ func TestSessionCloseToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	closeHandler := SessionCloseHandler(mgr)
-	listHandler := SessionListHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	closeHandler := SessionCloseHandler(mgr, DefaultTimeoutConfig())
+	listHandler := SessionListHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	t.Run("closes session and removes from list", func(t *testing.T) {
@@ -361,9 +361,9 @@ func TestFullSessionLifecycleIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	listHandler := SessionListHandler(mgr)
-	closeHandler := SessionCloseHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	listHandler := SessionListHandler(mgr, DefaultTimeoutConfig())
+	closeHandler := SessionCloseHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	t.Run("full create -> list -> close flow", func(t *testing.T) {
@@ -507,8 +507,8 @@ func TestNavigateToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session for all tests
@@ -609,9 +609,9 @@ func TestGoBackToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	goBackHandler := GoBackHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	goBackHandler := GoBackHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -713,10 +713,10 @@ func TestGoForwardToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	goBackHandler := GoBackHandler(mgr)
-	goForwardHandler := GoForwardHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	goBackHandler := GoBackHandler(mgr, DefaultTimeoutConfig())
+	goForwardHandler := GoForwardHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -829,9 +829,9 @@ func TestReloadToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	reloadHandler := ReloadHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	reloadHandler := ReloadHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -916,11 +916,11 @@ func TestNavigationFlowIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	goBackHandler := GoBackHandler(mgr)
-	goForwardHandler := GoForwardHandler(mgr)
-	reloadHandler := ReloadHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	goBackHandler := GoBackHandler(mgr, DefaultTimeoutConfig())
+	goForwardHandler := GoForwardHandler(mgr, DefaultTimeoutConfig())
+	reloadHandler := ReloadHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -1048,9 +1048,9 @@ func TestScreenshotToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	screenshotHandler := ScreenshotHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	screenshotHandler := ScreenshotHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -1135,9 +1135,9 @@ func TestExtractTextToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	extractTextHandler := ExtractTextHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	extractTextHandler := ExtractTextHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -1256,9 +1256,9 @@ func TestGetHTMLToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	getHTMLHandler := GetHTMLHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	getHTMLHandler := GetHTMLHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -1375,9 +1375,9 @@ func TestEvaluateToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	evaluateHandler := EvaluateHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	evaluateHandler := EvaluateHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -1498,9 +1498,9 @@ func TestQuerySelectorToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	querySelectorHandler := QuerySelectorHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	querySelectorHandler := QuerySelectorHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -1631,9 +1631,9 @@ func TestGetAccessibilityTreeToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	accessibilityHandler := GetAccessibilityTreeHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	accessibilityHandler := GetAccessibilityTreeHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -1713,10 +1713,10 @@ func TestGetConsoleLogsToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	evaluateHandler := EvaluateHandler(mgr)
-	consoleLogsHandler := GetConsoleLogsHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	evaluateHandler := EvaluateHandler(mgr, DefaultTimeoutConfig())
+	consoleLogsHandler := GetConsoleLogsHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -1832,9 +1832,9 @@ func TestClickToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	clickHandler := ClickHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	clickHandler := ClickHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -1951,9 +1951,9 @@ func TestTypeToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	typeHandler := TypeHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	typeHandler := TypeHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -2045,9 +2045,9 @@ func TestFillToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	fillHandler := FillHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	fillHandler := FillHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -2139,9 +2139,9 @@ func TestSelectOptionToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	selectHandler := SelectOptionHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	selectHandler := SelectOptionHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -2233,9 +2233,9 @@ func TestHoverToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	hoverHandler := HoverHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	hoverHandler := HoverHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -2325,9 +2325,9 @@ func TestPressKeyToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	pressKeyHandler := PressKeyHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	pressKeyHandler := PressKeyHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -2444,10 +2444,10 @@ func TestGetNetworkLogsToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	networkLogsHandler := GetNetworkLogsHandler(mgr)
-	closeHandler := SessionCloseHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	networkLogsHandler := GetNetworkLogsHandler(mgr, DefaultTimeoutConfig())
+	closeHandler := SessionCloseHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -2784,9 +2784,9 @@ func TestGetNetworkLogsWithRealNetworkTrafficIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	networkLogsHandler := GetNetworkLogsHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	networkLogsHandler := GetNetworkLogsHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session

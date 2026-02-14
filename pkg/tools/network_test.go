@@ -314,7 +314,7 @@ func TestGetNetworkLogsHandler(t *testing.T) {
 			mgr := &mockSessionManager{
 				getSessionFunc: tt.getSessionFunc,
 			}
-			handler := GetNetworkLogsHandler(mgr)
+			handler := GetNetworkLogsHandler(mgr, DefaultTimeoutConfig())
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{
@@ -416,7 +416,7 @@ func TestGetNetworkLogsHandler_URLPatternFilter(t *testing.T) {
 					return createSessionWithLogs(), true
 				},
 			}
-			handler := GetNetworkLogsHandler(mgr)
+			handler := GetNetworkLogsHandler(mgr, DefaultTimeoutConfig())
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{
@@ -545,7 +545,7 @@ func TestGetNetworkLogsHandler_StatusFilters(t *testing.T) {
 					return createSessionWithLogs(), true
 				},
 			}
-			handler := GetNetworkLogsHandler(mgr)
+			handler := GetNetworkLogsHandler(mgr, DefaultTimeoutConfig())
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{
@@ -637,7 +637,7 @@ func TestGetNetworkLogsHandler_CombinedFilters(t *testing.T) {
 					return createSessionWithLogs(), true
 				},
 			}
-			handler := GetNetworkLogsHandler(mgr)
+			handler := GetNetworkLogsHandler(mgr, DefaultTimeoutConfig())
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{
@@ -830,7 +830,7 @@ func TestGetNetworkLogsHandler_EmptyFilter(t *testing.T) {
 			}, true
 		},
 	}
-	handler := GetNetworkLogsHandler(mgr)
+	handler := GetNetworkLogsHandler(mgr, DefaultTimeoutConfig())
 
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{

@@ -37,8 +37,13 @@ func NavigateTool() mcp.Tool {
 }
 
 // NavigateHandler returns the handler function for navigate.
-func NavigateHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
+func NavigateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Apply timeout with navigation category
+		args := req.GetArguments()
+		ctx, cancel := ApplyTimeout(ctx, args, TimeoutNavigation, timeoutConfig)
+		defer cancel()
+
 		// Extract MCP session ID from context for ownership validation
 		mcpSessionID := getMCPSessionID(ctx)
 
@@ -67,11 +72,23 @@ func NavigateHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
 		}
 
 		// Build Playwright options from optional parameters
-		opts := buildGotoOptions(req.GetArguments())
+		opts := buildGotoOptions(args)
+
+		// Get timeout value for error reporting
+		timeoutMs := int(GetTimeout(args, int(timeoutConfig.GetCategoryTimeout(TimeoutNavigation).Milliseconds())).Milliseconds())
 
 		// Execute navigation
 		if _, err := page.Goto(url, opts); err != nil {
+			// Check if this was a context timeout
+			if ctxErr := HandleContextError(ctx, "navigate", timeoutMs); ctxErr != nil {
+				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
+			}
 			return handleNavigationError(err, url), nil
+		}
+
+		// Check for context timeout after successful operation
+		if ctxErr := HandleContextError(ctx, "navigate", timeoutMs); ctxErr != nil {
+			return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
 		}
 
 		return mcp.NewToolResultText(fmt.Sprintf("Navigated to %s", url)), nil
@@ -98,8 +115,13 @@ func GoBackTool() mcp.Tool {
 }
 
 // GoBackHandler returns the handler function for go_back.
-func GoBackHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
+func GoBackHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Apply timeout with navigation category
+		args := req.GetArguments()
+		ctx, cancel := ApplyTimeout(ctx, args, TimeoutNavigation, timeoutConfig)
+		defer cancel()
+
 		// Extract MCP session ID from context for ownership validation
 		mcpSessionID := getMCPSessionID(ctx)
 
@@ -122,12 +144,24 @@ func GoBackHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
 		}
 
 		// Build Playwright options from optional parameters
-		opts := buildGoBackOptions(req.GetArguments())
+		opts := buildGoBackOptions(args)
+
+		// Get timeout value for error reporting
+		timeoutMs := int(GetTimeout(args, int(timeoutConfig.GetCategoryTimeout(TimeoutNavigation).Milliseconds())).Milliseconds())
 
 		// Execute back navigation
 		resp, err := page.GoBack(opts)
 		if err != nil {
+			// Check if this was a context timeout
+			if ctxErr := HandleContextError(ctx, "go_back", timeoutMs); ctxErr != nil {
+				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
+			}
 			return handleNavigationError(err, "back"), nil
+		}
+
+		// Check for context timeout after successful operation
+		if ctxErr := HandleContextError(ctx, "go_back", timeoutMs); ctxErr != nil {
+			return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
 		}
 
 		// Handle case where no previous page exists
@@ -159,8 +193,13 @@ func GoForwardTool() mcp.Tool {
 }
 
 // GoForwardHandler returns the handler function for go_forward.
-func GoForwardHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
+func GoForwardHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Apply timeout with navigation category
+		args := req.GetArguments()
+		ctx, cancel := ApplyTimeout(ctx, args, TimeoutNavigation, timeoutConfig)
+		defer cancel()
+
 		// Extract MCP session ID from context for ownership validation
 		mcpSessionID := getMCPSessionID(ctx)
 
@@ -183,12 +222,24 @@ func GoForwardHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc 
 		}
 
 		// Build Playwright options from optional parameters
-		opts := buildGoForwardOptions(req.GetArguments())
+		opts := buildGoForwardOptions(args)
+
+		// Get timeout value for error reporting
+		timeoutMs := int(GetTimeout(args, int(timeoutConfig.GetCategoryTimeout(TimeoutNavigation).Milliseconds())).Milliseconds())
 
 		// Execute forward navigation
 		resp, err := page.GoForward(opts)
 		if err != nil {
+			// Check if this was a context timeout
+			if ctxErr := HandleContextError(ctx, "go_forward", timeoutMs); ctxErr != nil {
+				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
+			}
 			return handleNavigationError(err, "forward"), nil
+		}
+
+		// Check for context timeout after successful operation
+		if ctxErr := HandleContextError(ctx, "go_forward", timeoutMs); ctxErr != nil {
+			return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
 		}
 
 		// Handle case where no forward page exists
@@ -220,8 +271,13 @@ func ReloadTool() mcp.Tool {
 }
 
 // ReloadHandler returns the handler function for reload.
-func ReloadHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
+func ReloadHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Apply timeout with navigation category
+		args := req.GetArguments()
+		ctx, cancel := ApplyTimeout(ctx, args, TimeoutNavigation, timeoutConfig)
+		defer cancel()
+
 		// Extract MCP session ID from context for ownership validation
 		mcpSessionID := getMCPSessionID(ctx)
 
@@ -244,11 +300,23 @@ func ReloadHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
 		}
 
 		// Build Playwright reload options from optional parameters
-		opts := buildReloadOptions(req.GetArguments())
+		opts := buildReloadOptions(args)
+
+		// Get timeout value for error reporting
+		timeoutMs := int(GetTimeout(args, int(timeoutConfig.GetCategoryTimeout(TimeoutNavigation).Milliseconds())).Milliseconds())
 
 		// Execute reload
 		if _, err := page.Reload(opts); err != nil {
+			// Check if this was a context timeout
+			if ctxErr := HandleContextError(ctx, "reload", timeoutMs); ctxErr != nil {
+				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
+			}
 			return handleNavigationError(err, "reload"), nil
+		}
+
+		// Check for context timeout after successful operation
+		if ctxErr := HandleContextError(ctx, "reload", timeoutMs); ctxErr != nil {
+			return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
 		}
 
 		return mcp.NewToolResultText(fmt.Sprintf("Reloaded page: %s", page.URL())), nil
