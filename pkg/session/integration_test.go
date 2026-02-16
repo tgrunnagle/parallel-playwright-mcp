@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/playwright-community/playwright-go"
 	"github.com/tgrunnagle/parallel-playwright-mcp/pkg/browser"
 )
 
@@ -486,7 +487,7 @@ func TestNetworkLoggingIntegration(t *testing.T) {
 		}
 
 		// Navigate to example.com (a stable public URL)
-		_, err = page.Goto("https://example.com", nil)
+		_, err = page.Goto("https://example.com")
 		if err != nil {
 			// If network is unavailable, skip this test
 			t.Skipf("Could not navigate to example.com (network may be unavailable): %v", err)

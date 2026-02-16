@@ -96,12 +96,10 @@ func startTestServer(t *testing.T) (string, func()) {
 	mux.HandleFunc("/health", healthHandler(serverVersion))
 	mux.Handle("/mcp", mcpHandler)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	_, cancel := context.WithCancel(context.Background())
 
 	go func() {
-		if err := http.ListenAndServe(addr, mux); err != nil && ctx.Err() == nil {
-			t.Logf("Server stopped: %v", err)
-		}
+		_ = http.ListenAndServe(addr, mux)
 	}()
 
 	// Wait for server to be ready
@@ -496,7 +494,6 @@ func TestGracefulShutdown_InFlightRequestCompletes(t *testing.T) {
 	go func() {
 		resp, err := http.Get(fmt.Sprintf("http://%s/slow", addr))
 		if err != nil {
-			t.Logf("Slow request error: %v", err)
 			return
 		}
 		responseChan <- resp

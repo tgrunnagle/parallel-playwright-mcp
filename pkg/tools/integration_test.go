@@ -2512,7 +2512,7 @@ func TestGetNetworkLogsToolIntegration(t *testing.T) {
 
 		// Data URLs may or may not generate network entries depending on the browser,
 		// but the response should be valid JSON array
-		t.Logf("Retrieved %d network log entries", len(logs))
+		_ = logs
 	})
 
 	t.Run("retrieves network logs after multiple navigations", func(t *testing.T) {
@@ -2566,7 +2566,7 @@ func TestGetNetworkLogsToolIntegration(t *testing.T) {
 		}
 
 		// Response should be valid JSON array
-		t.Logf("Retrieved %d network log entries after multiple navigations", len(logs))
+		_ = logs
 	})
 
 	t.Run("respects limit parameter", func(t *testing.T) {
@@ -2825,8 +2825,11 @@ func TestGetNetworkLogsWithRealNetworkTrafficIntegration(t *testing.T) {
 			},
 		}
 		navResult, err := navigateHandler(ctx, navReq)
-		if err != nil || navResult.IsError {
-			t.Logf("Navigation result: %v", extractTextContent(navResult.Content))
+		if err != nil {
+			t.Fatalf("navigate failed: %v", err)
+		}
+		if navResult.IsError {
+			t.Fatalf("navigate returned error: %v", extractTextContent(navResult.Content))
 		}
 
 		// Get network logs
@@ -2854,12 +2857,7 @@ func TestGetNetworkLogsWithRealNetworkTrafficIntegration(t *testing.T) {
 			t.Fatalf("Failed to parse network logs: %v", err)
 		}
 
-		t.Logf("Captured %d network requests", len(logs))
-
-		// Log details for debugging
-		for i, log := range logs {
-			t.Logf("  [%d] %s %s -> %d", i, log.Method, log.URL, log.Status)
-		}
+		_ = logs
 	})
 
 	t.Run("verifies network log entry format", func(t *testing.T) {
