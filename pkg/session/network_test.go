@@ -8,6 +8,17 @@ import (
 	"github.com/playwright-community/playwright-go"
 )
 
+// waitForEntries polls the buffer until it has at least n entries or timeout is reached.
+// Network event handlers run in goroutines to avoid deadlocking the playwright-go
+// driver, so tests must wait for async processing to complete.
+func waitForEntries(t *testing.T, buffer *NetworkLogBuffer, n int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for buffer.Len() < n && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 func TestDefaultNetworkLogBufferSize(t *testing.T) {
 	if DefaultNetworkLogBufferSize != 100 {
 		t.Errorf("DefaultNetworkLogBufferSize = %d, want 100", DefaultNetworkLogBufferSize)
@@ -1045,8 +1056,9 @@ func TestSetupNetworkLogging(t *testing.T) {
 		// Simulate request event
 		page.simulateRequest(req)
 
-		// Small delay to ensure duration is measurable
-		time.Sleep(10 * time.Millisecond)
+		// Wait for async request handler goroutine to record the pending request,
+		// then add delay to ensure duration is measurable
+		time.Sleep(50 * time.Millisecond)
 
 		// Simulate response event
 		resp := &mockResponse{
@@ -1056,6 +1068,9 @@ func TestSetupNetworkLogging(t *testing.T) {
 			headers: []playwright.NameValue{{Name: "content-length", Value: "1024"}},
 		}
 		page.simulateResponse(resp)
+
+		// Wait for async handler goroutines to complete
+		waitForEntries(t, buffer, 1)
 
 		// Verify entry was captured
 		entries := buffer.Entries(0)
@@ -1100,6 +1115,10 @@ func TestSetupNetworkLogging(t *testing.T) {
 
 		page.simulateRequest(req)
 
+		// Wait for async request handler goroutine to record the pending request
+		// (including PostDataBuffer call) before simulating the response
+		time.Sleep(50 * time.Millisecond)
+
 		resp := &mockResponse{
 			request: req,
 			url:     "https://example.com/api",
@@ -1107,6 +1126,8 @@ func TestSetupNetworkLogging(t *testing.T) {
 			headers: []playwright.NameValue{{Name: "content-length", Value: "256"}},
 		}
 		page.simulateResponse(resp)
+
+		waitForEntries(t, buffer, 1)
 
 		entries := buffer.Entries(0)
 		if len(entries) != 1 {
@@ -1142,6 +1163,8 @@ func TestSetupNetworkLogging(t *testing.T) {
 
 		page.simulateRequest(req)
 		page.simulateRequestFailed(req)
+
+		waitForEntries(t, buffer, 1)
 
 		entries := buffer.Entries(0)
 		if len(entries) != 1 {
@@ -1183,6 +1206,8 @@ func TestSetupNetworkLogging(t *testing.T) {
 			headers: []playwright.NameValue{},
 		}
 		page.simulateResponse(resp)
+
+		waitForEntries(t, buffer, 1)
 
 		entries := buffer.Entries(0)
 		if len(entries) != 1 {
@@ -1227,6 +1252,8 @@ func TestSetupNetworkLogging(t *testing.T) {
 			page.simulateResponse(resp)
 		}
 
+		waitForEntries(t, buffer, 3)
+
 		entries := buffer.Entries(0)
 		if len(entries) != 3 {
 			t.Fatalf("expected 3 entries, got %d", len(entries))
@@ -1270,6 +1297,9 @@ func TestSetupNetworkLogging(t *testing.T) {
 
 		wg.Wait()
 
+		// Wait for all async handler goroutines to finish
+		waitForEntries(t, buffer, requestCount)
+
 		// All entries should have been captured
 		if buffer.Len() != requestCount {
 			t.Errorf("expected %d entries, got %d", requestCount, buffer.Len())
@@ -1298,6 +1328,8 @@ func TestSetupNetworkLogging(t *testing.T) {
 		}
 		page.simulateResponse(resp)
 
+		waitForEntries(t, buffer, 1)
+
 		entries := buffer.Entries(0)
 		if len(entries) != 1 {
 			t.Fatalf("expected 1 entry, got %d", len(entries))
@@ -1320,6 +1352,8 @@ func TestSetupNetworkLogging(t *testing.T) {
 		resp := &mockResponse{request: req, url: req.url, status: 200, headers: []playwright.NameValue{}}
 		page.simulateResponse(resp)
 
+		waitForEntries(t, buffer, 1)
+
 		if buffer.Len() != 1 {
 			t.Fatalf("expected 1 entry before cleanup, got %d", buffer.Len())
 		}
@@ -1336,6 +1370,9 @@ func TestSetupNetworkLogging(t *testing.T) {
 		page.simulateRequest(req2)
 		resp2 := &mockResponse{request: req2, url: req2.url, status: 200, headers: []playwright.NameValue{}}
 		page.simulateResponse(resp2)
+
+		// Give any stray goroutines time to run (they shouldn't add entries)
+		time.Sleep(50 * time.Millisecond)
 
 		if buffer.Len() != beforeCount {
 			t.Errorf("buffer length changed after cleanup: was %d, now %d", beforeCount, buffer.Len())

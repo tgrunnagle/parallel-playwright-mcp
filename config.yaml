@@ -14,7 +14,8 @@ browser:
 
   # Browser-specific launch arguments
   chromium:
-    args: []  # Additional Chromium launch arguments (e.g., ["--disable-gpu", "--no-sandbox"])
+    channel: "chromium"  # Use full Chromium (new headless mode) instead of headless_shell
+    args: ["--no-sandbox", "--disable-dev-shm-usage"]  # Required for Docker/container environments
   firefox:
     args: []  # Additional Firefox launch arguments
   webkit:

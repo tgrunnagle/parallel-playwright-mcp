@@ -91,6 +91,9 @@ type BrowserLaunchOptions struct {
 	SlowMo *float64
 	// ExecutablePath specifies a custom browser executable path.
 	ExecutablePath string
+	// Channel specifies the browser distribution channel.
+	// Use "chromium" to opt in to new headless mode (uses full Chromium instead of headless_shell).
+	Channel string
 	// Timeout specifies the maximum time to wait for browser launch in milliseconds.
 	Timeout *float64
 }
@@ -438,6 +441,7 @@ func (p *browserPool) launchBrowser(browserType BrowserType) (playwright.Browser
 	if opts, ok := p.launchOptions[browserType]; ok && opts != nil {
 		if len(opts.Args) > 0 {
 			launchOpts.Args = opts.Args
+			slog.Info("applying browser launch args", "browserType", browserType, "args", opts.Args)
 		}
 		if opts.Headless != nil {
 			launchOpts.Headless = opts.Headless
@@ -447,6 +451,10 @@ func (p *browserPool) launchBrowser(browserType BrowserType) (playwright.Browser
 		}
 		if opts.ExecutablePath != "" {
 			launchOpts.ExecutablePath = playwright.String(opts.ExecutablePath)
+		}
+		if opts.Channel != "" {
+			launchOpts.Channel = playwright.String(opts.Channel)
+			slog.Info("applying browser channel", "browserType", browserType, "channel", opts.Channel)
 		}
 		if opts.Timeout != nil {
 			launchOpts.Timeout = opts.Timeout

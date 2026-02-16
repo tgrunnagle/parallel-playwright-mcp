@@ -120,10 +120,48 @@ func run(ctx context.Context, emergencyCleanup **shutdown.EmergencyCleanup) erro
 	}
 	slog.SetDefault(slog.New(logHandler))
 
-	// Create and start browser pool
+	// Create and start browser pool with configured launch options
 	poolOpts := browser.PoolOptions{
 		DefaultHeadless: cfg.Browser.Headless,
 	}
+
+	// Pass browser-specific launch options from config
+	if len(cfg.Browser.Chromium.Args) > 0 || cfg.Browser.Chromium.Channel != "" {
+		poolOpts.ChromiumOptions = &browser.BrowserLaunchOptions{
+			Args:    cfg.Browser.Chromium.Args,
+			Channel: cfg.Browser.Chromium.Channel,
+		}
+	}
+	if len(cfg.Browser.Firefox.Args) > 0 || cfg.Browser.Firefox.Channel != "" {
+		poolOpts.FirefoxOptions = &browser.BrowserLaunchOptions{
+			Args:    cfg.Browser.Firefox.Args,
+			Channel: cfg.Browser.Firefox.Channel,
+		}
+	}
+	if len(cfg.Browser.WebKit.Args) > 0 || cfg.Browser.WebKit.Channel != "" {
+		poolOpts.WebKitOptions = &browser.BrowserLaunchOptions{
+			Args:    cfg.Browser.WebKit.Args,
+			Channel: cfg.Browser.WebKit.Channel,
+		}
+	}
+
+	// Pass slowMo if configured
+	if cfg.Browser.SlowMo > 0 {
+		slowMo := float64(cfg.Browser.SlowMo)
+		if poolOpts.ChromiumOptions == nil {
+			poolOpts.ChromiumOptions = &browser.BrowserLaunchOptions{}
+		}
+		poolOpts.ChromiumOptions.SlowMo = &slowMo
+		if poolOpts.FirefoxOptions == nil {
+			poolOpts.FirefoxOptions = &browser.BrowserLaunchOptions{}
+		}
+		poolOpts.FirefoxOptions.SlowMo = &slowMo
+		if poolOpts.WebKitOptions == nil {
+			poolOpts.WebKitOptions = &browser.BrowserLaunchOptions{}
+		}
+		poolOpts.WebKitOptions.SlowMo = &slowMo
+	}
+
 	pool := browser.NewBrowserPoolWithOptions(poolOpts)
 
 	if err := pool.Start(ctx); err != nil {

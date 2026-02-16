@@ -145,6 +145,13 @@ func requestKey(request playwright.Request) string {
 // SetupNetworkLogging attaches request/response event listeners to a page
 // and routes captured network activity to the provided buffer.
 // Returns a cleanup function that removes the event listeners.
+//
+// IMPORTANT: All event handler bodies are dispatched in goroutines to avoid
+// deadlocking the playwright-go driver. The driver dispatches events synchronously
+// on its message loop, so calling Playwright methods (like response.HeadersArray()
+// or request.PostDataBuffer()) from within an event handler would block the loop
+// waiting for a driver response that can never be processed. Running handlers in
+// goroutines allows the event callback to return immediately, unblocking the driver.
 func SetupNetworkLogging(page playwright.Page, buffer *NetworkLogBuffer) func() {
 	if buffer == nil {
 		return func() {} // No-op if buffer is nil
@@ -153,126 +160,132 @@ func SetupNetworkLogging(page playwright.Page, buffer *NetworkLogBuffer) func() 
 	pending := make(map[string]*pendingRequest)
 	var mu sync.Mutex
 
-	// Handler for request events
+	// Handler for request events - dispatched in goroutine to avoid driver deadlock
 	requestHandler := func(request playwright.Request) {
-		key := requestKey(request)
+		go func() {
+			key := requestKey(request)
 
-		var requestSize int64
-		if postData, err := request.PostDataBuffer(); err == nil && postData != nil {
-			requestSize = int64(len(postData))
-		}
+			var requestSize int64
+			if postData, err := request.PostDataBuffer(); err == nil && postData != nil {
+				requestSize = int64(len(postData))
+			}
 
-		mu.Lock()
-		pending[key] = &pendingRequest{
-			StartTime:    time.Now(),
-			Method:       request.Method(),
-			URL:          request.URL(),
-			RequestSize:  requestSize,
-			ResourceType: request.ResourceType(),
-		}
-		mu.Unlock()
+			mu.Lock()
+			pending[key] = &pendingRequest{
+				StartTime:    time.Now(),
+				Method:       request.Method(),
+				URL:          request.URL(),
+				RequestSize:  requestSize,
+				ResourceType: request.ResourceType(),
+			}
+			mu.Unlock()
+		}()
 	}
 
-	// Handler for response events
+	// Handler for response events - dispatched in goroutine to avoid driver deadlock
 	responseHandler := func(response playwright.Response) {
-		request := response.Request()
-		key := requestKey(request)
+		go func() {
+			request := response.Request()
+			key := requestKey(request)
 
-		mu.Lock()
-		pendingReq, found := pending[key]
-		if found {
-			delete(pending, key)
-		}
-		mu.Unlock()
+			mu.Lock()
+			pendingReq, found := pending[key]
+			if found {
+				delete(pending, key)
+			}
+			mu.Unlock()
 
-		// Calculate duration if we have the matching request
-		var duration time.Duration
-		var requestSize int64
-		var resourceType string
-		var timestamp time.Time
+			// Calculate duration if we have the matching request
+			var duration time.Duration
+			var requestSize int64
+			var resourceType string
+			var timestamp time.Time
 
-		if found {
-			duration = time.Since(pendingReq.StartTime)
-			requestSize = pendingReq.RequestSize
-			resourceType = pendingReq.ResourceType
-			timestamp = pendingReq.StartTime
-		} else {
-			// Request wasn't tracked, use current time and what we can get from response
-			resourceType = request.ResourceType()
-			timestamp = time.Now()
-		}
+			if found {
+				duration = time.Since(pendingReq.StartTime)
+				requestSize = pendingReq.RequestSize
+				resourceType = pendingReq.ResourceType
+				timestamp = pendingReq.StartTime
+			} else {
+				// Request wasn't tracked, use current time and what we can get from response
+				resourceType = request.ResourceType()
+				timestamp = time.Now()
+			}
 
-		// Get response size from Content-Length header.
-		// Note: We intentionally don't fall back to reading the response body for size
-		// because response.Body() is a blocking operation that would wait for the entire
-		// response to be received, potentially causing significant delays for large
-		// responses or slow connections. The Content-Length header provides the size
-		// without this overhead. For responses without Content-Length (e.g., chunked
-		// transfer encoding), ResponseSize will be 0.
-		var responseSize int64
-		headers, err := response.HeadersArray()
-		if err == nil {
-			for _, h := range headers {
-				if strings.EqualFold(h.Name, "content-length") {
-					if size, parseErr := strconv.ParseInt(h.Value, 10, 64); parseErr == nil {
-						responseSize = size
+			// Get response size from Content-Length header.
+			// Note: We intentionally don't fall back to reading the response body for size
+			// because response.Body() is a blocking operation that would wait for the entire
+			// response to be received, potentially causing significant delays for large
+			// responses or slow connections. The Content-Length header provides the size
+			// without this overhead. For responses without Content-Length (e.g., chunked
+			// transfer encoding), ResponseSize will be 0.
+			var responseSize int64
+			headers, err := response.HeadersArray()
+			if err == nil {
+				for _, h := range headers {
+					if strings.EqualFold(h.Name, "content-length") {
+						if size, parseErr := strconv.ParseInt(h.Value, 10, 64); parseErr == nil {
+							responseSize = size
+						}
+						break
 					}
-					break
 				}
 			}
-		}
 
-		entry := NetworkLogEntry{
-			Timestamp:    timestamp,
-			Method:       request.Method(),
-			URL:          response.URL(),
-			Status:       response.Status(),
-			Duration:     duration,
-			RequestSize:  requestSize,
-			ResponseSize: responseSize,
-			ResourceType: resourceType,
-		}
+			entry := NetworkLogEntry{
+				Timestamp:    timestamp,
+				Method:       request.Method(),
+				URL:          response.URL(),
+				Status:       response.Status(),
+				Duration:     duration,
+				RequestSize:  requestSize,
+				ResponseSize: responseSize,
+				ResourceType: resourceType,
+			}
 
-		buffer.Add(entry)
+			buffer.Add(entry)
+		}()
 	}
 
-	// Handler for failed requests (no response received)
+	// Handler for failed requests - dispatched in goroutine to avoid driver deadlock
 	requestFailedHandler := func(request playwright.Request) {
-		key := requestKey(request)
+		go func() {
+			key := requestKey(request)
 
-		mu.Lock()
-		pendingReq, found := pending[key]
-		if found {
-			delete(pending, key)
-		}
-		mu.Unlock()
+			mu.Lock()
+			pendingReq, found := pending[key]
+			if found {
+				delete(pending, key)
+			}
+			mu.Unlock()
 
-		// Record failed request with status 0
-		var requestSize int64
-		var resourceType string
-		var timestamp time.Time
+			// Record failed request with status 0
+			var requestSize int64
+			var resourceType string
+			var timestamp time.Time
 
-		if found {
-			requestSize = pendingReq.RequestSize
-			resourceType = pendingReq.ResourceType
-			timestamp = pendingReq.StartTime
-		} else {
-			resourceType = request.ResourceType()
-			timestamp = time.Now()
-		}
+			if found {
+				requestSize = pendingReq.RequestSize
+				resourceType = pendingReq.ResourceType
+				timestamp = pendingReq.StartTime
+			} else {
+				resourceType = request.ResourceType()
+				timestamp = time.Now()
+			}
 
-		entry := NetworkLogEntry{
-			Timestamp:    timestamp,
-			Method:       request.Method(),
-			URL:          request.URL(),
-			Status:       0, // No response received
-			Duration:     0,
-			RequestSize:  requestSize,
-			ResponseSize: 0,
-			ResourceType: resourceType,
-		}
+			entry := NetworkLogEntry{
+				Timestamp:    timestamp,
+				Method:       request.Method(),
+				URL:          request.URL(),
+				Status:       0, // No response received
+				Duration:     0,
+				RequestSize:  requestSize,
+				ResponseSize: 0,
+				ResourceType: resourceType,
+			}
 
-		buffer.Add(entry)
+			buffer.Add(entry)
+		}()
 	}
 
 	// Attach event listeners
