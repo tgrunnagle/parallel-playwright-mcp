@@ -2,6 +2,7 @@
 package session
 
 import (
+	"log/slog"
 	"sync"
 	"time"
 
@@ -45,7 +46,11 @@ type BrowserSession struct {
 func (s *BrowserSession) ActivePage() playwright.Page {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.Pages[s.ActiveTabID]
+	page := s.Pages[s.ActiveTabID]
+	if page == nil {
+		slog.Warn("no active page found", "sessionID", s.ID, "activeTabID", s.ActiveTabID)
+	}
+	return page
 }
 
 // ActivePageInfo returns the URL and title of the active page.
@@ -81,6 +86,7 @@ func (s *BrowserSession) AddPage(tabID string, page playwright.Page) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Pages[tabID] = page
+	slog.Debug("page added to session", "sessionID", s.ID, "tabID", tabID)
 }
 
 // RemovePage removes a page from the session by tab ID.
@@ -97,6 +103,7 @@ func (s *BrowserSession) RemovePage(tabID string) playwright.Page {
 			cleanup()
 			delete(s.networkCleanups, tabID)
 		}
+		slog.Debug("page removed from session", "sessionID", s.ID, "tabID", tabID)
 	}
 	return page
 }
@@ -117,8 +124,10 @@ func (s *BrowserSession) SetActiveTab(tabID string) bool {
 	defer s.mu.Unlock()
 	if _, exists := s.Pages[tabID]; exists {
 		s.ActiveTabID = tabID
+		slog.Debug("active tab set", "sessionID", s.ID, "tabID", tabID)
 		return true
 	}
+	slog.Warn("attempted to set non-existent tab as active", "sessionID", s.ID, "tabID", tabID)
 	return false
 }
 
@@ -146,11 +155,15 @@ func (s *BrowserSession) TabIDs() []string {
 func (s *BrowserSession) CleanupNetworkListeners() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	count := len(s.networkCleanups)
 	for tabID, cleanup := range s.networkCleanups {
 		if cleanup != nil {
 			cleanup()
 		}
 		delete(s.networkCleanups, tabID)
+	}
+	if count > 0 {
+		slog.Debug("network listeners cleaned up", "sessionID", s.ID, "count", count)
 	}
 }
 
@@ -171,11 +184,14 @@ func (s *BrowserSession) AddNetworkCleanup(tabID string, cleanup func()) {
 // If a page with the same tab ID already exists, it will be replaced (and its cleanup
 // functions will be called first).
 func (s *BrowserSession) AddPageWithLogging(tabID string, page playwright.Page) {
+	slog.Debug("adding page with logging", "sessionID", s.ID, "tabID", tabID)
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	// Clean up existing page if present
 	if _, exists := s.Pages[tabID]; exists {
+		slog.Debug("replacing existing page", "sessionID", s.ID, "tabID", tabID)
 		if cleanup, ok := s.networkCleanups[tabID]; ok {
 			cleanup()
 			delete(s.networkCleanups, tabID)

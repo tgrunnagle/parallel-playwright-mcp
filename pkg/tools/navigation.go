@@ -4,6 +4,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -39,6 +40,8 @@ func NavigateTool() mcp.Tool {
 // NavigateHandler returns the handler function for navigate.
 func NavigateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		slog.Debug("tool handler called", "tool", "navigate")
+
 		// Apply timeout with navigation category
 		args := req.GetArguments()
 		ctx, cancel := ApplyTimeout(ctx, args, TimeoutNavigation, timeoutConfig)
@@ -50,24 +53,30 @@ func NavigateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 		// Parse and validate required sessionId parameter
 		sessionID := req.GetString("sessionId", "")
 		if sessionID == "" {
+			slog.Error("missing required sessionId", "tool", "navigate")
 			return mcp.NewToolResultError("sessionId is required"), nil
 		}
 
 		// Parse and validate required url parameter
 		url := req.GetString("url", "")
 		if url == "" {
+			slog.Error("missing required url", "tool", "navigate", "sessionID", sessionID)
 			return mcp.NewToolResultError("url is required"), nil
 		}
+
+		slog.Debug("navigating", "tool", "navigate", "sessionID", sessionID, "url", url)
 
 		// Retrieve browser session (validates ownership)
 		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
 		if !ok {
+			slog.Error("session not found", "tool", "navigate", "sessionID", sessionID)
 			return newNavigationSessionNotFoundError(sessionID), nil
 		}
 
 		// Get the active page from the session
 		page := sess.ActivePage()
 		if page == nil {
+			slog.Error("no active page in session", "tool", "navigate", "sessionID", sessionID)
 			return mcp.NewToolResultError("no active page in session"), nil
 		}
 
@@ -77,11 +86,14 @@ func NavigateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 		// Execute navigation
 		if _, err := page.Goto(url, opts); err != nil {
 			if ctxErr := HandleContextError(ctx, "navigate"); ctxErr != nil {
+				slog.Error("navigation context error", "tool", "navigate", "sessionID", sessionID, "url", url, "error", ctxErr)
 				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
 			}
+			slog.Error("navigation failed", "tool", "navigate", "sessionID", sessionID, "url", url, "error", err)
 			return handleNavigationError(err, url), nil
 		}
 
+		slog.Info("navigation completed", "tool", "navigate", "sessionID", sessionID, "url", url)
 		return mcp.NewToolResultText(fmt.Sprintf("Navigated to %s", url)), nil
 	}
 }
@@ -108,6 +120,8 @@ func GoBackTool() mcp.Tool {
 // GoBackHandler returns the handler function for go_back.
 func GoBackHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		slog.Debug("tool handler called", "tool", "go_back")
+
 		// Apply timeout with navigation category
 		args := req.GetArguments()
 		ctx, cancel := ApplyTimeout(ctx, args, TimeoutNavigation, timeoutConfig)
@@ -119,18 +133,21 @@ func GoBackHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConf
 		// Parse and validate required sessionId parameter
 		sessionID := req.GetString("sessionId", "")
 		if sessionID == "" {
+			slog.Error("missing required sessionId", "tool", "go_back")
 			return mcp.NewToolResultError("sessionId is required"), nil
 		}
 
 		// Retrieve browser session (validates ownership)
 		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
 		if !ok {
+			slog.Error("session not found", "tool", "go_back", "sessionID", sessionID)
 			return newNavigationSessionNotFoundError(sessionID), nil
 		}
 
 		// Get the active page from the session
 		page := sess.ActivePage()
 		if page == nil {
+			slog.Error("no active page in session", "tool", "go_back", "sessionID", sessionID)
 			return mcp.NewToolResultError("no active page in session"), nil
 		}
 
@@ -141,16 +158,20 @@ func GoBackHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConf
 		resp, err := page.GoBack(opts)
 		if err != nil {
 			if ctxErr := HandleContextError(ctx, "go_back"); ctxErr != nil {
+				slog.Error("go_back context error", "tool", "go_back", "sessionID", sessionID, "error", ctxErr)
 				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
 			}
+			slog.Error("go_back failed", "tool", "go_back", "sessionID", sessionID, "error", err)
 			return handleNavigationError(err, "back"), nil
 		}
 
 		// Handle case where no previous page exists
 		if resp == nil {
+			slog.Debug("no previous page in history", "tool", "go_back", "sessionID", sessionID)
 			return mcp.NewToolResultText("No previous page in history"), nil
 		}
 
+		slog.Debug("navigated back", "tool", "go_back", "sessionID", sessionID, "url", resp.URL())
 		return mcp.NewToolResultText(fmt.Sprintf("Navigated back to %s", resp.URL())), nil
 	}
 }
@@ -177,6 +198,8 @@ func GoForwardTool() mcp.Tool {
 // GoForwardHandler returns the handler function for go_forward.
 func GoForwardHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		slog.Debug("tool handler called", "tool", "go_forward")
+
 		// Apply timeout with navigation category
 		args := req.GetArguments()
 		ctx, cancel := ApplyTimeout(ctx, args, TimeoutNavigation, timeoutConfig)
@@ -188,18 +211,21 @@ func GoForwardHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutC
 		// Parse and validate required sessionId parameter
 		sessionID := req.GetString("sessionId", "")
 		if sessionID == "" {
+			slog.Error("missing required sessionId", "tool", "go_forward")
 			return mcp.NewToolResultError("sessionId is required"), nil
 		}
 
 		// Retrieve browser session (validates ownership)
 		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
 		if !ok {
+			slog.Error("session not found", "tool", "go_forward", "sessionID", sessionID)
 			return newNavigationSessionNotFoundError(sessionID), nil
 		}
 
 		// Get the active page from the session
 		page := sess.ActivePage()
 		if page == nil {
+			slog.Error("no active page in session", "tool", "go_forward", "sessionID", sessionID)
 			return mcp.NewToolResultError("no active page in session"), nil
 		}
 
@@ -210,16 +236,20 @@ func GoForwardHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutC
 		resp, err := page.GoForward(opts)
 		if err != nil {
 			if ctxErr := HandleContextError(ctx, "go_forward"); ctxErr != nil {
+				slog.Error("go_forward context error", "tool", "go_forward", "sessionID", sessionID, "error", ctxErr)
 				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
 			}
+			slog.Error("go_forward failed", "tool", "go_forward", "sessionID", sessionID, "error", err)
 			return handleNavigationError(err, "forward"), nil
 		}
 
 		// Handle case where no forward page exists
 		if resp == nil {
+			slog.Debug("no forward page in history", "tool", "go_forward", "sessionID", sessionID)
 			return mcp.NewToolResultText("No forward page in history"), nil
 		}
 
+		slog.Debug("navigated forward", "tool", "go_forward", "sessionID", sessionID, "url", resp.URL())
 		return mcp.NewToolResultText(fmt.Sprintf("Navigated forward to %s", resp.URL())), nil
 	}
 }
@@ -246,6 +276,8 @@ func ReloadTool() mcp.Tool {
 // ReloadHandler returns the handler function for reload.
 func ReloadHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		slog.Debug("tool handler called", "tool", "reload")
+
 		// Apply timeout with navigation category
 		args := req.GetArguments()
 		ctx, cancel := ApplyTimeout(ctx, args, TimeoutNavigation, timeoutConfig)
@@ -257,18 +289,21 @@ func ReloadHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConf
 		// Parse and validate required sessionId parameter
 		sessionID := req.GetString("sessionId", "")
 		if sessionID == "" {
+			slog.Error("missing required sessionId", "tool", "reload")
 			return mcp.NewToolResultError("sessionId is required"), nil
 		}
 
 		// Retrieve browser session (validates ownership)
 		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
 		if !ok {
+			slog.Error("session not found", "tool", "reload", "sessionID", sessionID)
 			return newNavigationSessionNotFoundError(sessionID), nil
 		}
 
 		// Get the active page from the session
 		page := sess.ActivePage()
 		if page == nil {
+			slog.Error("no active page in session", "tool", "reload", "sessionID", sessionID)
 			return mcp.NewToolResultError("no active page in session"), nil
 		}
 
@@ -278,11 +313,14 @@ func ReloadHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConf
 		// Execute reload
 		if _, err := page.Reload(opts); err != nil {
 			if ctxErr := HandleContextError(ctx, "reload"); ctxErr != nil {
+				slog.Error("reload context error", "tool", "reload", "sessionID", sessionID, "error", ctxErr)
 				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
 			}
+			slog.Error("reload failed", "tool", "reload", "sessionID", sessionID, "error", err)
 			return handleNavigationError(err, "reload"), nil
 		}
 
+		slog.Debug("page reloaded", "tool", "reload", "sessionID", sessionID, "url", page.URL())
 		return mcp.NewToolResultText(fmt.Sprintf("Reloaded page: %s", page.URL())), nil
 	}
 }
@@ -372,8 +410,10 @@ func newNavigationSessionNotFoundError(sessionID string) *mcp.CallToolResult {
 // Timeout errors get code -32003, other navigation failures get code -32004.
 func handleNavigationError(err error, target string) *mcp.CallToolResult {
 	if isTimeoutError(err) {
+		slog.Error("navigation timeout", "target", target, "error", err)
 		return mcp.NewToolResultError(fmt.Sprintf("[%d] Navigation timeout for %s: %v", errors.CodeTimeout, target, err))
 	}
+	slog.Error("navigation failed", "target", target, "error", err)
 	return mcp.NewToolResultError(fmt.Sprintf("[%d] Navigation failed for %s: %v", errors.CodeNavigationFailed, target, err))
 }
 

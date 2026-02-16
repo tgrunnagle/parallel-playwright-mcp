@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 
 	"github.com/playwright-community/playwright-go"
@@ -175,6 +176,8 @@ func NewBrowserPoolWithOptions(opts PoolOptions) BrowserPool {
 
 // Start initializes the Playwright runtime.
 func (p *browserPool) Start(ctx context.Context) error {
+	slog.Debug("browser pool starting")
+
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -185,21 +188,26 @@ func (p *browserPool) Start(ctx context.Context) error {
 	defer p.mu.Unlock()
 
 	if p.running {
+		slog.Error("browser pool already running")
 		return ErrPoolAlreadyRunning
 	}
 
 	pw, err := playwright.Run()
 	if err != nil {
+		slog.Error("failed to start Playwright runtime", "error", err)
 		return fmt.Errorf("failed to start Playwright: %w", err)
 	}
 
 	p.playwright = pw
 	p.running = true
+	slog.Info("browser pool started")
 	return nil
 }
 
 // Stop closes all browsers and the Playwright runtime.
 func (p *browserPool) Stop(ctx context.Context) error {
+	slog.Debug("browser pool stopping")
+
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -210,14 +218,17 @@ func (p *browserPool) Stop(ctx context.Context) error {
 	defer p.mu.Unlock()
 
 	if !p.running {
+		slog.Error("browser pool not running")
 		return ErrPoolNotRunning
 	}
 
 	var errs []error
 
 	// Close all browser contexts first and update statistics
+	slog.Debug("closing browser contexts", "count", len(p.contextTypes))
 	for browserCtx, browserType := range p.contextTypes {
 		if err := browserCtx.Close(); err != nil {
+			slog.Error("failed to close browser context", "browserType", browserType, "error", err)
 			errs = append(errs, fmt.Errorf("failed to close browser context: %w", err))
 		}
 		if stats, ok := p.stats[browserType]; ok {
@@ -229,7 +240,9 @@ func (p *browserPool) Stop(ctx context.Context) error {
 	// Close all running browsers
 	for browserType, browser := range p.browsers {
 		if browser != nil {
+			slog.Debug("closing browser", "browserType", browserType)
 			if err := browser.Close(); err != nil {
+				slog.Error("failed to close browser", "browserType", browserType, "error", err)
 				errs = append(errs, fmt.Errorf("failed to close %s: %w", browserType, err))
 			}
 			if stats, ok := p.stats[browserType]; ok {
@@ -243,17 +256,21 @@ func (p *browserPool) Stop(ctx context.Context) error {
 	// Stop Playwright runtime
 	if p.playwright != nil {
 		if err := p.playwright.Stop(); err != nil {
+			slog.Error("failed to stop Playwright runtime", "error", err)
 			errs = append(errs, fmt.Errorf("failed to stop Playwright: %w", err))
 		}
 		p.playwright = nil
 	}
 
 	p.running = false
+	slog.Info("browser pool stopped")
 	return errors.Join(errs...)
 }
 
 // NewContext creates an isolated browser context for the specified browser type.
 func (p *browserPool) NewContext(ctx context.Context, browserType BrowserType, opts ContextOptions) (playwright.BrowserContext, error) {
+	slog.Debug("creating new browser context", "browserType", browserType)
+
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -264,19 +281,23 @@ func (p *browserPool) NewContext(ctx context.Context, browserType BrowserType, o
 	defer p.mu.Unlock()
 
 	if !p.running {
+		slog.Error("cannot create context: pool not running", "browserType", browserType)
 		return nil, ErrPoolNotRunning
 	}
 
 	if !isValidBrowserType(browserType) {
+		slog.Error("invalid browser type requested", "browserType", browserType)
 		return nil, fmt.Errorf("%w: %s", ErrInvalidBrowserType, browserType)
 	}
 
 	// Lazy launch browser if not already running
 	browser, ok := p.browsers[browserType]
 	if !ok {
+		slog.Info("lazy-launching browser engine", "browserType", browserType)
 		var err error
 		browser, err = p.launchBrowser(browserType)
 		if err != nil {
+			slog.Error("failed to launch browser engine", "browserType", browserType, "error", err)
 			return nil, fmt.Errorf("failed to launch %s: %w", browserType, err)
 		}
 		p.browsers[browserType] = browser
@@ -286,6 +307,7 @@ func (p *browserPool) NewContext(ctx context.Context, browserType BrowserType, o
 			p.stats[browserType] = &BrowserStats{}
 		}
 		p.stats[browserType].Running = true
+		slog.Info("browser engine launched", "browserType", browserType)
 	}
 
 	// Build context options
@@ -315,6 +337,7 @@ func (p *browserPool) NewContext(ctx context.Context, browserType BrowserType, o
 	// Create the browser context
 	browserContext, err := browser.NewContext(contextOpts)
 	if err != nil {
+		slog.Error("failed to create browser context", "browserType", browserType, "error", err)
 		return nil, fmt.Errorf("failed to create browser context: %w", err)
 	}
 
@@ -328,11 +351,14 @@ func (p *browserPool) NewContext(ctx context.Context, browserType BrowserType, o
 	p.stats[browserType].TotalCreated++
 	p.stats[browserType].ActiveContexts++
 
+	slog.Debug("browser context created", "browserType", browserType, "activeContexts", p.stats[browserType].ActiveContexts)
 	return browserContext, nil
 }
 
 // CloseContext closes a browser context and updates pool statistics.
 func (p *browserPool) CloseContext(ctx context.Context, browserContext playwright.BrowserContext) error {
+	slog.Debug("closing browser context")
+
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -340,6 +366,7 @@ func (p *browserPool) CloseContext(ctx context.Context, browserContext playwrigh
 	}
 
 	if browserContext == nil {
+		slog.Error("cannot close nil browser context")
 		return ErrNilBrowserContext
 	}
 
@@ -347,6 +374,7 @@ func (p *browserPool) CloseContext(ctx context.Context, browserContext playwrigh
 	p.mu.Lock()
 	if !p.running {
 		p.mu.Unlock()
+		slog.Error("cannot close context: pool not running")
 		return ErrPoolNotRunning
 	}
 	browserType, tracked := p.contextTypes[browserContext]
@@ -354,6 +382,7 @@ func (p *browserPool) CloseContext(ctx context.Context, browserContext playwrigh
 
 	// Close the context
 	if err := browserContext.Close(); err != nil {
+		slog.Error("failed to close browser context", "browserType", browserType, "error", err)
 		return fmt.Errorf("failed to close browser context: %w", err)
 	}
 
@@ -367,6 +396,7 @@ func (p *browserPool) CloseContext(ctx context.Context, browserContext playwrigh
 			stats.ActiveContexts--
 			stats.TotalClosed++
 		}
+		slog.Debug("browser context closed", "browserType", browserType)
 	}
 
 	return nil
