@@ -110,7 +110,7 @@ func run(ctx context.Context, emergencyCleanup **shutdown.EmergencyCleanup) erro
 	sessionMgr := session.NewManager(pool)
 
 	// Create timeout config from loaded configuration
-	timeoutConfig := cfg.Timeout.ToTimeoutConfig()
+	timeoutConfig := cfg.Session.Timeout.ToTimeoutConfig()
 
 	// Create MCP server with tool capabilities
 	mcpServer := server.NewMCPServer(

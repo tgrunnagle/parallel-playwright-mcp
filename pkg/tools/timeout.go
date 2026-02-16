@@ -8,6 +8,23 @@ import (
 	"github.com/tgrunnagle/parallel-playwright-mcp/pkg/errors"
 )
 
+// Timeout Strategy
+//
+// Tools use two complementary timeout mechanisms:
+//  1. Go context deadlines (via ApplyTimeout) - acts as a server-side backstop
+//  2. Playwright native timeout options (via opts.Timeout in build*Options) - controls
+//     the browser-side operation timeout
+//
+// Both are set from the same timeout parameter, ensuring alignment. The Playwright
+// timeout typically triggers first for browser operations, while the context deadline
+// catches cases where Playwright doesn't respect its own timeout (e.g., hung processes).
+//
+// Configuration is available via YAML (session.timeout section) and environment variables:
+//   - MCP_TIMEOUT_DEFAULT: Default timeout for general operations (ms)
+//   - MCP_TIMEOUT_NAVIGATION: Navigation timeout for page loads (ms)
+//   - MCP_TIMEOUT_ELEMENT: Element wait timeout (ms)
+//   - MCP_TIMEOUT_SCRIPT: Script execution timeout (ms)
+
 // TimeoutCategory represents different categories of timeouts.
 type TimeoutCategory string
 
@@ -113,7 +130,7 @@ func GetTimeoutPtr(args map[string]any) *int {
 // - context.DeadlineExceeded -> TimeoutError
 // - context.Canceled -> TimeoutError (treat cancellation as timeout from client perspective)
 // Returns nil if the context error is nil.
-func HandleContextError(ctx context.Context, operation string, timeoutMs int) error {
+func HandleContextError(ctx context.Context, operation string) error {
 	err := ctx.Err()
 	if err == nil {
 		return nil
@@ -121,12 +138,11 @@ func HandleContextError(ctx context.Context, operation string, timeoutMs int) er
 
 	switch err {
 	case context.DeadlineExceeded:
-		return errors.NewTimeoutError(operation, timeoutMs)
+		return errors.NewTimeoutError(operation, 0)
 	case context.Canceled:
 		// Client cancellation - report as timeout with context
 		return &errors.TimeoutError{
 			Operation: operation,
-			Timeout:   timeoutMs,
 			Err:       err,
 		}
 	default:
@@ -145,27 +161,4 @@ func HandleContextError(ctx context.Context, operation string, timeoutMs int) er
 func ApplyTimeout(ctx context.Context, args map[string]any, category TimeoutCategory, config *TimeoutConfig) (context.Context, context.CancelFunc) {
 	overrideMs := GetTimeoutPtr(args)
 	return WithTimeout(ctx, config, category, overrideMs)
-}
-
-// MustComplete wraps an operation with timeout handling and error conversion.
-// If the context deadline is exceeded or cancelled, returns a TimeoutError.
-// Otherwise returns the operation's error (or nil on success).
-func MustComplete(ctx context.Context, operation string, timeoutMs int, fn func() error) error {
-	// Run the operation
-	err := fn()
-
-	// Check if context was cancelled/timed out
-	if ctxErr := HandleContextError(ctx, operation, timeoutMs); ctxErr != nil {
-		// If operation also returned an error, wrap it
-		if err != nil {
-			return &errors.TimeoutError{
-				Operation: operation,
-				Timeout:   timeoutMs,
-				Err:       err,
-			}
-		}
-		return ctxErr
-	}
-
-	return err
 }

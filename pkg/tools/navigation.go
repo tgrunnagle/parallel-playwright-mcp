@@ -74,21 +74,12 @@ func NavigateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 		// Build Playwright options from optional parameters
 		opts := buildGotoOptions(args)
 
-		// Get timeout value for error reporting
-		timeoutMs := int(GetTimeout(args, int(timeoutConfig.GetCategoryTimeout(TimeoutNavigation).Milliseconds())).Milliseconds())
-
 		// Execute navigation
 		if _, err := page.Goto(url, opts); err != nil {
-			// Check if this was a context timeout
-			if ctxErr := HandleContextError(ctx, "navigate", timeoutMs); ctxErr != nil {
+			if ctxErr := HandleContextError(ctx, "navigate"); ctxErr != nil {
 				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
 			}
 			return handleNavigationError(err, url), nil
-		}
-
-		// Check for context timeout after successful operation
-		if ctxErr := HandleContextError(ctx, "navigate", timeoutMs); ctxErr != nil {
-			return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
 		}
 
 		return mcp.NewToolResultText(fmt.Sprintf("Navigated to %s", url)), nil
@@ -146,22 +137,13 @@ func GoBackHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConf
 		// Build Playwright options from optional parameters
 		opts := buildGoBackOptions(args)
 
-		// Get timeout value for error reporting
-		timeoutMs := int(GetTimeout(args, int(timeoutConfig.GetCategoryTimeout(TimeoutNavigation).Milliseconds())).Milliseconds())
-
 		// Execute back navigation
 		resp, err := page.GoBack(opts)
 		if err != nil {
-			// Check if this was a context timeout
-			if ctxErr := HandleContextError(ctx, "go_back", timeoutMs); ctxErr != nil {
+			if ctxErr := HandleContextError(ctx, "go_back"); ctxErr != nil {
 				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
 			}
 			return handleNavigationError(err, "back"), nil
-		}
-
-		// Check for context timeout after successful operation
-		if ctxErr := HandleContextError(ctx, "go_back", timeoutMs); ctxErr != nil {
-			return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
 		}
 
 		// Handle case where no previous page exists
@@ -224,22 +206,13 @@ func GoForwardHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutC
 		// Build Playwright options from optional parameters
 		opts := buildGoForwardOptions(args)
 
-		// Get timeout value for error reporting
-		timeoutMs := int(GetTimeout(args, int(timeoutConfig.GetCategoryTimeout(TimeoutNavigation).Milliseconds())).Milliseconds())
-
 		// Execute forward navigation
 		resp, err := page.GoForward(opts)
 		if err != nil {
-			// Check if this was a context timeout
-			if ctxErr := HandleContextError(ctx, "go_forward", timeoutMs); ctxErr != nil {
+			if ctxErr := HandleContextError(ctx, "go_forward"); ctxErr != nil {
 				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
 			}
 			return handleNavigationError(err, "forward"), nil
-		}
-
-		// Check for context timeout after successful operation
-		if ctxErr := HandleContextError(ctx, "go_forward", timeoutMs); ctxErr != nil {
-			return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
 		}
 
 		// Handle case where no forward page exists
@@ -302,21 +275,12 @@ func ReloadHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConf
 		// Build Playwright reload options from optional parameters
 		opts := buildReloadOptions(args)
 
-		// Get timeout value for error reporting
-		timeoutMs := int(GetTimeout(args, int(timeoutConfig.GetCategoryTimeout(TimeoutNavigation).Milliseconds())).Milliseconds())
-
 		// Execute reload
 		if _, err := page.Reload(opts); err != nil {
-			// Check if this was a context timeout
-			if ctxErr := HandleContextError(ctx, "reload", timeoutMs); ctxErr != nil {
+			if ctxErr := HandleContextError(ctx, "reload"); ctxErr != nil {
 				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
 			}
 			return handleNavigationError(err, "reload"), nil
-		}
-
-		// Check for context timeout after successful operation
-		if ctxErr := HandleContextError(ctx, "reload", timeoutMs); ctxErr != nil {
-			return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
 		}
 
 		return mcp.NewToolResultText(fmt.Sprintf("Reloaded page: %s", page.URL())), nil

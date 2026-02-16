@@ -43,12 +43,11 @@ var (
 
 // Config represents the complete server configuration.
 type Config struct {
-	Server  ServerConfig    `yaml:"server"`
-	Browser BrowserConfig   `yaml:"browser"`
-	Session SessionConfig   `yaml:"session"`
-	Logging LoggingConfig   `yaml:"logging"`
-	Retry   RetrySettings   `yaml:"retry"`
-	Timeout TimeoutSettings `yaml:"timeout"`
+	Server  ServerConfig  `yaml:"server"`
+	Browser BrowserConfig `yaml:"browser"`
+	Session SessionConfig `yaml:"session"`
+	Logging LoggingConfig `yaml:"logging"`
+	Retry   RetrySettings `yaml:"retry"`
 }
 
 // ServerConfig contains HTTP server settings.
@@ -74,10 +73,11 @@ type BrowserLaunchConfig struct {
 
 // SessionConfig contains session management settings.
 type SessionConfig struct {
-	MaxPerConnection int           `yaml:"maxPerConnection"`
-	MaxTotal         int           `yaml:"maxTotal"`
-	DefaultTimeout   time.Duration `yaml:"defaultTimeout"`
-	IdleTimeout      time.Duration `yaml:"idleTimeout"`
+	MaxPerConnection int             `yaml:"maxPerConnection"`
+	MaxTotal         int             `yaml:"maxTotal"`
+	DefaultTimeout   time.Duration   `yaml:"defaultTimeout"`
+	IdleTimeout      time.Duration   `yaml:"idleTimeout"`
+	Timeout          TimeoutSettings `yaml:"timeout"`
 }
 
 // LoggingConfig contains logging settings.
@@ -137,14 +137,16 @@ func (rs *RetrySettings) ToRetryConfig() *pkgerrors.RetryConfig {
 }
 
 // TimeoutSettings holds timeout-related settings (in milliseconds for YAML convenience).
+// These settings are nested under the session configuration section.
 //
 // Example YAML configuration:
 //
-//	timeout:
-//	  default: 30000      # 30 seconds
-//	  navigation: 30000   # 30 seconds
-//	  element: 5000       # 5 seconds
-//	  script: 30000       # 30 seconds
+//	session:
+//	  timeout:
+//	    default: 30000      # 30 seconds
+//	    navigation: 30000   # 30 seconds
+//	    element: 5000       # 5 seconds
+//	    script: 30000       # 30 seconds
 type TimeoutSettings struct {
 	DefaultMs    int `yaml:"default"`    // Default timeout (ms), default: 30000
 	NavigationMs int `yaml:"navigation"` // Navigation timeout (ms), default: 30000
@@ -160,7 +162,7 @@ type TimeoutSettings struct {
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
-//	timeoutConfig := cfg.Timeout.ToTimeoutConfig()
+//	timeoutConfig := cfg.Session.Timeout.ToTimeoutConfig()
 func (ts *TimeoutSettings) ToTimeoutConfig() *tools.TimeoutConfig {
 	return &tools.TimeoutConfig{
 		Default:    time.Duration(ts.DefaultMs) * time.Millisecond,
@@ -190,6 +192,12 @@ func LoadWithDefaults() *Config {
 			MaxTotal:         DefaultMaxTotal,
 			DefaultTimeout:   DefaultTimeout,
 			IdleTimeout:      DefaultIdleTimeout,
+			Timeout: TimeoutSettings{
+				DefaultMs:    30000, // 30 seconds
+				NavigationMs: 30000, // 30 seconds
+				ElementMs:    5000,  // 5 seconds
+				ScriptMs:     30000, // 30 seconds
+			},
 		},
 		Logging: LoggingConfig{
 			Level:  DefaultLogLevel,
@@ -202,12 +210,6 @@ func LoadWithDefaults() *Config {
 			BackoffFactor:   DefaultBackoffFactor,
 			Jitter:          DefaultJitter,
 			RetryableErrors: []int{-32002, -32003}, // CodeElementNotFound, CodeTimeout
-		},
-		Timeout: TimeoutSettings{
-			DefaultMs:    30000, // 30 seconds
-			NavigationMs: 30000, // 30 seconds
-			ElementMs:    5000,  // 5 seconds
-			ScriptMs:     30000, // 30 seconds
 		},
 	}
 }
@@ -291,7 +293,7 @@ func (c *Config) applyEnvironmentOverrides() []error {
 		if err != nil {
 			errs = append(errs, fmt.Errorf("invalid MCP_TIMEOUT_DEFAULT %q: must be a valid integer", defaultTimeout))
 		} else {
-			c.Timeout.DefaultMs = val
+			c.Session.Timeout.DefaultMs = val
 		}
 	}
 
@@ -300,7 +302,7 @@ func (c *Config) applyEnvironmentOverrides() []error {
 		if err != nil {
 			errs = append(errs, fmt.Errorf("invalid MCP_TIMEOUT_NAVIGATION %q: must be a valid integer", navigationTimeout))
 		} else {
-			c.Timeout.NavigationMs = val
+			c.Session.Timeout.NavigationMs = val
 		}
 	}
 
@@ -309,7 +311,7 @@ func (c *Config) applyEnvironmentOverrides() []error {
 		if err != nil {
 			errs = append(errs, fmt.Errorf("invalid MCP_TIMEOUT_ELEMENT %q: must be a valid integer", elementTimeout))
 		} else {
-			c.Timeout.ElementMs = val
+			c.Session.Timeout.ElementMs = val
 		}
 	}
 
@@ -318,7 +320,7 @@ func (c *Config) applyEnvironmentOverrides() []error {
 		if err != nil {
 			errs = append(errs, fmt.Errorf("invalid MCP_TIMEOUT_SCRIPT %q: must be a valid integer", scriptTimeout))
 		} else {
-			c.Timeout.ScriptMs = val
+			c.Session.Timeout.ScriptMs = val
 		}
 	}
 
@@ -407,17 +409,17 @@ func (c *Config) Validate() []error {
 	}
 
 	// Validate timeout settings
-	if c.Timeout.DefaultMs <= 0 {
-		errs = append(errs, fmt.Errorf("invalid timeout default %dms: must be positive", c.Timeout.DefaultMs))
+	if c.Session.Timeout.DefaultMs <= 0 {
+		errs = append(errs, fmt.Errorf("invalid timeout default %dms: must be positive", c.Session.Timeout.DefaultMs))
 	}
-	if c.Timeout.NavigationMs <= 0 {
-		errs = append(errs, fmt.Errorf("invalid timeout navigation %dms: must be positive", c.Timeout.NavigationMs))
+	if c.Session.Timeout.NavigationMs <= 0 {
+		errs = append(errs, fmt.Errorf("invalid timeout navigation %dms: must be positive", c.Session.Timeout.NavigationMs))
 	}
-	if c.Timeout.ElementMs <= 0 {
-		errs = append(errs, fmt.Errorf("invalid timeout element %dms: must be positive", c.Timeout.ElementMs))
+	if c.Session.Timeout.ElementMs <= 0 {
+		errs = append(errs, fmt.Errorf("invalid timeout element %dms: must be positive", c.Session.Timeout.ElementMs))
 	}
-	if c.Timeout.ScriptMs <= 0 {
-		errs = append(errs, fmt.Errorf("invalid timeout script %dms: must be positive", c.Timeout.ScriptMs))
+	if c.Session.Timeout.ScriptMs <= 0 {
+		errs = append(errs, fmt.Errorf("invalid timeout script %dms: must be positive", c.Session.Timeout.ScriptMs))
 	}
 
 	return errs

@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -282,7 +281,7 @@ func TestHandleContextError(t *testing.T) {
 		// Wait for context to expire
 		time.Sleep(10 * time.Millisecond)
 
-		err := HandleContextError(ctx, "test_operation", 1000)
+		err := HandleContextError(ctx, "test_operation")
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
@@ -294,10 +293,6 @@ func TestHandleContextError(t *testing.T) {
 
 		if timeoutErr.Operation != "test_operation" {
 			t.Errorf("Expected operation 'test_operation', got %s", timeoutErr.Operation)
-		}
-
-		if timeoutErr.Timeout != 1000 {
-			t.Errorf("Expected timeout 1000, got %d", timeoutErr.Timeout)
 		}
 	})
 
@@ -305,7 +300,7 @@ func TestHandleContextError(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
-		err := HandleContextError(ctx, "test_operation", 2000)
+		err := HandleContextError(ctx, "test_operation")
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
@@ -318,15 +313,11 @@ func TestHandleContextError(t *testing.T) {
 		if timeoutErr.Operation != "test_operation" {
 			t.Errorf("Expected operation 'test_operation', got %s", timeoutErr.Operation)
 		}
-
-		if timeoutErr.Timeout != 2000 {
-			t.Errorf("Expected timeout 2000, got %d", timeoutErr.Timeout)
-		}
 	})
 
 	t.Run("returns nil when context has no error", func(t *testing.T) {
 		ctx := context.Background()
-		err := HandleContextError(ctx, "test_operation", 1000)
+		err := HandleContextError(ctx, "test_operation")
 		if err != nil {
 			t.Errorf("Expected nil, got %v", err)
 		}
@@ -380,78 +371,3 @@ func TestApplyTimeout(t *testing.T) {
 	})
 }
 
-func TestMustComplete(t *testing.T) {
-	t.Run("returns operation error when context not expired", func(t *testing.T) {
-		ctx := context.Background()
-		opErr := errors.New("operation failed")
-
-		err := MustComplete(ctx, "test_op", 1000, func() error {
-			return opErr
-		})
-
-		if err != opErr {
-			t.Errorf("Expected operation error, got %v", err)
-		}
-	})
-
-	t.Run("returns nil on successful operation", func(t *testing.T) {
-		ctx := context.Background()
-
-		err := MustComplete(ctx, "test_op", 1000, func() error {
-			return nil
-		})
-
-		if err != nil {
-			t.Errorf("Expected nil, got %v", err)
-		}
-	})
-
-	t.Run("returns TimeoutError when context expired", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
-		defer cancel()
-
-		// Wait for context to expire
-		time.Sleep(10 * time.Millisecond)
-
-		err := MustComplete(ctx, "test_op", 1000, func() error {
-			return nil
-		})
-
-		if err == nil {
-			t.Fatal("Expected error, got nil")
-		}
-
-		_, ok := err.(*pkgerrors.TimeoutError)
-		if !ok {
-			t.Fatalf("Expected TimeoutError, got %T", err)
-		}
-	})
-
-	t.Run("combines operation error with timeout when both occur", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
-		defer cancel()
-
-		// Wait for context to expire
-		time.Sleep(10 * time.Millisecond)
-
-		opErr := errors.New("operation failed")
-
-		err := MustComplete(ctx, "test_op", 1000, func() error {
-			return opErr
-		})
-
-		if err == nil {
-			t.Fatal("Expected error, got nil")
-		}
-
-		timeoutErr, ok := err.(*pkgerrors.TimeoutError)
-		if !ok {
-			t.Fatalf("Expected TimeoutError, got %T", err)
-		}
-
-		// The timeout error should wrap the operation error
-		if timeoutErr.Err != opErr {
-			t.Errorf("Expected wrapped error to be operation error, got %v", timeoutErr.Err)
-		}
-	})
-}
