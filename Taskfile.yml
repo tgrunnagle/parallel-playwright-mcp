@@ -3,6 +3,8 @@ version: '3'
 vars:
   BINARY_NAME: playwright-mcp-server
   BUILD_DIR: bin
+  DOCKER_IMAGE: playwright-mcp
+  MCP_CONFIG_PATH: ''
 
 tasks:
   default:
@@ -80,6 +82,22 @@ tasks:
     cmds:
       - rm -rf {{.BUILD_DIR}}
       - rm -f coverage.out coverage.html
+
+  docker:build:
+    desc: Build the Docker image
+    deps: [build]
+    cmds:
+      - docker build -t {{.DOCKER_IMAGE}} .
+
+  docker:run:
+    desc: Run the Docker container (override config with `task docker:run MCP_CONFIG_PATH=./custom.yaml`)
+    deps: [docker:build]
+    cmds:
+      - docker rm -f {{.DOCKER_IMAGE}} 2>/dev/null || true
+      - >-
+        docker run --rm -d -p 3000:3000 --name {{.DOCKER_IMAGE}}
+        {{if .MCP_CONFIG_PATH}}-v {{.MCP_CONFIG_PATH}}:/app/custom-config.yaml -e MCP_CONFIG_PATH=/app/custom-config.yaml{{end}}
+        {{.DOCKER_IMAGE}}
 
   check:
     desc: Run all checks (lint, vet, test, build)

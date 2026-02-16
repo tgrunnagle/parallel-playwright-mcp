@@ -1,0 +1,16 @@
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.*
+.git/
+.env
+.task/
+.claude/
+e2e/
+CODE_REVIEW_ISSUES.md
+PR_SUMMARY.md

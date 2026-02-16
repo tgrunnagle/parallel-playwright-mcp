@@ -18,7 +18,8 @@
       "Bash(grep:*)",
       "Bash(curl:*)",
       "Bash(find:*)",
-      "Bash(gh sub-issue:*)"
+      "Bash(gh sub-issue:*)",
+      "Bash(task:*)"
     ]
   }
 }
