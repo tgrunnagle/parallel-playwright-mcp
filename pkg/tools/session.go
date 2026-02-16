@@ -48,8 +48,13 @@ func SessionCreateTool() mcp.Tool {
 }
 
 // SessionCreateHandler returns the handler function for session_create.
-func SessionCreateHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
+func SessionCreateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Apply timeout with default category
+		args := req.GetArguments()
+		ctx, cancel := ApplyTimeout(ctx, args, TimeoutDefault, timeoutConfig)
+		defer cancel()
+
 		// Extract MCP session ID from context for ownership tracking
 		mcpSessionID := getMCPSessionID(ctx)
 
@@ -77,7 +82,6 @@ func SessionCreateHandler(mgr session.BrowserSessionManager) server.ToolHandlerF
 
 		// Parse headless if provided
 		// GetArguments returns a map[string]any that we can check for key existence
-		args := req.GetArguments()
 		if _, ok := args["headless"]; ok {
 			opts.Headless = req.GetBool("headless", true)
 		}
@@ -110,8 +114,13 @@ func SessionListTool() mcp.Tool {
 }
 
 // SessionListHandler returns the handler function for session_list.
-func SessionListHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
+func SessionListHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Apply timeout with default category
+		args := req.GetArguments()
+		ctx, cancel := ApplyTimeout(ctx, args, TimeoutDefault, timeoutConfig)
+		defer cancel()
+
 		// Extract MCP session ID from context for ownership scoping
 		mcpSessionID := getMCPSessionID(ctx)
 
@@ -140,8 +149,13 @@ func SessionCloseTool() mcp.Tool {
 }
 
 // SessionCloseHandler returns the handler function for session_close.
-func SessionCloseHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
+func SessionCloseHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Apply timeout with default category
+		args := req.GetArguments()
+		ctx, cancel := ApplyTimeout(ctx, args, TimeoutDefault, timeoutConfig)
+		defer cancel()
+
 		// Extract MCP session ID from context for ownership validation
 		mcpSessionID := getMCPSessionID(ctx)
 

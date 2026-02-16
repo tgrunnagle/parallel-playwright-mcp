@@ -338,7 +338,7 @@ func TestGetConsoleLogsHandler(t *testing.T) {
 			mgr := &mockSessionManager{
 				getSessionFunc: tt.getSessionFunc,
 			}
-			handler := GetConsoleLogsHandler(mgr)
+			handler := GetConsoleLogsHandler(mgr, DefaultTimeoutConfig())
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{
@@ -409,7 +409,7 @@ func TestGetConsoleLogsHandler_AllLevels(t *testing.T) {
 					}, true
 				},
 			}
-			handler := GetConsoleLogsHandler(mgr)
+			handler := GetConsoleLogsHandler(mgr, DefaultTimeoutConfig())
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{
@@ -460,7 +460,7 @@ func TestGetConsoleLogsHandler_MCPOwnership(t *testing.T) {
 			return nil, false
 		},
 	}
-	handler := GetConsoleLogsHandler(mgr)
+	handler := GetConsoleLogsHandler(mgr, DefaultTimeoutConfig())
 
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
@@ -597,7 +597,7 @@ func TestScreenshotHandler(t *testing.T) {
 			mgr := &mockSessionManager{
 				getSessionFunc: tt.getSessionFunc,
 			}
-			handler := ScreenshotHandler(mgr)
+			handler := ScreenshotHandler(mgr, DefaultTimeoutConfig())
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{
@@ -719,7 +719,7 @@ func TestExtractTextHandler(t *testing.T) {
 			mgr := &mockSessionManager{
 				getSessionFunc: tt.getSessionFunc,
 			}
-			handler := ExtractTextHandler(mgr)
+			handler := ExtractTextHandler(mgr, DefaultTimeoutConfig())
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{
@@ -844,7 +844,7 @@ func TestGetHTMLHandler(t *testing.T) {
 			mgr := &mockSessionManager{
 				getSessionFunc: tt.getSessionFunc,
 			}
-			handler := GetHTMLHandler(mgr)
+			handler := GetHTMLHandler(mgr, DefaultTimeoutConfig())
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{
@@ -985,7 +985,7 @@ func TestEvaluateHandler(t *testing.T) {
 			mgr := &mockSessionManager{
 				getSessionFunc: tt.getSessionFunc,
 			}
-			handler := EvaluateHandler(mgr)
+			handler := EvaluateHandler(mgr, DefaultTimeoutConfig())
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{
@@ -1129,7 +1129,7 @@ func TestQuerySelectorHandler(t *testing.T) {
 			mgr := &mockSessionManager{
 				getSessionFunc: tt.getSessionFunc,
 			}
-			handler := QuerySelectorHandler(mgr)
+			handler := QuerySelectorHandler(mgr, DefaultTimeoutConfig())
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{
@@ -1246,7 +1246,7 @@ func TestGetAccessibilityTreeHandler(t *testing.T) {
 			mgr := &mockSessionManager{
 				getSessionFunc: tt.getSessionFunc,
 			}
-			handler := GetAccessibilityTreeHandler(mgr)
+			handler := GetAccessibilityTreeHandler(mgr, DefaultTimeoutConfig())
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{
@@ -1419,7 +1419,7 @@ func TestNavigateAndExtractTextHandler(t *testing.T) {
 			mgr := &mockSessionManager{
 				createSessionFunc: tt.createSessionFunc,
 			}
-			handler := NavigateAndExtractTextHandler(mgr)
+			handler := NavigateAndExtractTextHandler(mgr, DefaultTimeoutConfig())
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{

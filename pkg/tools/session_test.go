@@ -253,7 +253,7 @@ func TestSessionCreateHandler(t *testing.T) {
 			mgr := &mockSessionManager{
 				createSessionFunc: tt.createFunc,
 			}
-			handler := SessionCreateHandler(mgr)
+			handler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{
@@ -350,7 +350,7 @@ func TestSessionListHandler(t *testing.T) {
 					return tt.sessions
 				},
 			}
-			handler := SessionListHandler(mgr)
+			handler := SessionListHandler(mgr, DefaultTimeoutConfig())
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{
@@ -440,7 +440,7 @@ func TestSessionCloseHandler(t *testing.T) {
 			mgr := &mockSessionManager{
 				closeSessionFunc: tt.closeFunc,
 			}
-			handler := SessionCloseHandler(mgr)
+			handler := SessionCloseHandler(mgr, DefaultTimeoutConfig())
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{
@@ -490,7 +490,7 @@ func TestMCPSessionIsolation(t *testing.T) {
 				return &session.BrowserSession{ID: "sess-test"}, nil
 			},
 		}
-		handler := SessionCreateHandler(mgr)
+		handler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
 
 		req := mcp.CallToolRequest{
 			Params: mcp.CallToolParams{
@@ -533,7 +533,7 @@ func TestMCPSessionIsolation(t *testing.T) {
 				return []*session.SessionInfo{}
 			},
 		}
-		handler := SessionListHandler(mgr)
+		handler := SessionListHandler(mgr, DefaultTimeoutConfig())
 
 		req := mcp.CallToolRequest{
 			Params: mcp.CallToolParams{
@@ -576,7 +576,7 @@ func TestMCPSessionIsolation(t *testing.T) {
 				return nil
 			},
 		}
-		handler := SessionCloseHandler(mgr)
+		handler := SessionCloseHandler(mgr, DefaultTimeoutConfig())
 
 		req := mcp.CallToolRequest{
 			Params: mcp.CallToolParams{
@@ -611,7 +611,7 @@ func TestMCPSessionIsolation(t *testing.T) {
 				return session.ErrUnauthorized
 			},
 		}
-		handler := SessionCloseHandler(mgr)
+		handler := SessionCloseHandler(mgr, DefaultTimeoutConfig())
 
 		req := mcp.CallToolRequest{
 			Params: mcp.CallToolParams{
@@ -656,7 +656,7 @@ func TestMCPSessionIsolation(t *testing.T) {
 			},
 		}
 
-		handler := SessionListHandler(mgr)
+		handler := SessionListHandler(mgr, DefaultTimeoutConfig())
 		req := mcp.CallToolRequest{
 			Params: mcp.CallToolParams{Name: "session_list", Arguments: map[string]any{}},
 		}

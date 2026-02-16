@@ -109,6 +109,9 @@ func run(ctx context.Context, emergencyCleanup **shutdown.EmergencyCleanup) erro
 	// Create session manager
 	sessionMgr := session.NewManager(pool)
 
+	// Create timeout config from loaded configuration
+	timeoutConfig := cfg.Session.Timeout.ToTimeoutConfig()
+
 	// Create MCP server with tool capabilities
 	mcpServer := server.NewMCPServer(
 		serverName,
@@ -117,27 +120,27 @@ func run(ctx context.Context, emergencyCleanup **shutdown.EmergencyCleanup) erro
 	)
 
 	// Register session management tools
-	mcpServer.AddTool(tools.SessionCreateTool(), tools.SessionCreateHandler(sessionMgr))
-	mcpServer.AddTool(tools.SessionListTool(), tools.SessionListHandler(sessionMgr))
-	mcpServer.AddTool(tools.SessionCloseTool(), tools.SessionCloseHandler(sessionMgr))
+	mcpServer.AddTool(tools.SessionCreateTool(), tools.SessionCreateHandler(sessionMgr, timeoutConfig))
+	mcpServer.AddTool(tools.SessionListTool(), tools.SessionListHandler(sessionMgr, timeoutConfig))
+	mcpServer.AddTool(tools.SessionCloseTool(), tools.SessionCloseHandler(sessionMgr, timeoutConfig))
 
 	// Register inspection tools
-	mcpServer.AddTool(tools.GetConsoleLogsTool(), tools.GetConsoleLogsHandler(sessionMgr))
-	mcpServer.AddTool(tools.GetNetworkLogsTool(), tools.GetNetworkLogsHandler(sessionMgr))
+	mcpServer.AddTool(tools.GetConsoleLogsTool(), tools.GetConsoleLogsHandler(sessionMgr, timeoutConfig))
+	mcpServer.AddTool(tools.GetNetworkLogsTool(), tools.GetNetworkLogsHandler(sessionMgr, timeoutConfig))
 
 	// Register navigation tools
-	mcpServer.AddTool(tools.NavigateTool(), tools.NavigateHandler(sessionMgr))
-	mcpServer.AddTool(tools.GoBackTool(), tools.GoBackHandler(sessionMgr))
-	mcpServer.AddTool(tools.GoForwardTool(), tools.GoForwardHandler(sessionMgr))
-	mcpServer.AddTool(tools.ReloadTool(), tools.ReloadHandler(sessionMgr))
+	mcpServer.AddTool(tools.NavigateTool(), tools.NavigateHandler(sessionMgr, timeoutConfig))
+	mcpServer.AddTool(tools.GoBackTool(), tools.GoBackHandler(sessionMgr, timeoutConfig))
+	mcpServer.AddTool(tools.GoForwardTool(), tools.GoForwardHandler(sessionMgr, timeoutConfig))
+	mcpServer.AddTool(tools.ReloadTool(), tools.ReloadHandler(sessionMgr, timeoutConfig))
 
 	// Register interaction tools
-	mcpServer.AddTool(tools.ClickTool(), tools.ClickHandler(sessionMgr))
-	mcpServer.AddTool(tools.TypeTool(), tools.TypeHandler(sessionMgr))
-	mcpServer.AddTool(tools.FillTool(), tools.FillHandler(sessionMgr))
-	mcpServer.AddTool(tools.SelectOptionTool(), tools.SelectOptionHandler(sessionMgr))
-	mcpServer.AddTool(tools.HoverTool(), tools.HoverHandler(sessionMgr))
-	mcpServer.AddTool(tools.PressKeyTool(), tools.PressKeyHandler(sessionMgr))
+	mcpServer.AddTool(tools.ClickTool(), tools.ClickHandler(sessionMgr, timeoutConfig))
+	mcpServer.AddTool(tools.TypeTool(), tools.TypeHandler(sessionMgr, timeoutConfig))
+	mcpServer.AddTool(tools.FillTool(), tools.FillHandler(sessionMgr, timeoutConfig))
+	mcpServer.AddTool(tools.SelectOptionTool(), tools.SelectOptionHandler(sessionMgr, timeoutConfig))
+	mcpServer.AddTool(tools.HoverTool(), tools.HoverHandler(sessionMgr, timeoutConfig))
+	mcpServer.AddTool(tools.PressKeyTool(), tools.PressKeyHandler(sessionMgr, timeoutConfig))
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 

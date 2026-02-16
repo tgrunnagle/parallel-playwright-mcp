@@ -62,8 +62,13 @@ func GetNetworkLogsTool() mcp.Tool {
 }
 
 // GetNetworkLogsHandler returns the handler function for get_network_logs.
-func GetNetworkLogsHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
+func GetNetworkLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Apply timeout with default category (log retrieval is a quick operation)
+		args := req.GetArguments()
+		ctx, cancel := ApplyTimeout(ctx, args, TimeoutDefault, timeoutConfig)
+		defer cancel()
+
 		// Extract MCP session ID from context for ownership validation
 		mcpSessionID := getMCPSessionID(ctx)
 
@@ -85,7 +90,6 @@ func GetNetworkLogsHandler(mgr session.BrowserSessionManager) server.ToolHandler
 		}
 
 		// Determine limit
-		args := req.GetArguments()
 		var limit int
 		if limitVal, ok := args["limit"]; ok && limitVal != nil {
 			switch v := limitVal.(type) {

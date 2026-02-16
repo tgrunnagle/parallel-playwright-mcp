@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/tgrunnagle/parallel-playwright-mcp/pkg/browser"
@@ -50,7 +51,7 @@ func TestSessionCreateToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	handler := SessionCreateHandler(mgr)
+	handler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	t.Run("creates session with default options", func(t *testing.T) {
@@ -166,8 +167,8 @@ func TestSessionListToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	listHandler := SessionListHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	listHandler := SessionListHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	t.Run("lists empty sessions for new connection", func(t *testing.T) {
@@ -256,9 +257,9 @@ func TestSessionCloseToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	closeHandler := SessionCloseHandler(mgr)
-	listHandler := SessionListHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	closeHandler := SessionCloseHandler(mgr, DefaultTimeoutConfig())
+	listHandler := SessionListHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	t.Run("closes session and removes from list", func(t *testing.T) {
@@ -361,9 +362,9 @@ func TestFullSessionLifecycleIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	listHandler := SessionListHandler(mgr)
-	closeHandler := SessionCloseHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	listHandler := SessionListHandler(mgr, DefaultTimeoutConfig())
+	closeHandler := SessionCloseHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	t.Run("full create -> list -> close flow", func(t *testing.T) {
@@ -507,8 +508,8 @@ func TestNavigateToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session for all tests
@@ -609,9 +610,9 @@ func TestGoBackToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	goBackHandler := GoBackHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	goBackHandler := GoBackHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -713,10 +714,10 @@ func TestGoForwardToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	goBackHandler := GoBackHandler(mgr)
-	goForwardHandler := GoForwardHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	goBackHandler := GoBackHandler(mgr, DefaultTimeoutConfig())
+	goForwardHandler := GoForwardHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -829,9 +830,9 @@ func TestReloadToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	reloadHandler := ReloadHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	reloadHandler := ReloadHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -916,11 +917,11 @@ func TestNavigationFlowIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	goBackHandler := GoBackHandler(mgr)
-	goForwardHandler := GoForwardHandler(mgr)
-	reloadHandler := ReloadHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	goBackHandler := GoBackHandler(mgr, DefaultTimeoutConfig())
+	goForwardHandler := GoForwardHandler(mgr, DefaultTimeoutConfig())
+	reloadHandler := ReloadHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -1048,9 +1049,9 @@ func TestScreenshotToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	screenshotHandler := ScreenshotHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	screenshotHandler := ScreenshotHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -1135,9 +1136,9 @@ func TestExtractTextToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	extractTextHandler := ExtractTextHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	extractTextHandler := ExtractTextHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -1256,9 +1257,9 @@ func TestGetHTMLToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	getHTMLHandler := GetHTMLHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	getHTMLHandler := GetHTMLHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -1375,9 +1376,9 @@ func TestEvaluateToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	evaluateHandler := EvaluateHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	evaluateHandler := EvaluateHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -1498,9 +1499,9 @@ func TestQuerySelectorToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	querySelectorHandler := QuerySelectorHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	querySelectorHandler := QuerySelectorHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -1631,9 +1632,9 @@ func TestGetAccessibilityTreeToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	accessibilityHandler := GetAccessibilityTreeHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	accessibilityHandler := GetAccessibilityTreeHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -1713,10 +1714,10 @@ func TestGetConsoleLogsToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	evaluateHandler := EvaluateHandler(mgr)
-	consoleLogsHandler := GetConsoleLogsHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	evaluateHandler := EvaluateHandler(mgr, DefaultTimeoutConfig())
+	consoleLogsHandler := GetConsoleLogsHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -1832,9 +1833,9 @@ func TestClickToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	clickHandler := ClickHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	clickHandler := ClickHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -1951,9 +1952,9 @@ func TestTypeToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	typeHandler := TypeHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	typeHandler := TypeHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -2045,9 +2046,9 @@ func TestFillToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	fillHandler := FillHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	fillHandler := FillHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -2139,9 +2140,9 @@ func TestSelectOptionToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	selectHandler := SelectOptionHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	selectHandler := SelectOptionHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -2233,9 +2234,9 @@ func TestHoverToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	hoverHandler := HoverHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	hoverHandler := HoverHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -2325,9 +2326,9 @@ func TestPressKeyToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	pressKeyHandler := PressKeyHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	pressKeyHandler := PressKeyHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -2444,10 +2445,10 @@ func TestGetNetworkLogsToolIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	networkLogsHandler := GetNetworkLogsHandler(mgr)
-	closeHandler := SessionCloseHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	networkLogsHandler := GetNetworkLogsHandler(mgr, DefaultTimeoutConfig())
+	closeHandler := SessionCloseHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -2784,9 +2785,9 @@ func TestGetNetworkLogsWithRealNetworkTrafficIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	createHandler := SessionCreateHandler(mgr)
-	navigateHandler := NavigateHandler(mgr)
-	networkLogsHandler := GetNetworkLogsHandler(mgr)
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	networkLogsHandler := GetNetworkLogsHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -2904,6 +2905,260 @@ func TestGetNetworkLogsWithRealNetworkTrafficIntegration(t *testing.T) {
 			if log.DurationMs < 0 {
 				t.Errorf("Expected non-negative duration, got %d", log.DurationMs)
 			}
+		}
+	})
+}
+
+// TestTimeoutBehaviorIntegration tests timeout handling across tool operations.
+func TestTimeoutBehaviorIntegration(t *testing.T) {
+	pool, mgr := setupPoolAndManager(t)
+	defer pool.Stop(context.Background())
+
+	ctx := context.Background()
+
+	// Create a session for timeout tests
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	createReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "session_create",
+			Arguments: map[string]any{},
+		},
+	}
+	createResult, err := createHandler(ctx, createReq)
+	if err != nil {
+		t.Fatalf("Create handler returned error: %v", err)
+	}
+	if createResult.IsError {
+		skipIfPlaywrightNotInstalled(t, extractErrorFromResult(createResult))
+		t.Fatalf("Create failed: %s", extractTextContent(createResult.Content))
+	}
+	sessionID := strings.TrimPrefix(extractTextContent(createResult.Content), "Created session: ")
+	defer mgr.CloseSession(ctx, "", sessionID)
+
+	// Navigate to a page with content for element tests
+	defaultNavHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	navReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "navigate",
+			Arguments: map[string]any{
+				"sessionId": sessionID,
+				"url":       "data:text/html,<html><body><h1 id='title'>Hello</h1><input id='input' type='text'/></body></html>",
+			},
+		},
+	}
+	navResult, err := defaultNavHandler(ctx, navReq)
+	if err != nil {
+		t.Fatalf("Navigate handler returned error: %v", err)
+	}
+	if navResult.IsError {
+		t.Fatalf("Navigate failed: %s", extractTextContent(navResult.Content))
+	}
+
+	t.Run("element timeout with non-existent element", func(t *testing.T) {
+		// Use a very short timeout to trigger timeout quickly
+		shortTimeoutConfig := &TimeoutConfig{
+			Default:    500 * time.Millisecond,
+			Navigation: 500 * time.Millisecond,
+			Element:    500 * time.Millisecond,
+			Script:     500 * time.Millisecond,
+		}
+		clickHandler := ClickHandler(mgr, shortTimeoutConfig)
+
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "click",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"selector":  "#does-not-exist",
+					"timeout":   float64(500),
+				},
+			},
+		}
+
+		start := time.Now()
+		result, err := clickHandler(ctx, req)
+		elapsed := time.Since(start)
+
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		// Should return an error (element not found or timeout)
+		if !result.IsError {
+			t.Fatal("Expected error for non-existent element with short timeout")
+		}
+
+		text := extractTextContent(result.Content)
+		// Should contain either a timeout or element-not-found error code
+		if !strings.Contains(text, "[-32002]") && !strings.Contains(text, "[-32003]") {
+			t.Errorf("Expected element not found (-32002) or timeout (-32003) error, got: %s", text)
+		}
+
+		// The operation should complete within a reasonable time (not hang)
+		if elapsed > 10*time.Second {
+			t.Errorf("Operation took too long: %v (expected < 10s)", elapsed)
+		}
+	})
+
+	t.Run("tool-level timeout parameter overrides config default", func(t *testing.T) {
+		// Use a long default config, but override with short tool-level timeout
+		longTimeoutConfig := &TimeoutConfig{
+			Default:    60 * time.Second,
+			Navigation: 60 * time.Second,
+			Element:    60 * time.Second,
+			Script:     60 * time.Second,
+		}
+		clickHandler := ClickHandler(mgr, longTimeoutConfig)
+
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "click",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"selector":  "#does-not-exist",
+					"timeout":   float64(500), // 500ms override
+				},
+			},
+		}
+
+		start := time.Now()
+		result, err := clickHandler(ctx, req)
+		elapsed := time.Since(start)
+
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		if !result.IsError {
+			t.Fatal("Expected error for non-existent element")
+		}
+
+		// Should complete within a few seconds despite the 60s config default,
+		// because the tool-level 500ms timeout overrides it
+		if elapsed > 10*time.Second {
+			t.Errorf("Tool-level timeout override not working: took %v (expected < 10s)", elapsed)
+		}
+	})
+
+	t.Run("context cancellation propagates through tool operation", func(t *testing.T) {
+		clickHandler := ClickHandler(mgr, DefaultTimeoutConfig())
+
+		// Create a context that will be cancelled shortly
+		cancelCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+		defer cancel()
+
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "click",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"selector":  "#does-not-exist",
+				},
+			},
+		}
+
+		start := time.Now()
+		result, err := clickHandler(cancelCtx, req)
+		elapsed := time.Since(start)
+
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		// Should return an error (either timeout from context or element not found)
+		if !result.IsError {
+			t.Fatal("Expected error when context is cancelled")
+		}
+
+		// Should complete relatively quickly due to context cancellation
+		if elapsed > 10*time.Second {
+			t.Errorf("Context cancellation not propagating: took %v (expected < 10s)", elapsed)
+		}
+	})
+
+	t.Run("script timeout with long-running JavaScript", func(t *testing.T) {
+		// Use a very short script timeout
+		shortScriptConfig := &TimeoutConfig{
+			Default:    30 * time.Second,
+			Navigation: 30 * time.Second,
+			Element:    5 * time.Second,
+			Script:     1 * time.Second,
+		}
+		evalHandler := EvaluateHandler(mgr, shortScriptConfig)
+
+		// JavaScript that runs for a long time (Promise that resolves after 30s)
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "evaluate",
+				Arguments: map[string]any{
+					"sessionId":  sessionID,
+					"expression": "new Promise(resolve => setTimeout(resolve, 30000))",
+				},
+			},
+		}
+
+		start := time.Now()
+		result, err := evalHandler(ctx, req)
+		elapsed := time.Since(start)
+
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		// Should return an error (timeout)
+		if !result.IsError {
+			t.Fatal("Expected error for long-running script with short timeout")
+		}
+
+		// Should complete within a reasonable time (context timeout of 1s + buffer)
+		if elapsed > 15*time.Second {
+			t.Errorf("Script timeout not working: took %v (expected < 15s)", elapsed)
+		}
+	})
+
+	t.Run("navigation timeout with unreachable host", func(t *testing.T) {
+		shortNavConfig := &TimeoutConfig{
+			Default:    30 * time.Second,
+			Navigation: 2 * time.Second,
+			Element:    5 * time.Second,
+			Script:     30 * time.Second,
+		}
+		navHandler := NavigateHandler(mgr, shortNavConfig)
+
+		// Use a non-routable IP address that will timeout
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "navigate",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"url":       "http://192.0.2.1/timeout-test",
+					"timeout":   float64(2000),
+				},
+			},
+		}
+
+		start := time.Now()
+		result, err := navHandler(ctx, req)
+		elapsed := time.Since(start)
+
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+
+		// Should return an error
+		if !result.IsError {
+			t.Fatal("Expected error for unreachable URL with short timeout")
+		}
+
+		text := extractTextContent(result.Content)
+		// Should contain a timeout or navigation error
+		if !strings.Contains(text, "[-32003]") && !strings.Contains(text, "[-32004]") {
+			t.Errorf("Expected timeout (-32003) or navigation failed (-32004) error, got: %s", text)
+		}
+
+		// Should not hang - should complete within reasonable time
+		if elapsed > 30*time.Second {
+			t.Errorf("Navigation timeout not working: took %v (expected < 30s)", elapsed)
 		}
 	})
 }

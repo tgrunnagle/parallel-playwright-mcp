@@ -41,8 +41,13 @@ func ClickTool() mcp.Tool {
 }
 
 // ClickHandler returns the handler function for click.
-func ClickHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
+func ClickHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Apply timeout with element category
+		args := req.GetArguments()
+		ctx, cancel := ApplyTimeout(ctx, args, TimeoutElement, timeoutConfig)
+		defer cancel()
+
 		mcpSessionID := getMCPSessionID(ctx)
 
 		sessionID := req.GetString("sessionId", "")
@@ -66,9 +71,12 @@ func ClickHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
 		}
 
 		locator := page.Locator(selector)
-		opts := buildClickOptions(req.GetArguments())
+		opts := buildClickOptions(args)
 
 		if err := locator.Click(opts); err != nil {
+			if ctxErr := HandleContextError(ctx, "click"); ctxErr != nil {
+				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
+			}
 			return handleInteractionError(err, "click", selector), nil
 		}
 
@@ -103,8 +111,13 @@ func TypeTool() mcp.Tool {
 }
 
 // TypeHandler returns the handler function for type.
-func TypeHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
+func TypeHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Apply timeout with element category
+		args := req.GetArguments()
+		ctx, cancel := ApplyTimeout(ctx, args, TimeoutElement, timeoutConfig)
+		defer cancel()
+
 		mcpSessionID := getMCPSessionID(ctx)
 
 		sessionID := req.GetString("sessionId", "")
@@ -133,9 +146,12 @@ func TypeHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
 		}
 
 		locator := page.Locator(selector)
-		opts := buildTypeOptions(req.GetArguments())
+		opts := buildTypeOptions(args)
 
 		if err := locator.PressSequentially(text, opts); err != nil {
+			if ctxErr := HandleContextError(ctx, "type"); ctxErr != nil {
+				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
+			}
 			return handleInteractionError(err, "type", selector), nil
 		}
 
@@ -167,8 +183,13 @@ func FillTool() mcp.Tool {
 }
 
 // FillHandler returns the handler function for fill.
-func FillHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
+func FillHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Apply timeout with element category
+		args := req.GetArguments()
+		ctx, cancel := ApplyTimeout(ctx, args, TimeoutElement, timeoutConfig)
+		defer cancel()
+
 		mcpSessionID := getMCPSessionID(ctx)
 
 		sessionID := req.GetString("sessionId", "")
@@ -195,9 +216,12 @@ func FillHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
 		}
 
 		locator := page.Locator(selector)
-		opts := buildFillOptions(req.GetArguments())
+		opts := buildFillOptions(args)
 
 		if err := locator.Fill(value, opts); err != nil {
+			if ctxErr := HandleContextError(ctx, "fill"); ctxErr != nil {
+				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
+			}
 			return handleInteractionError(err, "fill", selector), nil
 		}
 
@@ -233,8 +257,13 @@ func SelectOptionTool() mcp.Tool {
 }
 
 // SelectOptionHandler returns the handler function for select_option.
-func SelectOptionHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
+func SelectOptionHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Apply timeout with element category
+		args := req.GetArguments()
+		ctx, cancel := ApplyTimeout(ctx, args, TimeoutElement, timeoutConfig)
+		defer cancel()
+
 		mcpSessionID := getMCPSessionID(ctx)
 
 		sessionID := req.GetString("sessionId", "")
@@ -265,7 +294,7 @@ func SelectOptionHandler(mgr session.BrowserSessionManager) server.ToolHandlerFu
 		}
 
 		locator := page.Locator(selector)
-		opts := buildSelectOptionOptions(req.GetArguments())
+		opts := buildSelectOptionOptions(args)
 
 		var selectedValues []string
 		var err error
@@ -290,6 +319,9 @@ func SelectOptionHandler(mgr session.BrowserSessionManager) server.ToolHandlerFu
 		}
 
 		if err != nil {
+			if ctxErr := HandleContextError(ctx, "select_option"); ctxErr != nil {
+				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
+			}
 			return handleInteractionError(err, "select_option", selector), nil
 		}
 
@@ -320,8 +352,13 @@ func HoverTool() mcp.Tool {
 }
 
 // HoverHandler returns the handler function for hover.
-func HoverHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
+func HoverHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Apply timeout with element category
+		args := req.GetArguments()
+		ctx, cancel := ApplyTimeout(ctx, args, TimeoutElement, timeoutConfig)
+		defer cancel()
+
 		mcpSessionID := getMCPSessionID(ctx)
 
 		sessionID := req.GetString("sessionId", "")
@@ -345,9 +382,12 @@ func HoverHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
 		}
 
 		locator := page.Locator(selector)
-		opts := buildHoverOptions(req.GetArguments())
+		opts := buildHoverOptions(args)
 
 		if err := locator.Hover(opts); err != nil {
+			if ctxErr := HandleContextError(ctx, "hover"); ctxErr != nil {
+				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
+			}
 			return handleInteractionError(err, "hover", selector), nil
 		}
 
@@ -385,8 +425,13 @@ func PressKeyTool() mcp.Tool {
 }
 
 // PressKeyHandler returns the handler function for press_key.
-func PressKeyHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
+func PressKeyHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Apply timeout with element category
+		args := req.GetArguments()
+		ctx, cancel := ApplyTimeout(ctx, args, TimeoutElement, timeoutConfig)
+		defer cancel()
+
 		mcpSessionID := getMCPSessionID(ctx)
 
 		sessionID := req.GetString("sessionId", "")
@@ -402,7 +447,7 @@ func PressKeyHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
 		selector := req.GetString("selector", "")
 
 		// Build key string with modifiers if provided
-		keyWithModifiers := buildKeyWithModifiers(key, req.GetArguments())
+		keyWithModifiers := buildKeyWithModifiers(key, args)
 
 		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
 		if !ok {
@@ -417,9 +462,12 @@ func PressKeyHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
 		// If selector is provided, use locator.Press, otherwise use page.Keyboard.Press
 		if selector != "" {
 			locator := page.Locator(selector)
-			opts := buildPressOptions(req.GetArguments())
+			opts := buildPressOptions(args)
 
 			if err := locator.Press(keyWithModifiers, opts); err != nil {
+				if ctxErr := HandleContextError(ctx, "press_key"); ctxErr != nil {
+					return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
+				}
 				return handleInteractionError(err, "press_key", selector), nil
 			}
 
@@ -428,6 +476,9 @@ func PressKeyHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
 
 		// Press key without focusing specific element
 		if err := page.Keyboard().Press(keyWithModifiers); err != nil {
+			if ctxErr := HandleContextError(ctx, "press_key"); ctxErr != nil {
+				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
+			}
 			return handleInteractionError(err, "press_key", "page"), nil
 		}
 

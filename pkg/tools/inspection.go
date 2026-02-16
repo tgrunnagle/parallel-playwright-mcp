@@ -36,8 +36,13 @@ func GetConsoleLogsTool() mcp.Tool {
 }
 
 // GetConsoleLogsHandler returns the handler function for get_console_logs.
-func GetConsoleLogsHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
+func GetConsoleLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Apply timeout with default category (log retrieval is a quick operation)
+		args := req.GetArguments()
+		ctx, cancel := ApplyTimeout(ctx, args, TimeoutDefault, timeoutConfig)
+		defer cancel()
+
 		// Extract MCP session ID from context for ownership validation
 		mcpSessionID := getMCPSessionID(ctx)
 
@@ -60,7 +65,6 @@ func GetConsoleLogsHandler(mgr session.BrowserSessionManager) server.ToolHandler
 
 		// Extract limit parameter with default
 		limit := 50
-		args := req.GetArguments()
 		if limitVal, ok := args["limit"]; ok && limitVal != nil {
 			switch v := limitVal.(type) {
 			case float64:
@@ -134,8 +138,13 @@ func ScreenshotTool() mcp.Tool {
 }
 
 // ScreenshotHandler returns the handler function for screenshot.
-func ScreenshotHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
+func ScreenshotHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Apply timeout with default category
+		args := req.GetArguments()
+		ctx, cancel := ApplyTimeout(ctx, args, TimeoutDefault, timeoutConfig)
+		defer cancel()
+
 		// Extract MCP session ID from context for ownership validation
 		mcpSessionID := getMCPSessionID(ctx)
 
@@ -156,8 +165,6 @@ func ScreenshotHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc
 		if page == nil {
 			return mcp.NewToolResultError("no active page in session"), nil
 		}
-
-		args := req.GetArguments()
 
 		// Check for selector parameter - element screenshot
 		selector := req.GetString("selector", "")
@@ -294,8 +301,13 @@ func ExtractTextTool() mcp.Tool {
 }
 
 // ExtractTextHandler returns the handler function for extract_text.
-func ExtractTextHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
+func ExtractTextHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Apply timeout with element category
+		args := req.GetArguments()
+		ctx, cancel := ApplyTimeout(ctx, args, TimeoutElement, timeoutConfig)
+		defer cancel()
+
 		// Extract MCP session ID from context for ownership validation
 		mcpSessionID := getMCPSessionID(ctx)
 
@@ -392,8 +404,13 @@ func GetHTMLTool() mcp.Tool {
 }
 
 // GetHTMLHandler returns the handler function for get_html.
-func GetHTMLHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
+func GetHTMLHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Apply timeout with element category
+		args := req.GetArguments()
+		ctx, cancel := ApplyTimeout(ctx, args, TimeoutElement, timeoutConfig)
+		defer cancel()
+
 		// Extract MCP session ID from context for ownership validation
 		mcpSessionID := getMCPSessionID(ctx)
 
@@ -415,7 +432,6 @@ func GetHTMLHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
 			return mcp.NewToolResultError("no active page in session"), nil
 		}
 
-		args := req.GetArguments()
 		selector := req.GetString("selector", "")
 
 		// Check outer parameter
@@ -481,8 +497,13 @@ func EvaluateTool() mcp.Tool {
 }
 
 // EvaluateHandler returns the handler function for evaluate.
-func EvaluateHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
+func EvaluateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Apply timeout with script category
+		args := req.GetArguments()
+		ctx, cancel := ApplyTimeout(ctx, args, TimeoutScript, timeoutConfig)
+		defer cancel()
+
 		// Extract MCP session ID from context for ownership validation
 		mcpSessionID := getMCPSessionID(ctx)
 
@@ -566,8 +587,13 @@ func QuerySelectorTool() mcp.Tool {
 }
 
 // QuerySelectorHandler returns the handler function for query_selector.
-func QuerySelectorHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
+func QuerySelectorHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Apply timeout with element category
+		args := req.GetArguments()
+		ctx, cancel := ApplyTimeout(ctx, args, TimeoutElement, timeoutConfig)
+		defer cancel()
+
 		// Extract MCP session ID from context for ownership validation
 		mcpSessionID := getMCPSessionID(ctx)
 
@@ -594,8 +620,6 @@ func QuerySelectorHandler(mgr session.BrowserSessionManager) server.ToolHandlerF
 		if page == nil {
 			return mcp.NewToolResultError("no active page in session"), nil
 		}
-
-		args := req.GetArguments()
 
 		// Check if all parameter is set
 		all := false
@@ -720,8 +744,13 @@ func GetAccessibilityTreeTool() mcp.Tool {
 }
 
 // GetAccessibilityTreeHandler returns the handler function for get_accessibility_tree.
-func GetAccessibilityTreeHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
+func GetAccessibilityTreeHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Apply timeout with default category
+		args := req.GetArguments()
+		ctx, cancel := ApplyTimeout(ctx, args, TimeoutDefault, timeoutConfig)
+		defer cancel()
+
 		// Extract MCP session ID from context for ownership validation
 		mcpSessionID := getMCPSessionID(ctx)
 
@@ -926,8 +955,13 @@ func NavigateAndExtractTextTool() mcp.Tool {
 }
 
 // NavigateAndExtractTextHandler returns the handler function for navigate_and_extract_text.
-func NavigateAndExtractTextHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
+func NavigateAndExtractTextHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Apply timeout with navigation category (includes both navigation and extraction)
+		args := req.GetArguments()
+		ctx, cancel := ApplyTimeout(ctx, args, TimeoutNavigation, timeoutConfig)
+		defer cancel()
+
 		// Extract MCP session ID from context for ownership tracking
 		mcpSessionID := getMCPSessionID(ctx)
 
@@ -936,9 +970,6 @@ func NavigateAndExtractTextHandler(mgr session.BrowserSessionManager) server.Too
 		if url == "" {
 			return mcp.NewToolResultError("url is required"), nil
 		}
-
-		// Parse optional arguments
-		args := req.GetArguments()
 
 		// Parse browserType with default
 		browserType := browser.BrowserChromium

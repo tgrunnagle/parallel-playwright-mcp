@@ -37,8 +37,13 @@ func NavigateTool() mcp.Tool {
 }
 
 // NavigateHandler returns the handler function for navigate.
-func NavigateHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
+func NavigateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Apply timeout with navigation category
+		args := req.GetArguments()
+		ctx, cancel := ApplyTimeout(ctx, args, TimeoutNavigation, timeoutConfig)
+		defer cancel()
+
 		// Extract MCP session ID from context for ownership validation
 		mcpSessionID := getMCPSessionID(ctx)
 
@@ -67,10 +72,13 @@ func NavigateHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
 		}
 
 		// Build Playwright options from optional parameters
-		opts := buildGotoOptions(req.GetArguments())
+		opts := buildGotoOptions(args)
 
 		// Execute navigation
 		if _, err := page.Goto(url, opts); err != nil {
+			if ctxErr := HandleContextError(ctx, "navigate"); ctxErr != nil {
+				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
+			}
 			return handleNavigationError(err, url), nil
 		}
 
@@ -98,8 +106,13 @@ func GoBackTool() mcp.Tool {
 }
 
 // GoBackHandler returns the handler function for go_back.
-func GoBackHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
+func GoBackHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Apply timeout with navigation category
+		args := req.GetArguments()
+		ctx, cancel := ApplyTimeout(ctx, args, TimeoutNavigation, timeoutConfig)
+		defer cancel()
+
 		// Extract MCP session ID from context for ownership validation
 		mcpSessionID := getMCPSessionID(ctx)
 
@@ -122,11 +135,14 @@ func GoBackHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
 		}
 
 		// Build Playwright options from optional parameters
-		opts := buildGoBackOptions(req.GetArguments())
+		opts := buildGoBackOptions(args)
 
 		// Execute back navigation
 		resp, err := page.GoBack(opts)
 		if err != nil {
+			if ctxErr := HandleContextError(ctx, "go_back"); ctxErr != nil {
+				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
+			}
 			return handleNavigationError(err, "back"), nil
 		}
 
@@ -159,8 +175,13 @@ func GoForwardTool() mcp.Tool {
 }
 
 // GoForwardHandler returns the handler function for go_forward.
-func GoForwardHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
+func GoForwardHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Apply timeout with navigation category
+		args := req.GetArguments()
+		ctx, cancel := ApplyTimeout(ctx, args, TimeoutNavigation, timeoutConfig)
+		defer cancel()
+
 		// Extract MCP session ID from context for ownership validation
 		mcpSessionID := getMCPSessionID(ctx)
 
@@ -183,11 +204,14 @@ func GoForwardHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc 
 		}
 
 		// Build Playwright options from optional parameters
-		opts := buildGoForwardOptions(req.GetArguments())
+		opts := buildGoForwardOptions(args)
 
 		// Execute forward navigation
 		resp, err := page.GoForward(opts)
 		if err != nil {
+			if ctxErr := HandleContextError(ctx, "go_forward"); ctxErr != nil {
+				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
+			}
 			return handleNavigationError(err, "forward"), nil
 		}
 
@@ -220,8 +244,13 @@ func ReloadTool() mcp.Tool {
 }
 
 // ReloadHandler returns the handler function for reload.
-func ReloadHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
+func ReloadHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Apply timeout with navigation category
+		args := req.GetArguments()
+		ctx, cancel := ApplyTimeout(ctx, args, TimeoutNavigation, timeoutConfig)
+		defer cancel()
+
 		// Extract MCP session ID from context for ownership validation
 		mcpSessionID := getMCPSessionID(ctx)
 
@@ -244,10 +273,13 @@ func ReloadHandler(mgr session.BrowserSessionManager) server.ToolHandlerFunc {
 		}
 
 		// Build Playwright reload options from optional parameters
-		opts := buildReloadOptions(req.GetArguments())
+		opts := buildReloadOptions(args)
 
 		// Execute reload
 		if _, err := page.Reload(opts); err != nil {
+			if ctxErr := HandleContextError(ctx, "reload"); ctxErr != nil {
+				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
+			}
 			return handleNavigationError(err, "reload"), nil
 		}
 
