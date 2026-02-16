@@ -82,6 +82,11 @@ func ClickHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfi
 		locator := page.Locator(selector)
 		opts := buildClickOptions(args)
 
+		// Propagate context deadline to Playwright if no explicit timeout was set
+		if opts.Timeout == nil {
+			opts.Timeout = PlaywrightTimeoutFromContext(ctx)
+		}
+
 		if err := locator.Click(opts); err != nil {
 			if ctxErr := HandleContextError(ctx, "click"); ctxErr != nil {
 				slog.Error("click context error", "tool", "click", "sessionID", sessionID, "selector", selector, "error", ctxErr)

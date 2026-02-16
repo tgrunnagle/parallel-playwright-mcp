@@ -4,6 +4,9 @@ package session
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -439,9 +442,14 @@ func TestNetworkLoggingIntegration(t *testing.T) {
 			t.Fatal("ActivePage should not be nil")
 		}
 
-		// Navigate to a data URL that generates a network request
-		dataURL := "data:text/html,<html><body>Test</body></html>"
-		_, err = page.Goto(dataURL)
+		// Use an HTTP server so the browser generates real network events
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprint(w, "<html><body>Test</body></html>")
+		}))
+		defer ts.Close()
+
+		_, err = page.Goto(ts.URL)
 		if err != nil {
 			t.Fatalf("Page.Goto failed: %v", err)
 		}
@@ -464,7 +472,6 @@ func TestNetworkLoggingIntegration(t *testing.T) {
 			if entry.URL == "" {
 				t.Error("URL should not be empty")
 			}
-			// Data URLs may have status 0 in some browsers, so we just check it's set
 			if entry.Timestamp.IsZero() {
 				t.Error("Timestamp should not be zero")
 			}
@@ -535,10 +542,15 @@ func TestNetworkLoggingIntegration(t *testing.T) {
 
 		page := session.ActivePage()
 
-		// Navigate to multiple data URLs
+		// Use an HTTP server so navigations generate network events
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprintf(w, "<html><body>%s</body></html>", r.URL.Path)
+		}))
+		defer ts.Close()
+
 		for i := 0; i < 3; i++ {
-			dataURL := "data:text/html,<html><body>Page " + string(rune('A'+i)) + "</body></html>"
-			_, err = page.Goto(dataURL)
+			_, err = page.Goto(fmt.Sprintf("%s/page%d", ts.URL, i))
 			if err != nil {
 				t.Fatalf("Page.Goto failed: %v", err)
 			}
@@ -571,7 +583,14 @@ func TestNetworkLoggingIntegration(t *testing.T) {
 		// Clear any existing entries
 		session.NetworkLogs.Clear()
 
-		// Set up a route to abort requests to a specific URL
+		// Use an HTTP server as the base page so fetch requests resolve properly
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprint(w, `<html><script>fetch('/abort-this-request').catch(() => {});</script></html>`)
+		}))
+		defer ts.Close()
+
+		// Set up a route to abort requests to the specific URL
 		err = page.Route("**/abort-this-request", func(route playwright.Route) {
 			route.Abort()
 		})
@@ -579,11 +598,7 @@ func TestNetworkLoggingIntegration(t *testing.T) {
 			t.Fatalf("Failed to set up route: %v", err)
 		}
 
-		// Navigate to a page that will make a request we'll abort
-		htmlWithAbortedFetch := `data:text/html,<html><script>
-			fetch('/abort-this-request').catch(() => {});
-		</script></html>`
-		_, err = page.Goto(htmlWithAbortedFetch)
+		_, err = page.Goto(ts.URL)
 		if err != nil {
 			t.Fatalf("Page.Goto failed: %v", err)
 		}
@@ -624,8 +639,22 @@ func TestNetworkLoggingIntegration(t *testing.T) {
 		// Clear any existing entries
 		session.NetworkLogs.Clear()
 
-		// Set up a route to intercept and fulfill POST requests
 		postBody := `{"test": "data", "value": 12345}`
+
+		// Use an HTTP server as the base page so fetch requests resolve properly
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprintf(w, `<html><script>
+				fetch('/post-endpoint', {
+					method: 'POST',
+					headers: {'Content-Type': 'application/json'},
+					body: '%s'
+				});
+			</script></html>`, postBody)
+		}))
+		defer ts.Close()
+
+		// Set up a route to intercept and fulfill POST requests
 		err = page.Route("**/post-endpoint", func(route playwright.Route) {
 			route.Fulfill(playwright.RouteFulfillOptions{
 				Status:      playwright.Int(200),
@@ -637,15 +666,7 @@ func TestNetworkLoggingIntegration(t *testing.T) {
 			t.Fatalf("Failed to set up route: %v", err)
 		}
 
-		// Navigate to a page that will make a POST request
-		htmlWithPost := `data:text/html,<html><script>
-			fetch('/post-endpoint', {
-				method: 'POST',
-				headers: {'Content-Type': 'application/json'},
-				body: '` + postBody + `'
-			});
-		</script></html>`
-		_, err = page.Goto(htmlWithPost)
+		_, err = page.Goto(ts.URL)
 		if err != nil {
 			t.Fatalf("Page.Goto failed: %v", err)
 		}

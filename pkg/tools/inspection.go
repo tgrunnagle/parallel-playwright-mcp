@@ -560,26 +560,42 @@ func EvaluateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 			return mcp.NewToolResultError("no active page in session"), nil
 		}
 
-		// Execute JavaScript expression
-		result, err := page.Evaluate(expression)
-		if err != nil {
-			// Check for syntax errors or evaluation errors
-			errStr := err.Error()
-			if strings.Contains(errStr, "SyntaxError") || strings.Contains(errStr, "ReferenceError") {
-				slog.Error("JavaScript error", "tool", "evaluate", "sessionID", sessionID, "error", err)
-				return mcp.NewToolResultError(fmt.Sprintf("JavaScript error: %v", err)), nil
+		// Execute JavaScript expression with context deadline enforcement.
+		// page.Evaluate() doesn't accept a timeout option, so we run it in a
+		// goroutine and select on context cancellation.
+		type evalResult struct {
+			value interface{}
+			err   error
+		}
+		ch := make(chan evalResult, 1)
+		go func() {
+			v, evalErr := page.Evaluate(expression)
+			ch <- evalResult{v, evalErr}
+		}()
+
+		select {
+		case r := <-ch:
+			if r.err != nil {
+				errStr := r.err.Error()
+				if strings.Contains(errStr, "SyntaxError") || strings.Contains(errStr, "ReferenceError") {
+					slog.Error("JavaScript error", "tool", "evaluate", "sessionID", sessionID, "error", r.err)
+					return mcp.NewToolResultError(fmt.Sprintf("JavaScript error: %v", r.err)), nil
+				}
+				slog.Error("failed to evaluate expression", "tool", "evaluate", "sessionID", sessionID, "error", r.err)
+				return mcp.NewToolResultError(fmt.Sprintf("Failed to evaluate expression: %v", r.err)), nil
 			}
-			slog.Error("failed to evaluate expression", "tool", "evaluate", "sessionID", sessionID, "error", err)
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to evaluate expression: %v", err)), nil
-		}
 
-		// Serialize result to JSON
-		jsonBytes, err := json.Marshal(result)
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to serialize result: %v", err)), nil
-		}
+			// Serialize result to JSON
+			jsonBytes, err := json.Marshal(r.value)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("Failed to serialize result: %v", err)), nil
+			}
 
-		return mcp.NewToolResultText(string(jsonBytes)), nil
+			return mcp.NewToolResultText(string(jsonBytes)), nil
+		case <-ctx.Done():
+			slog.Error("evaluate timed out", "tool", "evaluate", "sessionID", sessionID, "error", ctx.Err())
+			return mcp.NewToolResultError(fmt.Sprintf("Script evaluation timed out: %v", ctx.Err())), nil
+		}
 	}
 }
 
