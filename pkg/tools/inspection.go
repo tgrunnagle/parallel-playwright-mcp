@@ -999,6 +999,110 @@ const accessibilityTreeJS = `() => {
 	return buildNode(document.body);
 }`
 
+// LinkInfo represents information about a hyperlink on the page.
+type LinkInfo struct {
+	ID    string `json:"id,omitempty"`
+	Href  string `json:"href"`
+	Label string `json:"label"`
+}
+
+// GetLinksTool returns the get_links MCP tool definition.
+func GetLinksTool() mcp.Tool {
+	return mcp.NewTool("get_links",
+		mcp.WithDescription("Get all hyperlinks from the page with their IDs and labels"),
+		mcp.WithString("sessionId",
+			mcp.Required(),
+			mcp.Description("Browser session ID"),
+		),
+		mcp.WithString("url",
+			mcp.Description("Optional URL to navigate to before extracting links"),
+		),
+		mcp.WithString("waitUntil",
+			mcp.Enum("load", "domcontentloaded", "networkidle"),
+			mcp.Description("Wait condition for navigation"),
+		),
+		mcp.WithNumber("timeout",
+			mcp.Description("Navigation timeout in milliseconds"),
+		),
+	)
+}
+
+// GetLinksHandler returns the handler function for get_links.
+func GetLinksHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		slog.Debug("tool handler called", "tool", "get_links")
+
+		// Apply timeout with navigation category (may include navigation)
+		args := req.GetArguments()
+		ctx, cancel := ApplyTimeout(ctx, args, TimeoutNavigation, timeoutConfig)
+		defer cancel()
+
+		// Extract MCP session ID from context for ownership validation
+		mcpSessionID := getMCPSessionID(ctx)
+
+		// Parse and validate sessionId argument
+		sessionID := req.GetString("sessionId", "")
+		if sessionID == "" {
+			slog.Error("missing required sessionId", "tool", "get_links")
+			return mcp.NewToolResultError("sessionId is required"), nil
+		}
+
+		// Get session with ownership validation
+		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
+		if !ok {
+			slog.Error("session not found", "tool", "get_links", "sessionID", sessionID)
+			return mcp.NewToolResultError(fmt.Sprintf("[%d] Session not found: %s", errors.CodeSessionNotFound, sessionID)), nil
+		}
+
+		// Get the active page from the session
+		page := sess.ActivePage()
+		if page == nil {
+			slog.Error("no active page in session", "tool", "get_links", "sessionID", sessionID)
+			return mcp.NewToolResultError("no active page in session"), nil
+		}
+
+		// If url param provided, navigate first
+		url := req.GetString("url", "")
+		if url != "" {
+			opts := buildGotoOptions(args)
+			if opts.Timeout == nil {
+				opts.Timeout = PlaywrightTimeoutFromContext(ctx)
+			}
+			if _, err := page.Goto(url, opts); err != nil {
+				if ctxErr := HandleContextError(ctx, "get_links"); ctxErr != nil {
+					slog.Error("get_links navigation context error", "tool", "get_links", "sessionID", sessionID, "url", url, "error", ctxErr)
+					return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
+				}
+				return handleNavigationError(err, url), nil
+			}
+		}
+
+		// Extract links using JavaScript
+		result, err := page.Evaluate(getLinksJS)
+		if err != nil {
+			slog.Error("failed to extract links", "tool", "get_links", "sessionID", sessionID, "error", err)
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to extract links: %v", err)), nil
+		}
+
+		// Serialize result to JSON
+		jsonBytes, err := json.Marshal(result)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to serialize links: %v", err)), nil
+		}
+
+		return mcp.NewToolResultText(string(jsonBytes)), nil
+	}
+}
+
+// getLinksJS is the JavaScript code that extracts hyperlink information from the DOM.
+const getLinksJS = `() => {
+	return Array.from(document.querySelectorAll('a[href]')).map(a => ({
+		id: a.id || undefined,
+		href: a.href,
+		label: (a.textContent || a.getAttribute('aria-label') || '').trim().substring(0, 200)
+	})).filter(link => link.href);
+}`
+
 // NavigateAndExtractTextTool returns the navigate_and_extract_text MCP tool definition.
 func NavigateAndExtractTextTool() mcp.Tool {
 	return mcp.NewTool("navigate_and_extract_text",

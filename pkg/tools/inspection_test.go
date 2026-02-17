@@ -1557,3 +1557,192 @@ func TestElementInfoOmitsEmptyFields(t *testing.T) {
 		t.Error("Nil boundingBox should be omitted from JSON")
 	}
 }
+
+// TestGetLinksTool tests the get_links tool definition.
+func TestGetLinksTool(t *testing.T) {
+	tool := GetLinksTool()
+
+	if tool.Name != "get_links" {
+		t.Errorf("Expected tool name 'get_links', got '%s'", tool.Name)
+	}
+
+	if tool.Description == "" {
+		t.Error("Tool description should not be empty")
+	}
+
+	// Verify sessionId is in required
+	required := tool.InputSchema.Required
+	foundSessionId := false
+	for _, r := range required {
+		if r == "sessionId" {
+			foundSessionId = true
+		}
+	}
+	if !foundSessionId {
+		t.Error("Expected 'sessionId' to be in required properties")
+	}
+
+	// url should NOT be required
+	for _, r := range required {
+		if r == "url" {
+			t.Error("'url' should NOT be in required properties")
+		}
+	}
+
+	// Verify properties exist
+	props := tool.InputSchema.Properties
+	if props == nil {
+		t.Fatal("Input schema properties should not be nil")
+	}
+
+	if _, ok := props["sessionId"]; !ok {
+		t.Error("Expected 'sessionId' property in input schema")
+	}
+	if _, ok := props["url"]; !ok {
+		t.Error("Expected 'url' property in input schema")
+	}
+	if _, ok := props["waitUntil"]; !ok {
+		t.Error("Expected 'waitUntil' property in input schema")
+	}
+	if _, ok := props["timeout"]; !ok {
+		t.Error("Expected 'timeout' property in input schema")
+	}
+}
+
+// TestGetLinksHandler tests the get_links handler.
+func TestGetLinksHandler(t *testing.T) {
+	tests := []struct {
+		name           string
+		arguments      map[string]any
+		getSessionFunc func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool)
+		expectError    bool
+		expectedResult string
+	}{
+		{
+			name: "missing sessionId",
+			arguments: map[string]any{
+				"url": "https://example.com",
+			},
+			expectError:    true,
+			expectedResult: "sessionId is required",
+		},
+		{
+			name: "empty sessionId",
+			arguments: map[string]any{
+				"sessionId": "",
+			},
+			expectError:    true,
+			expectedResult: "sessionId is required",
+		},
+		{
+			name: "session not found",
+			arguments: map[string]any{
+				"sessionId": "sess-invalid",
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				return nil, false
+			},
+			expectError:    true,
+			expectedResult: "[-32001] Session not found",
+		},
+		{
+			name: "no active page in session",
+			arguments: map[string]any{
+				"sessionId": "sess-test",
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				return &session.BrowserSession{
+					ID:          "sess-test",
+					Pages:       map[string]playwright.Page{},
+					ActiveTabID: "non-existent-tab",
+				}, true
+			},
+			expectError:    true,
+			expectedResult: "no active page in session",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mgr := &mockSessionManager{
+				getSessionFunc: tt.getSessionFunc,
+			}
+			handler := GetLinksHandler(mgr, DefaultTimeoutConfig())
+
+			req := mcp.CallToolRequest{
+				Params: mcp.CallToolParams{
+					Name:      "get_links",
+					Arguments: tt.arguments,
+				},
+			}
+
+			ctx := context.Background()
+			result, err := handler(ctx, req)
+
+			if err != nil {
+				t.Fatalf("Handler returned unexpected error: %v", err)
+			}
+
+			if result == nil {
+				t.Fatal("Expected result, got nil")
+			}
+
+			if tt.expectError {
+				if !result.IsError {
+					t.Error("Expected error result")
+				}
+				text := extractTextContent(result.Content)
+				if tt.expectedResult != "" && !strings.Contains(text, tt.expectedResult) {
+					t.Errorf("Expected error message to contain '%s', got '%s'", tt.expectedResult, text)
+				}
+			}
+		})
+	}
+}
+
+// TestLinkInfoStructure tests the LinkInfo type serialization.
+func TestLinkInfoStructure(t *testing.T) {
+	link := LinkInfo{
+		ID:    "nav-home",
+		Href:  "https://example.com/",
+		Label: "Home",
+	}
+
+	jsonBytes, err := json.Marshal(link)
+	if err != nil {
+		t.Fatalf("Failed to marshal LinkInfo: %v", err)
+	}
+
+	var decoded LinkInfo
+	if err := json.Unmarshal(jsonBytes, &decoded); err != nil {
+		t.Fatalf("Failed to unmarshal LinkInfo: %v", err)
+	}
+
+	if decoded.ID != "nav-home" {
+		t.Errorf("Expected id 'nav-home', got %s", decoded.ID)
+	}
+	if decoded.Href != "https://example.com/" {
+		t.Errorf("Expected href 'https://example.com/', got %s", decoded.Href)
+	}
+	if decoded.Label != "Home" {
+		t.Errorf("Expected label 'Home', got %s", decoded.Label)
+	}
+}
+
+// TestLinkInfoOmitsEmptyID tests that LinkInfo omits empty ID when serializing.
+func TestLinkInfoOmitsEmptyID(t *testing.T) {
+	link := LinkInfo{
+		Href:  "https://example.com/",
+		Label: "Home",
+	}
+
+	jsonBytes, err := json.Marshal(link)
+	if err != nil {
+		t.Fatalf("Failed to marshal LinkInfo: %v", err)
+	}
+
+	jsonStr := string(jsonBytes)
+	if strings.Contains(jsonStr, `"id"`) {
+		t.Error("Empty ID should be omitted from JSON")
+	}
+}

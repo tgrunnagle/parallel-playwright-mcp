@@ -31,8 +31,7 @@
       "Bash(echo:*)",
       "Bash(grep:*)",
       "Bash(curl:*)",
-      "Bash(find:*)",
-
+      "Bash(find:*)"
     ]
   }
 }
