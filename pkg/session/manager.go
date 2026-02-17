@@ -257,7 +257,11 @@ func (m *manager) CloseSession(ctx context.Context, mcpSessionID, browserSession
 
 	// Close all pages in the session
 	for _, page := range session.Pages {
-		_ = page.Close() // Log but continue - we still want to close the context
+		err := page.Close()
+		if err != nil {
+			// Log but continue - we still want to close the context
+			slog.Error("failed to close page", "sessionID", browserSessionID, "error", err)
+		}
 	}
 
 	// Close the browser context
