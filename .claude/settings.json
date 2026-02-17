@@ -1,6 +1,8 @@
 {
   "permissions": {
     "allow": [
+      "Bash(task:*)",
+
       "Bash(gh --version)",
       "Bash(gh auth status)",
       "Bash(gh api:*)",
@@ -12,14 +14,25 @@
       "Bash(gh project item-list:*)",
       "Bash(gh project field-list:*)",
       "Bash(gh extension list)",
+      "Bash(gh sub-issue:*)",
+
+      "Bash(go build:*)",
+      "Bash(go vet:*)",
+      "Bash(go doc:*)",
+      "Bash(go test:*)",
+      "Bash(go mod verify:*)",
+      "Bash(golangci-lint run:*)",
+
+      "Bash(docker ps:*)",
+      "Bash(docker exec:*)",
+
       "Bash(cat:*)",
       "Bash(ls:*)",
       "Bash(echo:*)",
       "Bash(grep:*)",
       "Bash(curl:*)",
       "Bash(find:*)",
-      "Bash(gh sub-issue:*)",
-      "Bash(task:*)"
+
     ]
   }
 }

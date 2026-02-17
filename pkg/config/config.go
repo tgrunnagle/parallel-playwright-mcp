@@ -43,11 +43,12 @@ var (
 
 // Config represents the complete server configuration.
 type Config struct {
-	Server  ServerConfig  `yaml:"server"`
-	Browser BrowserConfig `yaml:"browser"`
-	Session SessionConfig `yaml:"session"`
-	Logging LoggingConfig `yaml:"logging"`
-	Retry   RetrySettings `yaml:"retry"`
+	Server       ServerConfig  `yaml:"server"`
+	Browser      BrowserConfig `yaml:"browser"`
+	Session      SessionConfig `yaml:"session"`
+	Logging      LoggingConfig `yaml:"logging"`
+	Retry        RetrySettings `yaml:"retry"`
+	EnabledTools []string      `yaml:"enabled_tools"`
 }
 
 // ServerConfig contains HTTP server settings.
@@ -325,6 +326,17 @@ func (c *Config) applyEnvironmentOverrides() []error {
 		}
 	}
 
+	if enabledTools := os.Getenv("MCP_ENABLED_TOOLS"); enabledTools != "" {
+		var parsed []string
+		for _, name := range strings.Split(enabledTools, ",") {
+			name = strings.TrimSpace(name)
+			if name != "" {
+				parsed = append(parsed, name)
+			}
+		}
+		c.EnabledTools = parsed
+	}
+
 	return errs
 }
 
@@ -421,6 +433,13 @@ func (c *Config) Validate() []error {
 	}
 	if c.Session.Timeout.ScriptMs <= 0 {
 		errs = append(errs, fmt.Errorf("invalid timeout script %dms: must be positive", c.Session.Timeout.ScriptMs))
+	}
+
+	// Validate enabled_tools
+	for _, name := range c.EnabledTools {
+		if !isValidValue(name, tools.AllToolNames) {
+			errs = append(errs, fmt.Errorf("invalid enabled tool %q: must be one of %v", name, tools.AllToolNames))
+		}
 	}
 
 	return errs
