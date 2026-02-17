@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-build:
+    uses: ./.github/workflows/lint-build.yml
+
+  test-unit:
+    uses: ./.github/workflows/test-unit.yml
+
+  test-integration:
+    uses: ./.github/workflows/test-integration.yml
+
+  test-e2e:
+    uses: ./.github/workflows/test-e2e.yml
+
+  image-build:
+    uses: ./.github/workflows/image-build.yml
+
+  security-scan:
+    uses: ./.github/workflows/security-scan.yml
