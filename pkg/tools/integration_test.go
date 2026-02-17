@@ -34,6 +34,166 @@ func startTestHTTPServer(t *testing.T) *httptest.Server {
 		w.Header().Set("Content-Type", "text/html")
 		fmt.Fprint(w, `<html><body><nav><a href="#">Home</a></nav><main><h1>Title</h1><button aria-label="Submit Form">Submit</button></main></body></html>`)
 	})
+	mux.HandleFunc("/a11y-semantic", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<!DOCTYPE html><html><body>
+			<nav aria-label="Main Navigation"><a href="/home">Home</a><a href="/about">About</a></nav>
+			<main>
+				<h1>Page Title</h1>
+				<h2>Section</h2>
+				<article><p>Article content</p></article>
+				<aside>Sidebar</aside>
+			</main>
+			<footer>Footer content</footer>
+		</body></html>`)
+	})
+	mux.HandleFunc("/a11y-forms", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<!DOCTYPE html><html><body>
+			<form>
+				<label for="name">Name</label>
+				<input id="name" type="text" />
+				<label for="email">Email</label>
+				<input id="email" type="email" />
+				<input type="checkbox" id="agree" aria-label="I agree to terms" />
+				<select id="role" aria-label="Select role">
+					<option>Admin</option>
+					<option>User</option>
+				</select>
+				<textarea id="bio" aria-label="Biography"></textarea>
+				<button type="submit" aria-expanded="false">Submit</button>
+			</form>
+		</body></html>`)
+	})
+	mux.HandleFunc("/a11y-hidden", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<!DOCTYPE html><html><body>
+			<div>
+				<p>Visible text</p>
+				<p style="display:none">Hidden text</p>
+				<p style="visibility:hidden">Invisible text</p>
+				<button>Visible Button</button>
+				<button style="display:none">Hidden Button</button>
+				<button style="visibility:hidden">Invisible Button</button>
+			</div>
+		</body></html>`)
+	})
+	mux.HandleFunc("/a11y-headings", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<!DOCTYPE html><html><body>
+			<h1>Level 1</h1>
+			<h2>Level 2</h2>
+			<h3>Level 3</h3>
+			<h4>Level 4</h4>
+		</body></html>`)
+	})
+	mux.HandleFunc("/a11y-lists", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<!DOCTYPE html><html><body>
+			<ul>
+				<li>Apple</li>
+				<li>Banana</li>
+			</ul>
+			<ol>
+				<li>First</li>
+				<li>Second</li>
+			</ol>
+		</body></html>`)
+	})
+	mux.HandleFunc("/a11y-labelledby", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<!DOCTYPE html><html><body>
+			<h2 id="section-title">Settings</h2>
+			<section aria-labelledby="section-title" role="region">
+				<p>Configuration options</p>
+			</section>
+		</body></html>`)
+	})
+	mux.HandleFunc("/md-headings", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<!DOCTYPE html><html><body>
+			<h1>Main Title</h1>
+			<h2>Subtitle</h2>
+			<h3>Section</h3>
+			<p>Body text</p>
+		</body></html>`)
+	})
+	mux.HandleFunc("/md-links", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<!DOCTYPE html><html><body>
+			<p>Visit <a href="https://example.com">Example Site</a> for more info.</p>
+		</body></html>`)
+	})
+	mux.HandleFunc("/md-lists", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<!DOCTYPE html><html><body>
+			<ul>
+				<li>Apple</li>
+				<li>Banana</li>
+				<li>Cherry</li>
+			</ul>
+			<ol>
+				<li>First</li>
+				<li>Second</li>
+				<li>Third</li>
+			</ol>
+		</body></html>`)
+	})
+	mux.HandleFunc("/md-formatting", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<!DOCTYPE html><html><body>
+			<p>This is <strong>bold text</strong> and <em>italic text</em>.</p>
+		</body></html>`)
+	})
+	mux.HandleFunc("/md-table", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<!DOCTYPE html><html><body>
+			<table>
+				<thead><tr><th>Name</th><th>Age</th></tr></thead>
+				<tbody>
+					<tr><td>Alice</td><td>30</td></tr>
+					<tr><td>Bob</td><td>25</td></tr>
+				</tbody>
+			</table>
+		</body></html>`)
+	})
+	mux.HandleFunc("/md-hidden", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<!DOCTYPE html><html><body>
+			<p>Visible paragraph</p>
+			<p style="display:none">Hidden paragraph</p>
+			<p style="visibility:hidden">Invisible paragraph</p>
+			<script>var x = "script content";</script>
+			<style>.foo { color: red; }</style>
+			<p>Another visible paragraph</p>
+		</body></html>`)
+	})
+	mux.HandleFunc("/md-code", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<!DOCTYPE html><html><body>
+			<p>Use <code>fmt.Println</code> to print.</p>
+			<pre><code>func main() {
+	fmt.Println("hello")
+}</code></pre>
+		</body></html>`)
+	})
+	mux.HandleFunc("/md-blockquote", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<!DOCTYPE html><html><body>
+			<blockquote>This is a quoted passage from a famous author.</blockquote>
+		</body></html>`)
+	})
+	mux.HandleFunc("/md-scoped", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<!DOCTYPE html><html><body>
+			<header><h1>Page Header</h1></header>
+			<main id="content">
+				<h2>Main Content</h2>
+				<p>Important text</p>
+			</main>
+			<footer>Footer text</footer>
+		</body></html>`)
+	})
 	ts := httptest.NewServer(mux)
 	t.Cleanup(ts.Close)
 	return ts
@@ -3189,6 +3349,417 @@ func TestTimeoutBehaviorIntegration(t *testing.T) {
 		// Should not hang - should complete within reasonable time
 		if elapsed > 30*time.Second {
 			t.Errorf("Navigation timeout not working: took %v (expected < 30s)", elapsed)
+		}
+	})
+}
+
+// TestAccessibilityTreeSemanticRolesIntegration exercises accessibilityTreeJS
+// with diverse HTML structures to verify semantic role mapping, ARIA attribute
+// extraction, heading levels, form controls, and hidden element exclusion.
+func TestAccessibilityTreeSemanticRolesIntegration(t *testing.T) {
+	pool, mgr := setupPoolAndManager(t)
+	defer pool.Stop(context.Background())
+
+	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
+	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
+	accessibilityHandler := GetAccessibilityTreeHandler(mgr, DefaultTimeoutConfig())
+	ctx := context.Background()
+	ts := startTestHTTPServer(t)
+
+	// Create a session
+	createReq := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "session_create",
+			Arguments: map[string]any{},
+		},
+	}
+	createResult, err := createHandler(ctx, createReq)
+	if err != nil {
+		t.Fatalf("Create handler returned error: %v", err)
+	}
+	if createResult.IsError {
+		skipIfPlaywrightNotInstalled(t, extractErrorFromResult(createResult))
+		t.Fatalf("Create failed: %s", extractTextContent(createResult.Content))
+	}
+	sessionID := strings.TrimPrefix(extractTextContent(createResult.Content), "Created session: ")
+	defer mgr.CloseSession(ctx, "", sessionID)
+
+	// navigateAndGetTree is a helper that navigates to a URL and returns
+	// the accessibility tree JSON string.
+	navigateAndGetTree := func(t *testing.T, url string) string {
+		t.Helper()
+		navReq := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "navigate",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"url":       url,
+				},
+			},
+		}
+		navigateHandler(ctx, navReq)
+
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "get_accessibility_tree",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+				},
+			},
+		}
+		result, err := accessibilityHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+		return extractTextContent(result.Content)
+	}
+
+	t.Run("semantic HTML roles", func(t *testing.T) {
+		text := navigateAndGetTree(t, ts.URL+"/a11y-semantic")
+
+		// Verify valid JSON
+		var tree map[string]interface{}
+		if err := json.Unmarshal([]byte(text), &tree); err != nil {
+			t.Fatalf("Failed to parse accessibility tree: %v\nRaw: %s", err, text)
+		}
+
+		// Check for semantic roles mapped from HTML elements
+		for _, role := range []string{"navigation", "main", "heading", "link", "article", "complementary", "contentinfo"} {
+			if !strings.Contains(text, `"`+role+`"`) {
+				t.Errorf("Expected role '%s' in accessibility tree", role)
+			}
+		}
+
+		// Check accessible names
+		if !strings.Contains(text, "Main Navigation") {
+			t.Error("Expected aria-label 'Main Navigation' in tree")
+		}
+		if !strings.Contains(text, "Home") {
+			t.Error("Expected link name 'Home' in tree")
+		}
+		if !strings.Contains(text, "Page Title") {
+			t.Error("Expected heading name 'Page Title' in tree")
+		}
+	})
+
+	t.Run("form controls and ARIA attributes", func(t *testing.T) {
+		text := navigateAndGetTree(t, ts.URL+"/a11y-forms")
+
+		// Check form-related roles
+		for _, role := range []string{"form", "textbox", "checkbox", "combobox", "button"} {
+			if !strings.Contains(text, `"`+role+`"`) {
+				t.Errorf("Expected role '%s' in accessibility tree", role)
+			}
+		}
+
+		// Check ARIA attributes resolve to accessible names
+		if !strings.Contains(text, "I agree to terms") {
+			t.Error("Expected aria-label 'I agree to terms'")
+		}
+		if !strings.Contains(text, "Select role") {
+			t.Error("Expected aria-label 'Select role'")
+		}
+		// Check aria-expanded property
+		if !strings.Contains(text, `"expanded"`) {
+			t.Error("Expected 'expanded' property for button with aria-expanded")
+		}
+	})
+
+	t.Run("hidden elements excluded from tree nodes", func(t *testing.T) {
+		text := navigateAndGetTree(t, ts.URL+"/a11y-hidden")
+
+		if !strings.Contains(text, "Visible Button") {
+			t.Error("Expected 'Visible Button' in tree")
+		}
+
+		// Only the visible button should appear as a "button" role node.
+		// Hidden (display:none) and invisible (visibility:hidden) buttons
+		// should be excluded from the tree as child nodes.
+		buttonCount := strings.Count(text, `"button"`)
+		if buttonCount != 1 {
+			t.Errorf("Expected exactly 1 button role (visible only), found %d\nTree: %s", buttonCount, text)
+		}
+	})
+
+	t.Run("heading levels", func(t *testing.T) {
+		text := navigateAndGetTree(t, ts.URL+"/a11y-headings")
+
+		// All headings should have "heading" role
+		headingCount := strings.Count(text, `"heading"`)
+		if headingCount < 4 {
+			t.Errorf("Expected at least 4 heading roles, found %d", headingCount)
+		}
+
+		// Check that level properties are captured (json.Marshal may or may not add spaces)
+		for _, level := range []int{1, 2, 3, 4} {
+			levelStr := fmt.Sprintf(`"level":%d`, level)
+			levelStrSpaced := fmt.Sprintf(`"level": %d`, level)
+			if !strings.Contains(text, levelStr) && !strings.Contains(text, levelStrSpaced) {
+				t.Errorf("Expected level %d for h%d heading", level, level)
+			}
+		}
+	})
+
+	t.Run("lists and list items", func(t *testing.T) {
+		text := navigateAndGetTree(t, ts.URL+"/a11y-lists")
+
+		if !strings.Contains(text, `"list"`) {
+			t.Error("Expected 'list' role in tree")
+		}
+		if !strings.Contains(text, `"listitem"`) {
+			t.Error("Expected 'listitem' role in tree")
+		}
+		if !strings.Contains(text, "Apple") {
+			t.Error("Expected 'Apple' in tree")
+		}
+		if !strings.Contains(text, "First") {
+			t.Error("Expected 'First' in tree")
+		}
+	})
+
+	t.Run("aria-labelledby resolves to referenced element text", func(t *testing.T) {
+		text := navigateAndGetTree(t, ts.URL+"/a11y-labelledby")
+
+		// The section with aria-labelledby should resolve to "Settings"
+		if !strings.Contains(text, "Settings") {
+			t.Error("Expected 'Settings' as name from aria-labelledby")
+		}
+		if !strings.Contains(text, `"region"`) {
+			t.Error("Expected 'region' role for section with explicit role")
+		}
+	})
+
+	t.Run("tree has children structure", func(t *testing.T) {
+		text := navigateAndGetTree(t, ts.URL+"/a11y-semantic")
+
+		var tree map[string]interface{}
+		if err := json.Unmarshal([]byte(text), &tree); err != nil {
+			t.Fatalf("Failed to parse: %v", err)
+		}
+
+		// Root should have children
+		children, ok := tree["children"].([]interface{})
+		if !ok || len(children) == 0 {
+			t.Fatal("Expected root node to have children")
+		}
+
+		// At least one child should also have children (nav or main)
+		foundNested := false
+		for _, child := range children {
+			if childMap, ok := child.(map[string]interface{}); ok {
+				if _, hasChildren := childMap["children"]; hasChildren {
+					foundNested = true
+					break
+				}
+			}
+		}
+		if !foundNested {
+			t.Error("Expected nested tree structure with multiple levels of children")
+		}
+	})
+
+	t.Run("input type mapping", func(t *testing.T) {
+		text := navigateAndGetTree(t, ts.URL+"/a11y-forms")
+
+		var tree map[string]interface{}
+		if err := json.Unmarshal([]byte(text), &tree); err != nil {
+			t.Fatalf("Failed to parse: %v", err)
+		}
+
+		// Count textbox roles (should have at least 3: text input, email input, textarea)
+		textboxCount := strings.Count(text, `"textbox"`)
+		if textboxCount < 3 {
+			t.Errorf("Expected at least 3 textbox roles (text, email, textarea), found %d", textboxCount)
+		}
+	})
+}
+
+// TestNavigateAndExtractTextMarkdownIntegration exercises extractTextAsMarkdownJS
+// to verify that navigate_and_extract_text returns clean markdown output for
+// headings, links, lists, formatting, tables, code blocks, blockquotes, and
+// that it excludes hidden elements and script/style content.
+func TestNavigateAndExtractTextMarkdownIntegration(t *testing.T) {
+	pool, mgr := setupPoolAndManager(t)
+	defer pool.Stop(context.Background())
+
+	handler := NavigateAndExtractTextHandler(mgr, DefaultTimeoutConfig())
+	ctx := context.Background()
+	ts := startTestHTTPServer(t)
+
+	// extractMarkdown is a helper that calls navigate_and_extract_text and
+	// returns the resulting markdown text.
+	extractMarkdown := func(t *testing.T, args map[string]any) string {
+		t.Helper()
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name:      "navigate_and_extract_text",
+				Arguments: args,
+			},
+		}
+		result, err := handler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+		if result.IsError {
+			skipIfPlaywrightNotInstalled(t, extractErrorFromResult(result))
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+		return extractTextContent(result.Content)
+	}
+
+	t.Run("headings render as markdown", func(t *testing.T) {
+		text := extractMarkdown(t, map[string]any{"url": ts.URL + "/md-headings"})
+
+		if !strings.Contains(text, "# Main Title") {
+			t.Errorf("Expected '# Main Title' in output, got:\n%s", text)
+		}
+		if !strings.Contains(text, "## Subtitle") {
+			t.Errorf("Expected '## Subtitle' in output, got:\n%s", text)
+		}
+		if !strings.Contains(text, "### Section") {
+			t.Errorf("Expected '### Section' in output, got:\n%s", text)
+		}
+		if !strings.Contains(text, "Body text") {
+			t.Errorf("Expected 'Body text' in output, got:\n%s", text)
+		}
+		// Should NOT contain JSON structure
+		if strings.Contains(text, `"tag"`) || strings.Contains(text, `"children"`) {
+			t.Error("Output should be markdown, not JSON")
+		}
+	})
+
+	t.Run("links render as markdown", func(t *testing.T) {
+		text := extractMarkdown(t, map[string]any{"url": ts.URL + "/md-links"})
+
+		if !strings.Contains(text, "[Example Site](https://example.com)") {
+			t.Errorf("Expected markdown link in output, got:\n%s", text)
+		}
+	})
+
+	t.Run("unordered and ordered lists", func(t *testing.T) {
+		text := extractMarkdown(t, map[string]any{"url": ts.URL + "/md-lists"})
+
+		// Unordered list
+		if !strings.Contains(text, "- Apple") {
+			t.Errorf("Expected '- Apple' in output, got:\n%s", text)
+		}
+		if !strings.Contains(text, "- Banana") {
+			t.Errorf("Expected '- Banana' in output, got:\n%s", text)
+		}
+		if !strings.Contains(text, "- Cherry") {
+			t.Errorf("Expected '- Cherry' in output, got:\n%s", text)
+		}
+		// Ordered list
+		if !strings.Contains(text, "1. First") {
+			t.Errorf("Expected '1. First' in output, got:\n%s", text)
+		}
+		if !strings.Contains(text, "2. Second") {
+			t.Errorf("Expected '2. Second' in output, got:\n%s", text)
+		}
+		if !strings.Contains(text, "3. Third") {
+			t.Errorf("Expected '3. Third' in output, got:\n%s", text)
+		}
+	})
+
+	t.Run("bold and italic formatting", func(t *testing.T) {
+		text := extractMarkdown(t, map[string]any{"url": ts.URL + "/md-formatting"})
+
+		if !strings.Contains(text, "**bold text**") {
+			t.Errorf("Expected **bold text** in output, got:\n%s", text)
+		}
+		if !strings.Contains(text, "*italic text*") {
+			t.Errorf("Expected *italic text* in output, got:\n%s", text)
+		}
+	})
+
+	t.Run("tables render as pipe-delimited markdown", func(t *testing.T) {
+		text := extractMarkdown(t, map[string]any{"url": ts.URL + "/md-table"})
+
+		if !strings.Contains(text, "| Name | Age |") {
+			t.Errorf("Expected table header row in output, got:\n%s", text)
+		}
+		if !strings.Contains(text, "| --- | --- |") {
+			t.Errorf("Expected table separator in output, got:\n%s", text)
+		}
+		if !strings.Contains(text, "| Alice | 30 |") {
+			t.Errorf("Expected table data row in output, got:\n%s", text)
+		}
+		if !strings.Contains(text, "| Bob | 25 |") {
+			t.Errorf("Expected table data row in output, got:\n%s", text)
+		}
+	})
+
+	t.Run("hidden elements and script/style excluded", func(t *testing.T) {
+		text := extractMarkdown(t, map[string]any{"url": ts.URL + "/md-hidden"})
+
+		if !strings.Contains(text, "Visible paragraph") {
+			t.Errorf("Expected 'Visible paragraph', got:\n%s", text)
+		}
+		if !strings.Contains(text, "Another visible paragraph") {
+			t.Errorf("Expected 'Another visible paragraph', got:\n%s", text)
+		}
+		if strings.Contains(text, "Hidden paragraph") {
+			t.Error("Hidden paragraph (display:none) should not appear in output")
+		}
+		if strings.Contains(text, "Invisible paragraph") {
+			t.Error("Invisible paragraph (visibility:hidden) should not appear in output")
+		}
+		if strings.Contains(text, "script content") {
+			t.Error("Script content should not appear in output")
+		}
+		if strings.Contains(text, "color: red") {
+			t.Error("Style content should not appear in output")
+		}
+	})
+
+	t.Run("inline and fenced code blocks", func(t *testing.T) {
+		text := extractMarkdown(t, map[string]any{"url": ts.URL + "/md-code"})
+
+		// Inline code should be wrapped in backticks
+		if !strings.Contains(text, "`fmt.Println`") {
+			t.Errorf("Expected inline code with backticks, got:\n%s", text)
+		}
+		// Pre/code block content should be present
+		if !strings.Contains(text, "func main()") {
+			t.Errorf("Expected code block content, got:\n%s", text)
+		}
+		if !strings.Contains(text, "```") {
+			t.Errorf("Expected fenced code block markers, got:\n%s", text)
+		}
+	})
+
+	t.Run("blockquotes", func(t *testing.T) {
+		text := extractMarkdown(t, map[string]any{"url": ts.URL + "/md-blockquote"})
+
+		if !strings.Contains(text, "> ") {
+			t.Errorf("Expected blockquote with '> ' prefix, got:\n%s", text)
+		}
+		if !strings.Contains(text, "famous author") {
+			t.Errorf("Expected blockquote content, got:\n%s", text)
+		}
+	})
+
+	t.Run("selector limits extraction scope", func(t *testing.T) {
+		text := extractMarkdown(t, map[string]any{
+			"url":      ts.URL + "/md-scoped",
+			"selector": "#content",
+		})
+
+		if !strings.Contains(text, "Main Content") {
+			t.Errorf("Expected 'Main Content' in scoped output, got:\n%s", text)
+		}
+		if !strings.Contains(text, "Important text") {
+			t.Errorf("Expected 'Important text' in scoped output, got:\n%s", text)
+		}
+		// Content outside selector should not appear
+		if strings.Contains(text, "Page Header") {
+			t.Error("Content outside selector (#content) should not appear")
+		}
+		if strings.Contains(text, "Footer text") {
+			t.Error("Content outside selector (#content) should not appear")
 		}
 	})
 }
