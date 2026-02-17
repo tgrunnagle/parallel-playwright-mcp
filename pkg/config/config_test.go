@@ -858,6 +858,148 @@ func TestRetrySettings_ToRetryConfig(t *testing.T) {
 	}
 }
 
+func TestLoadWithDefaults_EnabledToolsEmpty(t *testing.T) {
+	cfg := LoadWithDefaults()
+	if len(cfg.EnabledTools) != 0 {
+		t.Errorf("default EnabledTools length = %d, want 0 (all tools enabled)", len(cfg.EnabledTools))
+	}
+}
+
+func TestValidateEnabledTools(t *testing.T) {
+	tests := []struct {
+		name         string
+		enabledTools []string
+		wantErr      bool
+	}{
+		{
+			name:         "empty list valid (all enabled)",
+			enabledTools: nil,
+			wantErr:      false,
+		},
+		{
+			name:         "single valid tool",
+			enabledTools: []string{"navigate"},
+			wantErr:      false,
+		},
+		{
+			name:         "multiple valid tools",
+			enabledTools: []string{"session_create", "navigate", "click", "screenshot"},
+			wantErr:      false,
+		},
+		{
+			name:         "invalid tool name",
+			enabledTools: []string{"nonexistent_tool"},
+			wantErr:      true,
+		},
+		{
+			name:         "mix of valid and invalid",
+			enabledTools: []string{"navigate", "invalid_tool"},
+			wantErr:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := LoadWithDefaults()
+			cfg.EnabledTools = tt.enabledTools
+			errs := cfg.Validate()
+
+			hasErr := len(errs) > 0
+			if hasErr != tt.wantErr {
+				t.Errorf("Validate(): hasErr = %v, wantErr = %v, errs = %v", hasErr, tt.wantErr, errs)
+			}
+		})
+	}
+}
+
+func TestLoadValidYAMLWithEnabledTools(t *testing.T) {
+	yamlContent := `
+enabled_tools:
+  - navigate
+  - click
+  - session_create
+`
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("Failed to write temp config: %v", err)
+	}
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if len(cfg.EnabledTools) != 3 {
+		t.Fatalf("EnabledTools length = %d, want 3", len(cfg.EnabledTools))
+	}
+	expected := []string{"navigate", "click", "session_create"}
+	for i, name := range expected {
+		if cfg.EnabledTools[i] != name {
+			t.Errorf("EnabledTools[%d] = %q, want %q", i, cfg.EnabledTools[i], name)
+		}
+	}
+}
+
+func TestEnabledToolsEnvOverridesYAML(t *testing.T) {
+	yamlContent := `
+enabled_tools:
+  - navigate
+  - click
+`
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("Failed to write temp config: %v", err)
+	}
+
+	t.Setenv("MCP_ENABLED_TOOLS", "session_create,screenshot")
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	// Env var should take precedence over YAML
+	if len(cfg.EnabledTools) != 2 {
+		t.Fatalf("EnabledTools length = %d, want 2", len(cfg.EnabledTools))
+	}
+	expected := []string{"session_create", "screenshot"}
+	for i, name := range expected {
+		if cfg.EnabledTools[i] != name {
+			t.Errorf("EnabledTools[%d] = %q, want %q", i, cfg.EnabledTools[i], name)
+		}
+	}
+}
+
+func TestEnabledToolsEnvWithSpaces(t *testing.T) {
+	t.Setenv("MCP_ENABLED_TOOLS", " navigate , click , screenshot ")
+
+	cfg, err := Load("/nonexistent/path/config.yaml")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if len(cfg.EnabledTools) != 3 {
+		t.Fatalf("EnabledTools length = %d, want 3", len(cfg.EnabledTools))
+	}
+	expected := []string{"navigate", "click", "screenshot"}
+	for i, name := range expected {
+		if cfg.EnabledTools[i] != name {
+			t.Errorf("EnabledTools[%d] = %q, want %q", i, cfg.EnabledTools[i], name)
+		}
+	}
+}
+
+func TestEnabledToolsEnvInvalidToolReturnsError(t *testing.T) {
+	t.Setenv("MCP_ENABLED_TOOLS", "navigate,invalid_tool")
+
+	_, err := Load("/nonexistent/path/config.yaml")
+	if err == nil {
+		t.Error("Load() expected error for invalid tool name in MCP_ENABLED_TOOLS, got nil")
+	}
+}
+
 func TestLoadWithDefaults_RetryableErrors(t *testing.T) {
 	cfg := LoadWithDefaults()
 
