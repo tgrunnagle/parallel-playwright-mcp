@@ -402,6 +402,123 @@ const extractTextJS = `(selector) => {
 	return extractNode(element);
 }`
 
+// extractTextAsMarkdownJS is the JavaScript code that extracts visible text from the DOM
+// and formats it as markdown. Used by navigate_and_extract_text for a cleaner, more
+// readable output compared to the hierarchical JSON structure.
+const extractTextAsMarkdownJS = `(selector) => {
+	const BT = String.fromCharCode(96);
+	const SKIP = new Set(['script','style','noscript','svg','template','iframe','meta','link']);
+
+	function md(node) {
+		if (node.nodeType === Node.TEXT_NODE) {
+			return node.textContent.replace(/[ \t]+/g, ' ');
+		}
+		if (node.nodeType !== Node.ELEMENT_NODE) return '';
+
+		const tag = node.tagName.toLowerCase();
+		if (SKIP.has(tag)) return '';
+
+		try {
+			const style = window.getComputedStyle(node);
+			if (style.display === 'none' || style.visibility === 'hidden') return '';
+		} catch(e) {}
+
+		const inner = () => Array.from(node.childNodes).map(md).join('');
+
+		switch(tag) {
+		case 'h1': case 'h2': case 'h3': case 'h4': case 'h5': case 'h6': {
+			const t = node.textContent.trim();
+			return t ? '\n\n' + '#'.repeat(+tag[1]) + ' ' + t + '\n\n' : '';
+		}
+		case 'p': {
+			const t = inner().trim();
+			return t ? '\n\n' + t + '\n\n' : '';
+		}
+		case 'br': return '\n';
+		case 'hr': return '\n\n---\n\n';
+		case 'strong': case 'b': {
+			const t = inner().trim();
+			return t ? '**' + t + '**' : '';
+		}
+		case 'em': case 'i': {
+			const t = inner().trim();
+			return t ? '*' + t + '*' : '';
+		}
+		case 'a': {
+			const t = inner().trim();
+			const href = node.getAttribute('href') || '';
+			return t && href ? '[' + t + '](' + href + ')' : (t || '');
+		}
+		case 'img': {
+			const alt = node.alt || node.getAttribute('aria-label') || '';
+			return alt ? '![' + alt + ']' : '';
+		}
+		case 'code': {
+			if (node.parentElement && node.parentElement.tagName.toLowerCase() === 'pre') {
+				return node.textContent;
+			}
+			const t = node.textContent;
+			return t ? BT + t + BT : '';
+		}
+		case 'pre': {
+			const t = node.textContent;
+			return t ? '\n\n' + BT.repeat(3) + '\n' + t + '\n' + BT.repeat(3) + '\n\n' : '';
+		}
+		case 'blockquote': {
+			const t = inner().trim();
+			return t ? '\n\n' + t.split('\n').map(l => '> ' + l).join('\n') + '\n\n' : '';
+		}
+		case 'ul': case 'ol':
+			return '\n\n' + inner() + '\n';
+		case 'li': {
+			const parent = node.parentElement;
+			const ordered = parent && parent.tagName.toLowerCase() === 'ol';
+			const t = inner().trim();
+			if (!t) return '';
+			if (ordered) {
+				const idx = Array.from(parent.children).filter(c => c.tagName === 'LI').indexOf(node) + 1;
+				return idx + '. ' + t + '\n';
+			}
+			return '- ' + t + '\n';
+		}
+		case 'table': {
+			const rows = Array.from(node.querySelectorAll('tr'));
+			if (!rows.length) return '';
+			let out = '\n\n';
+			let headerDone = false;
+			for (const row of rows) {
+				const cells = Array.from(row.querySelectorAll('th, td'));
+				out += '| ' + cells.map(c => c.textContent.trim().replace(/\|/g, '\\|')).join(' | ') + ' |\n';
+				if (!headerDone) {
+					out += '| ' + cells.map(() => '---').join(' | ') + ' |\n';
+					headerDone = true;
+				}
+			}
+			return out + '\n';
+		}
+		case 'thead': case 'tbody': case 'tfoot': case 'tr': case 'th': case 'td':
+			return '';
+		default: {
+			const content = inner();
+			try {
+				const display = window.getComputedStyle(node).display;
+				if (display === 'block' || display === 'flex' || display === 'grid') {
+					return '\n' + content + '\n';
+				}
+			} catch(e) {}
+			return content;
+		}
+		}
+	}
+
+	const el = document.querySelector(selector);
+	if (!el) return null;
+
+	let text = md(el);
+	text = text.replace(/\n{3,}/g, '\n\n').trim();
+	return text;
+}`
+
 // GetHTMLTool returns the get_html MCP tool definition.
 func GetHTMLTool() mcp.Tool {
 	return mcp.NewTool("get_html",
@@ -1019,7 +1136,7 @@ func GetLinksTool() mcp.Tool {
 		),
 		mcp.WithString("waitUntil",
 			mcp.Enum("load", "domcontentloaded", "networkidle"),
-			mcp.Description("Wait condition for navigation"),
+			mcp.Description("Wait condition for navigation (default: load)"),
 		),
 		mcp.WithNumber("timeout",
 			mcp.Description("Navigation timeout in milliseconds"),
@@ -1106,13 +1223,13 @@ const getLinksJS = `() => {
 // NavigateAndExtractTextTool returns the navigate_and_extract_text MCP tool definition.
 func NavigateAndExtractTextTool() mcp.Tool {
 	return mcp.NewTool("navigate_and_extract_text",
-		mcp.WithDescription("Navigate to URL and extract text (creates temporary session)"),
+		mcp.WithDescription("Navigate to URL and extract visible text as markdown (creates temporary session)"),
 		mcp.WithString("url",
 			mcp.Required(),
 			mcp.Description("URL to navigate to"),
 		),
 		mcp.WithString("waitUntil",
-			mcp.Description("Wait condition: load, domcontentloaded, networkidle"),
+			mcp.Description("Wait condition: load (default), domcontentloaded, networkidle"),
 			mcp.Enum("load", "domcontentloaded", "networkidle"),
 		),
 		mcp.WithString("selector",
@@ -1205,8 +1322,8 @@ func NavigateAndExtractTextHandler(mgr session.BrowserSessionManager, timeoutCon
 		// Get selector or default to body
 		selector := req.GetString("selector", "body")
 
-		// Execute JavaScript to extract hierarchical text structure
-		result, err := page.Evaluate(extractTextJS, selector)
+		// Execute JavaScript to extract visible text as markdown
+		result, err := page.Evaluate(extractTextAsMarkdownJS, selector)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to extract text: %v", err)), nil
 		}
@@ -1216,12 +1333,16 @@ func NavigateAndExtractTextHandler(mgr session.BrowserSessionManager, timeoutCon
 			return mcp.NewToolResultError(fmt.Sprintf("[%d] Element not found: %s", errors.CodeElementNotFound, selector)), nil
 		}
 
-		// Serialize result to JSON
-		jsonBytes, err := json.Marshal(result)
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to serialize text structure: %v", err)), nil
+		text, ok := result.(string)
+		if !ok {
+			return mcp.NewToolResultError("Failed to extract text: unexpected result type"), nil
 		}
 
-		return mcp.NewToolResultText(string(jsonBytes)), nil
+		text = strings.TrimSpace(text)
+		if text == "" {
+			return mcp.NewToolResultText("No visible text found on the page."), nil
+		}
+
+		return mcp.NewToolResultText(text), nil
 	}
 }

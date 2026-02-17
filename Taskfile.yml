@@ -99,6 +99,17 @@ tasks:
         {{if .MCP_CONFIG_PATH}}-v {{.MCP_CONFIG_PATH}}:/app/custom-config.yaml -e MCP_CONFIG_PATH=/app/custom-config.yaml{{end}}
         {{.DOCKER_IMAGE}}
 
+  docker:run:min-tools:
+    desc: Run the Docker container (override config with `task docker:run MCP_CONFIG_PATH=./custom.yaml`)
+    deps: [docker:build]
+    cmds:
+      - docker rm -f {{.DOCKER_IMAGE}} 2>/dev/null || true
+      - >-
+        docker run --rm -d -p 3000:3000 --name {{.DOCKER_IMAGE}}
+        -e MCP_ENABLED_TOOLS=navigate_and_extract_text
+        {{if .MCP_CONFIG_PATH}}-v {{.MCP_CONFIG_PATH}}:/app/custom-config.yaml -e MCP_CONFIG_PATH=/app/custom-config.yaml{{end}}
+        {{.DOCKER_IMAGE}}
+
   check:
     desc: Run all checks (lint, vet, test, build)
     cmds:
