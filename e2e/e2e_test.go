@@ -122,6 +122,13 @@ func TestListToolsReturnsRegisteredTools(t *testing.T) {
 		"press_key",
 		"get_console_logs",
 		"get_network_logs",
+		"screenshot",
+		"extract_text",
+		"get_html",
+		"evaluate",
+		"query_selector",
+		"get_accessibility_tree",
+		"navigate_and_extract_text",
 	}
 
 	toolNames := make(map[string]bool)

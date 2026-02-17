@@ -6,8 +6,14 @@ import "net/http"
 // like MCP Inspector to connect to the server.
 func CORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Allow requests from any origin (necessary for browser-based MCP clients)
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		// When credentials are allowed, the CORS spec requires a specific origin
+		// (not wildcard). Echo back the requesting origin, or use wildcard for
+		// non-credentialed requests with no Origin header.
+		if origin := r.Header.Get("Origin"); origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+		} else {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		}
 
 		// Allow common HTTP methods
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")

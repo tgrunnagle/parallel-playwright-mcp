@@ -561,8 +561,13 @@ func EvaluateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 		}
 
 		// Execute JavaScript expression with context deadline enforcement.
-		// page.Evaluate() doesn't accept a timeout option, so we run it in a
-		// goroutine and select on context cancellation.
+		// page.Evaluate() doesn't accept a timeout option in playwright-go, so
+		// we run it in a goroutine and select on context cancellation.
+		//
+		// Known limitation: when context is cancelled, the goroutine running
+		// page.Evaluate() continues until the Playwright operation completes or
+		// the browser context is closed. Under normal conditions Playwright's
+		// own default timeout (30s) bounds the goroutine lifetime.
 		type evalResult struct {
 			value interface{}
 			err   error
@@ -593,7 +598,8 @@ func EvaluateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 
 			return mcp.NewToolResultText(string(jsonBytes)), nil
 		case <-ctx.Done():
-			slog.Error("evaluate timed out", "tool", "evaluate", "sessionID", sessionID, "error", ctx.Err())
+			slog.Warn("evaluate returning due to context cancellation; Playwright goroutine still running",
+				"tool", "evaluate", "sessionID", sessionID, "error", ctx.Err())
 			return mcp.NewToolResultError(fmt.Sprintf("Script evaluation timed out: %v", ctx.Err())), nil
 		}
 	}
