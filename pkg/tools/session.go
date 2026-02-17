@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -50,6 +51,8 @@ func SessionCreateTool() mcp.Tool {
 // SessionCreateHandler returns the handler function for session_create.
 func SessionCreateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		slog.Debug("tool handler called", "tool", "session_create")
+
 		// Apply timeout with default category
 		args := req.GetArguments()
 		ctx, cancel := ApplyTimeout(ctx, args, TimeoutDefault, timeoutConfig)
@@ -76,6 +79,7 @@ func SessionCreateHandler(mgr session.BrowserSessionManager, timeoutConfig *Time
 			case "webkit":
 				opts.BrowserType = browser.BrowserWebKit
 			default:
+				slog.Error("invalid browser type", "tool", "session_create", "browserType", browserType)
 				return mcp.NewToolResultError(fmt.Sprintf("Invalid browserType: %s. Must be chromium, firefox, or webkit", browserType)), nil
 			}
 		}
@@ -96,12 +100,16 @@ func SessionCreateHandler(mgr session.BrowserSessionManager, timeoutConfig *Time
 			}
 		}
 
+		slog.Debug("creating session", "tool", "session_create", "mcpSessionID", mcpSessionID, "browserType", opts.BrowserType)
+
 		// Create the browser session
 		sess, err := mgr.CreateSession(ctx, mcpSessionID, opts)
 		if err != nil {
+			slog.Error("failed to create session", "tool", "session_create", "mcpSessionID", mcpSessionID, "error", err)
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to create session: %v", err)), nil
 		}
 
+		slog.Info("session created via tool", "tool", "session_create", "sessionID", sess.ID, "mcpSessionID", mcpSessionID)
 		return mcp.NewToolResultText(fmt.Sprintf("Created session: %s", sess.ID)), nil
 	}
 }
@@ -116,6 +124,8 @@ func SessionListTool() mcp.Tool {
 // SessionListHandler returns the handler function for session_list.
 func SessionListHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		slog.Debug("tool handler called", "tool", "session_list")
+
 		// Apply timeout with default category
 		args := req.GetArguments()
 		ctx, cancel := ApplyTimeout(ctx, args, TimeoutDefault, timeoutConfig)
@@ -127,9 +137,12 @@ func SessionListHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeou
 		// Get all sessions for this MCP connection
 		sessions := mgr.ListSessions(mcpSessionID)
 
+		slog.Debug("sessions listed", "tool", "session_list", "mcpSessionID", mcpSessionID, "count", len(sessions))
+
 		// Format response as JSON
 		response, err := formatSessionList(sessions)
 		if err != nil {
+			slog.Error("failed to format session list", "tool", "session_list", "error", err)
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to format session list: %v", err)), nil
 		}
 
@@ -151,6 +164,8 @@ func SessionCloseTool() mcp.Tool {
 // SessionCloseHandler returns the handler function for session_close.
 func SessionCloseHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		slog.Debug("tool handler called", "tool", "session_close")
+
 		// Apply timeout with default category
 		args := req.GetArguments()
 		ctx, cancel := ApplyTimeout(ctx, args, TimeoutDefault, timeoutConfig)
@@ -162,15 +177,20 @@ func SessionCloseHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeo
 		// Parse and validate sessionId argument
 		sessionID := req.GetString("sessionId", "")
 		if sessionID == "" {
+			slog.Error("missing required sessionId", "tool", "session_close")
 			return mcp.NewToolResultError("sessionId is required"), nil
 		}
 
+		slog.Debug("closing session via tool", "tool", "session_close", "sessionID", sessionID, "mcpSessionID", mcpSessionID)
+
 		// Close the session (manager handles ownership validation and cleanup)
 		if err := mgr.CloseSession(ctx, mcpSessionID, sessionID); err != nil {
+			slog.Error("failed to close session", "tool", "session_close", "sessionID", sessionID, "error", err)
 			// Return error with code and descriptive message
 			return mcp.NewToolResultError(fmt.Sprintf("[%d] Session not found: %s", errors.CodeSessionNotFound, sessionID)), nil
 		}
 
+		slog.Info("session closed via tool", "tool", "session_close", "sessionID", sessionID)
 		return mcp.NewToolResultText(fmt.Sprintf("Closed session: %s", sessionID)), nil
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"regexp"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -64,6 +65,8 @@ func GetNetworkLogsTool() mcp.Tool {
 // GetNetworkLogsHandler returns the handler function for get_network_logs.
 func GetNetworkLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		slog.Debug("tool handler called", "tool", "get_network_logs")
+
 		// Apply timeout with default category (log retrieval is a quick operation)
 		args := req.GetArguments()
 		ctx, cancel := ApplyTimeout(ctx, args, TimeoutDefault, timeoutConfig)
@@ -75,12 +78,14 @@ func GetNetworkLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *Tim
 		// Parse and validate sessionId argument
 		sessionID := req.GetString("sessionId", "")
 		if sessionID == "" {
+			slog.Error("missing required sessionId", "tool", "get_network_logs")
 			return mcp.NewToolResultError("sessionId is required"), nil
 		}
 
 		// Get session with ownership validation
 		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
 		if !ok {
+			slog.Error("session not found", "tool", "get_network_logs", "sessionID", sessionID)
 			return mcp.NewToolResultError(fmt.Sprintf("[%d] Session not found: %s", errors.CodeSessionNotFound, sessionID)), nil
 		}
 
@@ -120,6 +125,7 @@ func GetNetworkLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *Tim
 		if filterVal, ok := args["filter"].(map[string]any); ok && len(filterVal) > 0 {
 			filtered, err := applyNetworkFilters(entries, filterVal)
 			if err != nil {
+				slog.Error("invalid network log filter", "tool", "get_network_logs", "sessionID", sessionID, "error", err)
 				return mcp.NewToolResultError(fmt.Sprintf("Invalid filter: %v", err)), nil
 			}
 			entries = filtered
@@ -143,9 +149,11 @@ func GetNetworkLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *Tim
 		// Format as JSON
 		result, err := json.Marshal(output)
 		if err != nil {
+			slog.Error("failed to format network logs", "tool", "get_network_logs", "sessionID", sessionID, "error", err)
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to format logs: %v", err)), nil
 		}
 
+		slog.Debug("network logs retrieved", "tool", "get_network_logs", "sessionID", sessionID, "entryCount", len(output))
 		return mcp.NewToolResultText(string(result)), nil
 	}
 }

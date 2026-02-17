@@ -47,8 +47,6 @@ func TestServerStartsAndAcceptsConnections(t *testing.T) {
 	if result.ServerInfo.Name != "playwright-mcp" {
 		t.Errorf("expected server name 'playwright-mcp', got '%s'", result.ServerInfo.Name)
 	}
-
-	t.Logf("Connected to server: %s v%s", result.ServerInfo.Name, result.ServerInfo.Version)
 }
 
 // TestSessionListReturnsEmptyInitially verifies that a fresh server
@@ -80,8 +78,6 @@ func TestSessionListReturnsEmptyInitially(t *testing.T) {
 	if result.IsError {
 		t.Errorf("session_list returned error: %v", result.Content)
 	}
-
-	t.Logf("session_list result: %v", result.Content)
 }
 
 // TestListToolsReturnsRegisteredTools verifies that the server
@@ -126,6 +122,13 @@ func TestListToolsReturnsRegisteredTools(t *testing.T) {
 		"press_key",
 		"get_console_logs",
 		"get_network_logs",
+		"screenshot",
+		"extract_text",
+		"get_html",
+		"evaluate",
+		"query_selector",
+		"get_accessibility_tree",
+		"navigate_and_extract_text",
 	}
 
 	toolNames := make(map[string]bool)
@@ -138,8 +141,6 @@ func TestListToolsReturnsRegisteredTools(t *testing.T) {
 			t.Errorf("expected tool '%s' not found in tools list", expected)
 		}
 	}
-
-	t.Logf("Found %d tools", len(tools))
 }
 
 // TestCreateAndCloseSession verifies the basic session lifecycle:
@@ -165,7 +166,6 @@ func TestCreateAndCloseSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create session: %v", err)
 	}
-	t.Logf("Created session: %s", sessionID)
 
 	// Verify session exists in list
 	result, err := client.CallTool(ctx, "session_list", nil)
@@ -180,7 +180,6 @@ func TestCreateAndCloseSession(t *testing.T) {
 	if err := client.CloseSession(ctx, sessionID); err != nil {
 		t.Fatalf("failed to close session: %v", err)
 	}
-	t.Logf("Closed session: %s", sessionID)
 }
 
 // TestNavigateToPage verifies that we can create a session,
@@ -224,8 +223,6 @@ func TestNavigateToPage(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("navigation returned error: %v", result.Content)
 	}
-
-	t.Logf("Successfully navigated to data URL")
 }
 
 // TestMultipleSessionsCanCoexist verifies that multiple browser sessions
@@ -289,8 +286,6 @@ func TestMultipleSessionsCanCoexist(t *testing.T) {
 	if result2.IsError {
 		t.Fatalf("session 2 navigation error: %v", result2.Content)
 	}
-
-	t.Logf("Both sessions navigated to different pages successfully")
 }
 
 // TestParallelServerInstances verifies that multiple test servers
@@ -312,8 +307,6 @@ func TestParallelServerInstances(t *testing.T) {
 		t.Fatalf("failed to initialize: %v", err)
 	}
 	defer client.Close(ctx)
-
-	t.Logf("Server running on port %d", server.Port())
 }
 
 // TestDataURLNavigation verifies that navigation to data URLs works,
@@ -358,8 +351,6 @@ func TestDataURLNavigation(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("navigation returned error: %v", result.Content)
 	}
-
-	t.Logf("Successfully navigated to data URL")
 }
 
 // TestMultipleNavigations verifies that multiple navigations work
@@ -407,7 +398,6 @@ func TestMultipleNavigations(t *testing.T) {
 		if result.IsError {
 			t.Fatalf("navigation to page %d returned error: %v", i+1, result.Content)
 		}
-		t.Logf("Navigated to page %d", i+1)
 	}
 }
 
@@ -440,14 +430,12 @@ func TestServerShutdownCleansUpResources(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create session: %v", err)
 	}
-	t.Logf("Created session: %s", sessionID)
+	_ = sessionID // Session created to verify cleanup on shutdown
 
 	// Stop the server - should clean up the session and browser processes
 	if err := server.Stop(); err != nil {
 		t.Fatalf("failed to stop server: %v", err)
 	}
-
-	t.Log("Server stopped successfully")
 }
 
 // TestFixtureServerServesPages verifies that the FixtureServer correctly
@@ -491,6 +479,4 @@ func TestFixtureServerServesPages(t *testing.T) {
 	if resp2.StatusCode != http.StatusOK {
 		t.Errorf("expected status 200 for form.html, got %d", resp2.StatusCode)
 	}
-
-	t.Log("FixtureServer serves HTML fixtures correctly")
 }

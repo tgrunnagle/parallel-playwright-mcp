@@ -162,3 +162,20 @@ func ApplyTimeout(ctx context.Context, args map[string]any, category TimeoutCate
 	overrideMs := GetTimeoutPtr(args)
 	return WithTimeout(ctx, config, category, overrideMs)
 }
+
+// PlaywrightTimeoutFromContext returns the remaining time from the context
+// deadline as a Playwright-compatible timeout in milliseconds (*float64).
+// Returns nil if context has no deadline, allowing Playwright to use its own default.
+// This ensures Go context deadlines propagate to Playwright operations.
+func PlaywrightTimeoutFromContext(ctx context.Context) *float64 {
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining := float64(time.Until(deadline).Milliseconds())
+		if remaining > 0 {
+			return &remaining
+		}
+		// Deadline already passed, return minimal timeout to trigger immediate failure
+		zero := float64(1)
+		return &zero
+	}
+	return nil
+}

@@ -1,0 +1,70 @@
+# Playwright MCP Server Configuration
+# This file configures the Model Context Protocol server for Playwright browser automation
+
+# HTTP Server Configuration
+server:
+  host: "127.0.0.1"  # Server bind address (use "0.0.0.0" to accept connections from any IP)
+  port: 3000         # HTTP server port
+
+# Browser Configuration
+browser:
+  defaultType: "chromium"  # Default browser: chromium, firefox, or webkit
+  headless: true           # Run browsers in headless mode (no visible window)
+  slowMo: 0                # Slow down operations by specified milliseconds (useful for debugging)
+
+  # Browser-specific launch arguments
+  chromium:
+    channel: "chromium"  # Use full Chromium (new headless mode) instead of headless_shell
+    args: ["--no-sandbox", "--disable-dev-shm-usage"]  # Required for Docker/container environments
+  firefox:
+    args: []  # Additional Firefox launch arguments
+  webkit:
+    args: []  # Additional WebKit launch arguments
+
+# Session Management Configuration
+session:
+  maxPerConnection: 10  # Maximum browser sessions per MCP connection
+  maxTotal: 50          # Maximum total browser sessions across all connections
+  defaultTimeout: 30s   # Default timeout for session operations
+  idleTimeout: 5m       # Time before idle sessions are cleaned up
+
+  # Fine-grained timeout settings (in milliseconds)
+  timeout:
+    default: 30000      # Default timeout for general operations (30s)
+    navigation: 30000   # Timeout for page navigation operations (30s)
+    element: 5000       # Timeout for waiting on elements (5s)
+    script: 30000       # Timeout for JavaScript execution (30s)
+
+# Logging Configuration
+logging:
+  level: "debug"   # Log level: debug, info, warn, error
+  format: "json"  # Log format: json (machine-readable) or text (human-readable)
+
+# Retry Configuration for Transient Failures
+retry:
+  maxAttempts: 3              # Maximum number of retry attempts (1 = no retries, just initial attempt)
+  initialBackoff: 100ms       # Initial backoff delay before first retry
+  maxBackoff: 5s              # Maximum backoff delay between retries
+  backoffFactor: 2.0          # Multiplier for exponential backoff
+  jitter: 0.1                 # Random jitter factor (0.0-1.0) to avoid thundering herd
+  retryableErrors:            # MCP error codes that trigger retries
+    - -32002                  # ElementNotFound
+    - -32003                  # Timeout
+
+# Configuration Notes:
+#
+# Environment Variable Overrides:
+#   MCP_HOST               - Override server.host
+#   MCP_PORT               - Override server.port
+#   MCP_BROWSER_HEADLESS   - Override browser.headless (true/false, 1/0, yes/no, on/off)
+#   MCP_LOG_LEVEL          - Override logging.level (debug, info, warn, error)
+#   MCP_TIMEOUT_DEFAULT    - Override session.timeout.default (milliseconds)
+#   MCP_TIMEOUT_NAVIGATION - Override session.timeout.navigation (milliseconds)
+#   MCP_TIMEOUT_ELEMENT    - Override session.timeout.element (milliseconds)
+#   MCP_TIMEOUT_SCRIPT     - Override session.timeout.script (milliseconds)
+#
+# Example: Enable debug logging
+#   MCP_LOG_LEVEL=debug task run
+#
+# Example: Run in non-headless mode
+#   MCP_BROWSER_HEADLESS=false task run

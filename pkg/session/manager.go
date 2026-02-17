@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -118,6 +119,8 @@ func NewManager(pool browser.BrowserPool) BrowserSessionManager {
 // It generates a unique session ID, creates an isolated browser context via the pool,
 // and establishes MCP ownership tracking.
 func (m *manager) CreateSession(ctx context.Context, mcpSessionID string, opts SessionOptions) (*BrowserSession, error) {
+	slog.Debug("creating browser session", "mcpSessionID", mcpSessionID, "browserType", opts.BrowserType)
+
 	// Apply default browser type if not specified
 	browserType := opts.BrowserType
 	if browserType == "" {
@@ -141,12 +144,14 @@ func (m *manager) CreateSession(ctx context.Context, mcpSessionID string, opts S
 	// Create browser context via pool (may trigger lazy browser launch)
 	browserContext, err := m.pool.NewContext(ctx, browserType, contextOpts)
 	if err != nil {
+		slog.Error("failed to create browser context for session", "mcpSessionID", mcpSessionID, "browserType", browserType, "error", err)
 		return nil, fmt.Errorf("failed to create browser context: %w", err)
 	}
 
 	// Create initial page in the context
 	page, err := browserContext.NewPage()
 	if err != nil {
+		slog.Error("failed to create initial page", "sessionID", sessionID, "error", err)
 		// Clean up context if page creation fails - use pool.CloseContext to maintain proper tracking
 		_ = m.pool.CloseContext(ctx, browserContext)
 		return nil, fmt.Errorf("failed to create initial page: %w", err)
@@ -194,6 +199,7 @@ func (m *manager) CreateSession(ctx context.Context, mcpSessionID string, opts S
 	// Update MCP session ownership index
 	m.mcpSessions[mcpSessionID] = append(m.mcpSessions[mcpSessionID], sessionID)
 
+	slog.Info("browser session created", "sessionID", sessionID, "mcpSessionID", mcpSessionID, "browserType", browserType)
 	return session, nil
 }
 
@@ -208,11 +214,13 @@ func (m *manager) GetSession(mcpSessionID, browserSessionID string) (*BrowserSes
 	// Look up session by browser session ID
 	session, exists := m.sessions[browserSessionID]
 	if !exists {
+		slog.Debug("session not found", "sessionID", browserSessionID, "mcpSessionID", mcpSessionID)
 		return nil, false
 	}
 
 	// Validate MCP session ownership
 	if session.MCPSessionID != mcpSessionID {
+		slog.Warn("unauthorized session access attempt", "sessionID", browserSessionID, "mcpSessionID", mcpSessionID, "ownerMCPSessionID", session.MCPSessionID)
 		return nil, false
 	}
 
@@ -226,17 +234,21 @@ func (m *manager) GetSession(mcpSessionID, browserSessionID string) (*BrowserSes
 // It validates MCP ownership, closes all pages and the browser context,
 // and removes the session from tracking maps.
 func (m *manager) CloseSession(ctx context.Context, mcpSessionID, browserSessionID string) error {
+	slog.Debug("closing session", "sessionID", browserSessionID, "mcpSessionID", mcpSessionID)
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	// Look up session
 	session, exists := m.sessions[browserSessionID]
 	if !exists {
+		slog.Error("cannot close session: not found", "sessionID", browserSessionID)
 		return ErrSessionNotFound
 	}
 
 	// Validate MCP ownership
 	if session.MCPSessionID != mcpSessionID {
+		slog.Warn("unauthorized session close attempt", "sessionID", browserSessionID, "mcpSessionID", mcpSessionID, "ownerMCPSessionID", session.MCPSessionID)
 		return ErrUnauthorized
 	}
 
@@ -250,6 +262,7 @@ func (m *manager) CloseSession(ctx context.Context, mcpSessionID, browserSession
 
 	// Close the browser context
 	if err := session.Context.Close(); err != nil {
+		slog.Error("failed to close browser context during session close", "sessionID", browserSessionID, "error", err)
 		return fmt.Errorf("failed to close browser context: %w", err)
 	}
 
@@ -259,6 +272,7 @@ func (m *manager) CloseSession(ctx context.Context, mcpSessionID, browserSession
 	// Remove from mcpSessions index
 	m.removeFromMCPIndex(mcpSessionID, browserSessionID)
 
+	slog.Info("session closed", "sessionID", browserSessionID, "mcpSessionID", mcpSessionID)
 	return nil
 }
 
@@ -266,12 +280,15 @@ func (m *manager) CloseSession(ctx context.Context, mcpSessionID, browserSession
 // Returns an empty slice if the MCP session has no browser sessions or does not exist.
 // This method provides a point-in-time snapshot; session state may change after return.
 func (m *manager) ListSessions(mcpSessionID string) []*SessionInfo {
+	slog.Debug("listing sessions", "mcpSessionID", mcpSessionID)
+
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	// Get list of browser session IDs for this MCP connection
 	sessionIDs, exists := m.mcpSessions[mcpSessionID]
 	if !exists || len(sessionIDs) == 0 {
+		slog.Debug("no sessions found for MCP connection", "mcpSessionID", mcpSessionID)
 		return []*SessionInfo{}
 	}
 
@@ -305,6 +322,8 @@ func (m *manager) ListSessions(mcpSessionID string) []*SessionInfo {
 // CloseAllForMCP closes all browser sessions when an MCP connection ends.
 // It continues closing remaining sessions even if some fail.
 func (m *manager) CloseAllForMCP(ctx context.Context, mcpSessionID string) error {
+	slog.Debug("closing all sessions for MCP connection", "mcpSessionID", mcpSessionID)
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -313,6 +332,8 @@ func (m *manager) CloseAllForMCP(ctx context.Context, mcpSessionID string) error
 		// No sessions to close - not an error
 		return nil
 	}
+
+	slog.Info("closing sessions for MCP disconnect", "mcpSessionID", mcpSessionID, "sessionCount", len(sessionIDs))
 
 	// Collect errors but continue closing all sessions
 	var errs []error
@@ -337,6 +358,7 @@ func (m *manager) CloseAllForMCP(ctx context.Context, mcpSessionID string) error
 
 		// Close the browser context
 		if err := session.Context.Close(); err != nil {
+			slog.Error("failed to close session during MCP cleanup", "sessionID", sessionID, "mcpSessionID", mcpSessionID, "error", err)
 			errs = append(errs, fmt.Errorf("failed to close session %s: %w", sessionID, err))
 		}
 
@@ -352,6 +374,7 @@ func (m *manager) CloseAllForMCP(ctx context.Context, mcpSessionID string) error
 		return errors.Join(errs...)
 	}
 
+	slog.Info("all sessions closed for MCP connection", "mcpSessionID", mcpSessionID)
 	return nil
 }
 
@@ -363,8 +386,11 @@ func (m *manager) CloseAll(ctx context.Context) error {
 	defer m.mu.Unlock()
 
 	if len(m.sessions) == 0 {
+		slog.Debug("no sessions to close")
 		return nil
 	}
+
+	slog.Info("closing all browser sessions", "sessionCount", len(m.sessions))
 
 	// Collect errors but continue closing all sessions
 	var errs []error
@@ -373,10 +399,13 @@ func (m *manager) CloseAll(ctx context.Context) error {
 		// Check for context cancellation
 		select {
 		case <-ctx.Done():
+			slog.Warn("context cancelled during CloseAll", "error", ctx.Err())
 			errs = append(errs, ctx.Err())
 			return errors.Join(errs...)
 		default:
 		}
+
+		slog.Debug("closing session", "sessionID", sessionID)
 
 		// Clean up network event listeners
 		session.CleanupNetworkListeners()
@@ -388,6 +417,7 @@ func (m *manager) CloseAll(ctx context.Context) error {
 
 		// Close the browser context
 		if err := session.Context.Close(); err != nil {
+			slog.Error("failed to close session during shutdown", "sessionID", sessionID, "error", err)
 			errs = append(errs, fmt.Errorf("failed to close session %s: %w", sessionID, err))
 		}
 	}
@@ -400,6 +430,7 @@ func (m *manager) CloseAll(ctx context.Context) error {
 		return errors.Join(errs...)
 	}
 
+	slog.Info("all browser sessions closed")
 	return nil
 }
 
@@ -408,6 +439,8 @@ func (m *manager) CloseAll(ctx context.Context) error {
 // Sessions with LastAccess older than idleTimeout are considered expired.
 // A zero idleTimeout means no cleanup will be performed.
 func (m *manager) Cleanup(ctx context.Context, idleTimeout time.Duration) (int, error) {
+	slog.Debug("running session cleanup", "idleTimeout", idleTimeout)
+
 	// Zero timeout means no cleanup
 	if idleTimeout == 0 {
 		return 0, nil
@@ -444,8 +477,11 @@ func (m *manager) Cleanup(ctx context.Context, idleTimeout time.Duration) (int, 
 
 	// No expired sessions found
 	if len(expiredSessions) == 0 {
+		slog.Debug("no expired sessions found during cleanup")
 		return 0, nil
 	}
+
+	slog.Info("found expired sessions for cleanup", "count", len(expiredSessions))
 
 	// Close each expired session
 	var errs []error
@@ -469,6 +505,7 @@ func (m *manager) Cleanup(ctx context.Context, idleTimeout time.Duration) (int, 
 			// Session may have been closed/removed between identification and cleanup
 			// ErrSessionNotFound is acceptable, other errors should be tracked
 			if !errors.Is(err, ErrSessionNotFound) {
+				slog.Error("failed to cleanup expired session", "sessionID", expired.browserSessionID, "error", err)
 				errs = append(errs, fmt.Errorf("cleanup session %s: %w", expired.browserSessionID, err))
 			}
 			// Still count as "cleaned" if it no longer exists
@@ -482,6 +519,7 @@ func (m *manager) Cleanup(ctx context.Context, idleTimeout time.Duration) (int, 
 		return cleanedCount, errors.Join(errs...)
 	}
 
+	slog.Info("session cleanup completed", "cleanedCount", cleanedCount)
 	return cleanedCount, nil
 }
 

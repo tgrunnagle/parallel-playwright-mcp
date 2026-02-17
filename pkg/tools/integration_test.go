@@ -5,6 +5,9 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +16,28 @@ import (
 	"github.com/tgrunnagle/parallel-playwright-mcp/pkg/browser"
 	"github.com/tgrunnagle/parallel-playwright-mcp/pkg/session"
 )
+
+// startTestHTTPServer starts a local HTTP server that serves simple test pages.
+// Each path (/page1, /page2, /page3, etc.) returns a distinct HTML page.
+func startTestHTTPServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		page := r.URL.Path
+		if page == "/" {
+			page = "Home"
+		}
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintf(w, "<html><body><h1>%s</h1></body></html>", page)
+	})
+	mux.HandleFunc("/accessible", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<html><body><nav><a href="#">Home</a></nav><main><h1>Title</h1><button aria-label="Submit Form">Submit</button></main></body></html>`)
+	})
+	ts := httptest.NewServer(mux)
+	t.Cleanup(ts.Close)
+	return ts
+}
 
 // Integration tests require Playwright runtime to be installed.
 // Run with: go test -tags=integration ./pkg/tools/...
@@ -659,25 +684,27 @@ func TestGoBackToolIntegration(t *testing.T) {
 	})
 
 	t.Run("navigates back after page navigation", func(t *testing.T) {
+		ts := startTestHTTPServer(t)
+
 		// Navigate to first page
 		navReq := mcp.CallToolRequest{
 			Params: mcp.CallToolParams{
 				Name: "navigate",
 				Arguments: map[string]any{
 					"sessionId": sessionID,
-					"url":       "about:blank",
+					"url":       ts.URL + "/page1",
 				},
 			},
 		}
 		navigateHandler(ctx, navReq)
 
-		// Navigate to second page (using data URL for consistent testing)
+		// Navigate to second page
 		navReq2 := mcp.CallToolRequest{
 			Params: mcp.CallToolParams{
 				Name: "navigate",
 				Arguments: map[string]any{
 					"sessionId": sessionID,
-					"url":       "data:text/html,<h1>Second Page</h1>",
+					"url":       ts.URL + "/page2",
 				},
 			},
 		}
@@ -764,13 +791,15 @@ func TestGoForwardToolIntegration(t *testing.T) {
 	})
 
 	t.Run("navigates forward after go_back", func(t *testing.T) {
+		ts := startTestHTTPServer(t)
+
 		// Navigate to first page
 		navReq := mcp.CallToolRequest{
 			Params: mcp.CallToolParams{
 				Name: "navigate",
 				Arguments: map[string]any{
 					"sessionId": sessionID,
-					"url":       "data:text/html,<h1>First Page</h1>",
+					"url":       ts.URL + "/page1",
 				},
 			},
 		}
@@ -782,7 +811,7 @@ func TestGoForwardToolIntegration(t *testing.T) {
 				Name: "navigate",
 				Arguments: map[string]any{
 					"sessionId": sessionID,
-					"url":       "data:text/html,<h1>Second Page</h1>",
+					"url":       ts.URL + "/page2",
 				},
 			},
 		}
@@ -943,13 +972,15 @@ func TestNavigationFlowIntegration(t *testing.T) {
 	defer mgr.CloseSession(ctx, "", sessionID)
 
 	t.Run("full navigation flow: navigate -> navigate -> back -> forward -> reload", func(t *testing.T) {
+		ts := startTestHTTPServer(t)
+
 		// Step 1: Navigate to first page
 		navReq1 := mcp.CallToolRequest{
 			Params: mcp.CallToolParams{
 				Name: "navigate",
 				Arguments: map[string]any{
 					"sessionId": sessionID,
-					"url":       "data:text/html,<h1>Page 1</h1>",
+					"url":       ts.URL + "/page1",
 				},
 			},
 		}
@@ -964,7 +995,7 @@ func TestNavigationFlowIntegration(t *testing.T) {
 				Name: "navigate",
 				Arguments: map[string]any{
 					"sessionId": sessionID,
-					"url":       "data:text/html,<h1>Page 2</h1>",
+					"url":       ts.URL + "/page2",
 				},
 			},
 		}
@@ -979,7 +1010,7 @@ func TestNavigationFlowIntegration(t *testing.T) {
 				Name: "navigate",
 				Arguments: map[string]any{
 					"sessionId": sessionID,
-					"url":       "data:text/html,<h1>Page 3</h1>",
+					"url":       ts.URL + "/page3",
 				},
 			},
 		}
@@ -1656,12 +1687,13 @@ func TestGetAccessibilityTreeToolIntegration(t *testing.T) {
 	defer mgr.CloseSession(ctx, "", sessionID)
 
 	// Navigate to a test page with accessible elements
+	ts := startTestHTTPServer(t)
 	navReq := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
 			Name: "navigate",
 			Arguments: map[string]any{
 				"sessionId": sessionID,
-				"url":       "data:text/html,<html><body><nav><a href=\"#\">Home</a></nav><main><h1>Title</h1><button aria-label=\"Submit Form\">Submit</button></main></body></html>",
+				"url":       ts.URL + "/accessible",
 			},
 		},
 	}
@@ -2186,7 +2218,7 @@ func TestSelectOptionToolIntegration(t *testing.T) {
 				Arguments: map[string]any{
 					"sessionId": sessionID,
 					"selector":  "#select",
-					"values":    []any{"b"},
+					"value":     "b",
 				},
 			},
 		}
@@ -2213,7 +2245,7 @@ func TestSelectOptionToolIntegration(t *testing.T) {
 				Arguments: map[string]any{
 					"sessionId": "sess-invalid",
 					"selector":  "#select",
-					"values":    []any{"a"},
+					"value":     "a",
 				},
 			},
 		}
@@ -2512,7 +2544,7 @@ func TestGetNetworkLogsToolIntegration(t *testing.T) {
 
 		// Data URLs may or may not generate network entries depending on the browser,
 		// but the response should be valid JSON array
-		t.Logf("Retrieved %d network log entries", len(logs))
+		_ = logs
 	})
 
 	t.Run("retrieves network logs after multiple navigations", func(t *testing.T) {
@@ -2566,7 +2598,7 @@ func TestGetNetworkLogsToolIntegration(t *testing.T) {
 		}
 
 		// Response should be valid JSON array
-		t.Logf("Retrieved %d network log entries after multiple navigations", len(logs))
+		_ = logs
 	})
 
 	t.Run("respects limit parameter", func(t *testing.T) {
@@ -2825,8 +2857,11 @@ func TestGetNetworkLogsWithRealNetworkTrafficIntegration(t *testing.T) {
 			},
 		}
 		navResult, err := navigateHandler(ctx, navReq)
-		if err != nil || navResult.IsError {
-			t.Logf("Navigation result: %v", extractTextContent(navResult.Content))
+		if err != nil {
+			t.Fatalf("navigate failed: %v", err)
+		}
+		if navResult.IsError {
+			t.Fatalf("navigate returned error: %v", extractTextContent(navResult.Content))
 		}
 
 		// Get network logs
@@ -2854,12 +2889,7 @@ func TestGetNetworkLogsWithRealNetworkTrafficIntegration(t *testing.T) {
 			t.Fatalf("Failed to parse network logs: %v", err)
 		}
 
-		t.Logf("Captured %d network requests", len(logs))
-
-		// Log details for debugging
-		for i, log := range logs {
-			t.Logf("  [%d] %s %s -> %d", i, log.Method, log.URL, log.Status)
-		}
+		_ = logs
 	})
 
 	t.Run("verifies network log entry format", func(t *testing.T) {

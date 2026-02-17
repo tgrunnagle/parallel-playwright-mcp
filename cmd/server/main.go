@@ -96,10 +96,72 @@ func run(ctx context.Context, emergencyCleanup **shutdown.EmergencyCleanup) erro
 		return fmt.Errorf("failed to load configuration: %w", err)
 	}
 
-	// Create and start browser pool
+	// Configure logging level based on config
+	var logLevel slog.Level
+	switch cfg.Logging.Level {
+	case "debug":
+		logLevel = slog.LevelDebug
+	case "info":
+		logLevel = slog.LevelInfo
+	case "warn":
+		logLevel = slog.LevelWarn
+	case "error":
+		logLevel = slog.LevelError
+	default:
+		logLevel = slog.LevelInfo
+	}
+
+	// Set up slog handler with configured level
+	var logHandler slog.Handler
+	if cfg.Logging.Format == "text" {
+		logHandler = slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel})
+	} else {
+		logHandler = slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel})
+	}
+	slog.SetDefault(slog.New(logHandler))
+
+	// Create and start browser pool with configured launch options
 	poolOpts := browser.PoolOptions{
 		DefaultHeadless: cfg.Browser.Headless,
 	}
+
+	// Pass browser-specific launch options from config
+	if len(cfg.Browser.Chromium.Args) > 0 || cfg.Browser.Chromium.Channel != "" {
+		poolOpts.ChromiumOptions = &browser.BrowserLaunchOptions{
+			Args:    cfg.Browser.Chromium.Args,
+			Channel: cfg.Browser.Chromium.Channel,
+		}
+	}
+	if len(cfg.Browser.Firefox.Args) > 0 || cfg.Browser.Firefox.Channel != "" {
+		poolOpts.FirefoxOptions = &browser.BrowserLaunchOptions{
+			Args:    cfg.Browser.Firefox.Args,
+			Channel: cfg.Browser.Firefox.Channel,
+		}
+	}
+	if len(cfg.Browser.WebKit.Args) > 0 || cfg.Browser.WebKit.Channel != "" {
+		poolOpts.WebKitOptions = &browser.BrowserLaunchOptions{
+			Args:    cfg.Browser.WebKit.Args,
+			Channel: cfg.Browser.WebKit.Channel,
+		}
+	}
+
+	// Pass slowMo if configured
+	if cfg.Browser.SlowMo > 0 {
+		slowMo := float64(cfg.Browser.SlowMo)
+		if poolOpts.ChromiumOptions == nil {
+			poolOpts.ChromiumOptions = &browser.BrowserLaunchOptions{}
+		}
+		poolOpts.ChromiumOptions.SlowMo = &slowMo
+		if poolOpts.FirefoxOptions == nil {
+			poolOpts.FirefoxOptions = &browser.BrowserLaunchOptions{}
+		}
+		poolOpts.FirefoxOptions.SlowMo = &slowMo
+		if poolOpts.WebKitOptions == nil {
+			poolOpts.WebKitOptions = &browser.BrowserLaunchOptions{}
+		}
+		poolOpts.WebKitOptions.SlowMo = &slowMo
+	}
+
 	pool := browser.NewBrowserPoolWithOptions(poolOpts)
 
 	if err := pool.Start(ctx); err != nil {
@@ -127,6 +189,13 @@ func run(ctx context.Context, emergencyCleanup **shutdown.EmergencyCleanup) erro
 	// Register inspection tools
 	mcpServer.AddTool(tools.GetConsoleLogsTool(), tools.GetConsoleLogsHandler(sessionMgr, timeoutConfig))
 	mcpServer.AddTool(tools.GetNetworkLogsTool(), tools.GetNetworkLogsHandler(sessionMgr, timeoutConfig))
+	mcpServer.AddTool(tools.ScreenshotTool(), tools.ScreenshotHandler(sessionMgr, timeoutConfig))
+	mcpServer.AddTool(tools.ExtractTextTool(), tools.ExtractTextHandler(sessionMgr, timeoutConfig))
+	mcpServer.AddTool(tools.GetHTMLTool(), tools.GetHTMLHandler(sessionMgr, timeoutConfig))
+	mcpServer.AddTool(tools.EvaluateTool(), tools.EvaluateHandler(sessionMgr, timeoutConfig))
+	mcpServer.AddTool(tools.QuerySelectorTool(), tools.QuerySelectorHandler(sessionMgr, timeoutConfig))
+	mcpServer.AddTool(tools.GetAccessibilityTreeTool(), tools.GetAccessibilityTreeHandler(sessionMgr, timeoutConfig))
+	mcpServer.AddTool(tools.NavigateAndExtractTextTool(), tools.NavigateAndExtractTextHandler(sessionMgr, timeoutConfig))
 
 	// Register navigation tools
 	mcpServer.AddTool(tools.NavigateTool(), tools.NavigateHandler(sessionMgr, timeoutConfig))
@@ -144,7 +213,7 @@ func run(ctx context.Context, emergencyCleanup **shutdown.EmergencyCleanup) erro
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 
-	// Create streamable HTTP server (implements http.Handler)
+	// Create HTTP server (supports both JSON-RPC POST and SSE)
 	mcpHandler := server.NewStreamableHTTPServer(mcpServer)
 
 	// Create request tracker for connection draining
@@ -155,8 +224,8 @@ func run(ctx context.Context, emergencyCleanup **shutdown.EmergencyCleanup) erro
 	mux.HandleFunc("/health", healthHandler(serverVersion))
 	mux.Handle("/mcp", mcpHandler)
 
-	// Wrap with middleware: panic recovery -> request tracking -> mux
-	handler := middleware.PanicRecovery(requestTracker.Middleware(mux))
+	// Wrap with middleware: CORS -> panic recovery -> request tracking -> mux
+	handler := middleware.CORS(middleware.PanicRecovery(requestTracker.Middleware(mux)))
 
 	// Create HTTP server
 	httpServer := &http.Server{
