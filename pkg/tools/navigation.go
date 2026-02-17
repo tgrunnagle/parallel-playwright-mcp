@@ -82,6 +82,9 @@ func NavigateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 
 		// Build Playwright options from optional parameters
 		opts := buildGotoOptions(args)
+		if opts.Timeout == nil {
+			opts.Timeout = PlaywrightTimeoutFromContext(ctx)
+		}
 
 		// Execute navigation
 		if _, err := page.Goto(url, opts); err != nil {
@@ -153,6 +156,9 @@ func GoBackHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConf
 
 		// Build Playwright options from optional parameters
 		opts := buildGoBackOptions(args)
+		if opts.Timeout == nil {
+			opts.Timeout = PlaywrightTimeoutFromContext(ctx)
+		}
 
 		// Execute back navigation
 		resp, err := page.GoBack(opts)
@@ -231,6 +237,9 @@ func GoForwardHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutC
 
 		// Build Playwright options from optional parameters
 		opts := buildGoForwardOptions(args)
+		if opts.Timeout == nil {
+			opts.Timeout = PlaywrightTimeoutFromContext(ctx)
+		}
 
 		// Execute forward navigation
 		resp, err := page.GoForward(opts)
@@ -309,6 +318,9 @@ func ReloadHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConf
 
 		// Build Playwright reload options from optional parameters
 		opts := buildReloadOptions(args)
+		if opts.Timeout == nil {
+			opts.Timeout = PlaywrightTimeoutFromContext(ctx)
+		}
 
 		// Execute reload
 		if _, err := page.Reload(opts); err != nil {

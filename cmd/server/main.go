@@ -210,6 +210,7 @@ func run(ctx context.Context, emergencyCleanup **shutdown.EmergencyCleanup) erro
 	addTool(tools.QuerySelectorTool(), tools.QuerySelectorHandler(sessionMgr, timeoutConfig))
 	addTool(tools.GetAccessibilityTreeTool(), tools.GetAccessibilityTreeHandler(sessionMgr, timeoutConfig))
 	addTool(tools.NavigateAndExtractTextTool(), tools.NavigateAndExtractTextHandler(sessionMgr, timeoutConfig))
+	addTool(tools.GetLinksTool(), tools.GetLinksHandler(sessionMgr, timeoutConfig))
 
 	// Register navigation tools
 	addTool(tools.NavigateTool(), tools.NavigateHandler(sessionMgr, timeoutConfig))
