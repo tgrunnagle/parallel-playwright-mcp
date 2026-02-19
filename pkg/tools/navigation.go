@@ -415,7 +415,7 @@ func mapWaitUntil(waitUntil string) *playwright.WaitUntilState {
 // newNavigationSessionNotFoundError creates an error result for invalid session ID.
 // Uses error code -32001 (Session Not Found).
 func newNavigationSessionNotFoundError(sessionID string) *mcp.CallToolResult {
-	return mcp.NewToolResultError(fmt.Sprintf("[%d] Session not found: %s", errors.CodeSessionNotFound, sessionID))
+	return mcp.NewToolResultError(errors.FormatErrorForTool(errors.NewSessionNotFoundError(sessionID)))
 }
 
 // handleNavigationError classifies navigation errors and returns appropriate error results.
@@ -423,10 +423,12 @@ func newNavigationSessionNotFoundError(sessionID string) *mcp.CallToolResult {
 func handleNavigationError(err error, target string) *mcp.CallToolResult {
 	if isTimeoutError(err) {
 		slog.Error("navigation timeout", "target", target, "error", err)
-		return mcp.NewToolResultError(fmt.Sprintf("[%d] Navigation timeout for %s: %v", errors.CodeTimeout, target, err))
+		return mcp.NewToolResultError(errors.FormatErrorForTool(
+			errors.WrapTimeoutError(fmt.Sprintf("navigation to %s", target), 0, err)))
 	}
 	slog.Error("navigation failed", "target", target, "error", err)
-	return mcp.NewToolResultError(fmt.Sprintf("[%d] Navigation failed for %s: %v", errors.CodeNavigationFailed, target, err))
+	return mcp.NewToolResultError(errors.FormatErrorForTool(
+		errors.WrapNavigationError(target, "", err)))
 }
 
 // isTimeoutError checks if the error is a timeout error based on error message.

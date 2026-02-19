@@ -747,7 +747,7 @@ func TestClickHandler(t *testing.T) {
 				return createInteractionSessionWithMockPage(page), true
 			},
 			expectError:    true,
-			expectedResult: "[-32003] Timeout",
+			expectedResult: "[-32003] Operation timed out",
 		},
 		{
 			name: "click element not found error",

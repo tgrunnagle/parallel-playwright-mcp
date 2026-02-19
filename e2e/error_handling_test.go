@@ -381,23 +381,17 @@ func TestErrorResponseStructure(t *testing.T) {
 	})
 
 	t.Run("SuggestionVerification", func(t *testing.T) {
-		// NOTE: The server's tool-level error handlers (newNavigationSessionNotFoundError,
-		// handleNavigationError, handleInteractionError, session_close handler) use
-		// fmt.Sprintf("[%d] ...") directly instead of errors.FormatErrorForTool().
-		// Only FormatErrorForTool() includes actionable suggestions from the errors package.
-		// As a result, most tool error responses do not include suggestions.
-		// This is a known gap; a server-side fix to use FormatErrorForTool() consistently
-		// would enable full suggestion verification here.
+		// Tool handlers use FormatErrorForTool() which includes actionable suggestions
+		// from the errors package. For session-not-found errors, the suggestion is
+		// "Verify the session ID or create a new session with session_create".
 		errText := getErrorText(result)
 		hasSuggestion := containsIgnoreCase(errText, "verify") ||
 			containsIgnoreCase(errText, "check") ||
 			containsIgnoreCase(errText, "try") ||
 			containsIgnoreCase(errText, "ensure") ||
 			containsIgnoreCase(errText, "create a new session")
-		t.Logf("Suggestion present in error response: %v", hasSuggestion)
 		if !hasSuggestion {
-			t.Log("Server tool handlers do not currently include suggestions in error text. " +
-				"See pkg/errors/formatter.go FormatErrorForTool() for the suggestion-capable path.")
+			t.Errorf("error response should contain an actionable suggestion, got: %s", errText)
 		}
 	})
 }

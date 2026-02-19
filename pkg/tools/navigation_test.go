@@ -407,7 +407,7 @@ func TestNavigateHandler(t *testing.T) {
 				return createSessionWithMockPage(page), true
 			},
 			expectError:    true,
-			expectedResult: "[-32003] Navigation timeout",
+			expectedResult: "[-32003] Operation timed out",
 		},
 		{
 			name: "navigation failure error",
@@ -559,7 +559,7 @@ func TestGoBackHandler(t *testing.T) {
 				return createSessionWithMockPage(page), true
 			},
 			expectError:    true,
-			expectedResult: "[-32003] Navigation timeout",
+			expectedResult: "[-32003] Operation timed out",
 		},
 	}
 
@@ -839,7 +839,7 @@ func TestReloadHandler(t *testing.T) {
 				return createSessionWithMockPage(page), true
 			},
 			expectError:    true,
-			expectedResult: "[-32003] Navigation timeout",
+			expectedResult: "[-32003] Operation timed out",
 		},
 	}
 
@@ -1275,7 +1275,7 @@ func TestHandleNavigationError(t *testing.T) {
 			err:         errors.New("navigation timeout"),
 			target:      "https://example.com",
 			expectCode:  "[-32003]",
-			expectInMsg: "Navigation timeout",
+			expectInMsg: "Operation timed out",
 		},
 		{
 			name:        "navigation failure",
@@ -1289,7 +1289,7 @@ func TestHandleNavigationError(t *testing.T) {
 			err:         errors.New("connection refused"),
 			target:      "back",
 			expectCode:  "[-32004]",
-			expectInMsg: "Navigation failed for back",
+			expectInMsg: "Navigation failed",
 		},
 	}
 

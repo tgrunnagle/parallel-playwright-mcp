@@ -667,7 +667,7 @@ func buildKeyWithModifiers(key string, args map[string]any) string {
 // newInteractionSessionNotFoundError creates an error result for invalid session ID.
 // Uses error code -32001 (Session Not Found).
 func newInteractionSessionNotFoundError(sessionID string) *mcp.CallToolResult {
-	return mcp.NewToolResultError(fmt.Sprintf("[%d] Session not found: %s", errors.CodeSessionNotFound, sessionID))
+	return mcp.NewToolResultError(errors.FormatErrorForTool(errors.NewSessionNotFoundError(sessionID)))
 }
 
 // handleInteractionError classifies interaction errors and returns appropriate error results.
@@ -687,16 +687,18 @@ func handleInteractionError(err error, operation, selector string) *mcp.CallTool
 		strings.Contains(errMsg, "element is not editable") ||
 		strings.Contains(errMsg, "element is disabled") {
 		slog.Error("element not found or not actionable", "operation", operation, "selector", selector, "error", err)
-		return mcp.NewToolResultError(fmt.Sprintf("[%d] Element not found or not actionable: %s - %v", errors.CodeElementNotFound, selector, err))
+		return mcp.NewToolResultError(errors.FormatErrorForTool(
+			errors.WrapElementNotFoundError(selector, 0, err)))
 	}
 
 	// Check for timeout errors
 	if strings.Contains(errMsg, "timeout") || strings.Contains(errMsg, "exceeded") {
 		slog.Error("interaction timeout", "operation", operation, "selector", selector, "error", err)
-		return mcp.NewToolResultError(fmt.Sprintf("[%d] Timeout waiting for element: %s - %v", errors.CodeTimeout, selector, err))
+		return mcp.NewToolResultError(errors.FormatErrorForTool(
+			errors.WrapTimeoutError(fmt.Sprintf("%s on %s", operation, selector), 0, err)))
 	}
 
-	// Return generic interaction error for unclassified errors
+	// Return generic interaction error for unclassified errors (code -32005 has no error type)
 	slog.Error("interaction failed", "operation", operation, "selector", selector, "error", err)
 	return mcp.NewToolResultError(fmt.Sprintf("[%d] %s failed: %s - %v", errors.CodeInteractionFailed, operation, selector, err))
 }
