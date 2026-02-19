@@ -1186,7 +1186,7 @@ func GetLinksHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 				opts.Timeout = PlaywrightTimeoutFromContext(ctx)
 			}
 			if _, err := page.Goto(url, opts); err != nil {
-				if ctxErr := HandleContextError(ctx, "get_links"); ctxErr != nil {
+				if ctxErr := HandleContextError(ctx, fmt.Sprintf("navigation to %s", url)); ctxErr != nil {
 					slog.Error("get_links navigation context error", "tool", "get_links", "sessionID", sessionID, "url", url, "error", ctxErr)
 					return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
 				}

@@ -88,7 +88,7 @@ func NavigateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 
 		// Execute navigation
 		if _, err := page.Goto(url, opts); err != nil {
-			if ctxErr := HandleContextError(ctx, "navigate"); ctxErr != nil {
+			if ctxErr := HandleContextError(ctx, fmt.Sprintf("navigation to %s", url)); ctxErr != nil {
 				slog.Error("navigation context error", "tool", "navigate", "sessionID", sessionID, "url", url, "error", ctxErr)
 				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
 			}

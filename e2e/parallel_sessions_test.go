@@ -126,19 +126,22 @@ func TestParallelSessionsWithDifferentBrowsers(t *testing.T) {
 	}
 
 	// Step 3: Verify session isolation (only if workflows succeeded)
+	// Use evaluate to read input values because extract_text returns DOM text content
+	// which does not include form input values.
 	if len(workflowErrors) == 0 {
 		t.Log("Verifying session isolation...")
 		for browserType, sessionID := range sessions {
-			result, err := client.CallTool(ctx, "extract_text", map[string]any{
-				"sessionId": sessionID,
+			result, err := client.CallTool(ctx, "evaluate", map[string]any{
+				"sessionId":  sessionID,
+				"expression": "document.querySelector('#username').value",
 			})
-			require.NoError(t, err, "failed to extract text from %s session", browserType)
-			require.False(t, result.IsError, "extract_text returned error for %s session", browserType)
+			require.NoError(t, err, "failed to evaluate in %s session", browserType)
+			require.False(t, result.IsError, "evaluate returned error for %s session", browserType)
 
-			extractedText := extractTextContent(result)
+			inputValue := extractTextContent(result)
 			expectedText := fmt.Sprintf("parallel_test_%s", browserType)
-			assert.Contains(t, extractedText, expectedText,
-				"%s session should contain its unique typed text", browserType)
+			assert.Contains(t, inputValue, expectedText,
+				"%s session should contain its unique typed text in input value", browserType)
 			t.Logf("%s session contains expected text", browserType)
 		}
 	}
