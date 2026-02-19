@@ -4,6 +4,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -238,7 +239,7 @@ func Load(path string) (*Config, error) {
 		if !os.IsNotExist(err) {
 			return nil, fmt.Errorf("reading config file: %w", err)
 		}
-		// File doesn't exist - use defaults
+		slog.Warn("config file not found, using defaults", "path", configPath)
 	} else {
 		if err := yaml.Unmarshal(data, cfg); err != nil {
 			return nil, fmt.Errorf("parsing config file: %w", err)
