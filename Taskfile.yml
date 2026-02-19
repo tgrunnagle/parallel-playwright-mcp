@@ -4,7 +4,9 @@ vars:
   BINARY_NAME: playwright-mcp-server
   BUILD_DIR: bin
   DOCKER_IMAGE: playwright-mcp
+  MCP_PORT: '3000'
   MCP_CONFIG_PATH: ''
+  MCP_ENABLED_TOOLS: 'navigate_and_extract_text,session_create,session_close,navigate,extract_text'
 
 tasks:
   default:
@@ -90,23 +92,25 @@ tasks:
       - docker build -t {{.DOCKER_IMAGE}} .
 
   docker:run:
-    desc: Run the Docker container (override config with `task docker:run MCP_CONFIG_PATH=./custom.yaml`)
+    desc: Run the Docker container (override port with `task docker:run MCP_PORT=8080`)
     deps: [docker:build]
     cmds:
       - docker rm -f {{.DOCKER_IMAGE}} 2>/dev/null || true
       - >-
-        docker run --rm -d -p 3000:3000 --name {{.DOCKER_IMAGE}}
+        docker run --rm -d -p {{.MCP_PORT}}:{{.MCP_PORT}} --name {{.DOCKER_IMAGE}}
+        -e MCP_PORT={{.MCP_PORT}}
         {{if .MCP_CONFIG_PATH}}-v {{.MCP_CONFIG_PATH}}:/app/custom-config.yaml -e MCP_CONFIG_PATH=/app/custom-config.yaml{{end}}
         {{.DOCKER_IMAGE}}
 
   docker:run:min-tools:
-    desc: Run the Docker container (override config with `task docker:run MCP_CONFIG_PATH=./custom.yaml`)
+    desc: Run the Docker container with a minimal tool set (override with `task docker:run:min-tools MCP_ENABLED_TOOLS=...`)
     deps: [docker:build]
     cmds:
       - docker rm -f {{.DOCKER_IMAGE}} 2>/dev/null || true
       - >-
-        docker run --rm -d -p 3000:3000 --name {{.DOCKER_IMAGE}}
-        -e MCP_ENABLED_TOOLS=navigate_and_extract_text,session_create,session_close,navigate,extract_text
+        docker run --rm -d -p {{.MCP_PORT}}:{{.MCP_PORT}} --name {{.DOCKER_IMAGE}}
+        -e MCP_PORT={{.MCP_PORT}}
+        -e MCP_ENABLED_TOOLS={{.MCP_ENABLED_TOOLS}}
         {{if .MCP_CONFIG_PATH}}-v {{.MCP_CONFIG_PATH}}:/app/custom-config.yaml -e MCP_CONFIG_PATH=/app/custom-config.yaml{{end}}
         {{.DOCKER_IMAGE}}
 

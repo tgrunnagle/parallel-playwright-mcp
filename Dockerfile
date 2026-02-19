@@ -43,7 +43,9 @@ USER mcpuser
 ENV MCP_CONFIG_PATH=/app/config.yaml
 # Bind to all interfaces so the server is accessible outside the container
 ENV MCP_HOST=0.0.0.0
+# Default port; override at runtime with -e MCP_PORT=<port>
+ENV MCP_PORT=3000
 
-EXPOSE 3000
+EXPOSE ${MCP_PORT}
 
 CMD ["./playwright-mcp-server"]
