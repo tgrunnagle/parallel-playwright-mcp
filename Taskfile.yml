@@ -106,7 +106,7 @@ tasks:
       - docker rm -f {{.DOCKER_IMAGE}} 2>/dev/null || true
       - >-
         docker run --rm -d -p 3000:3000 --name {{.DOCKER_IMAGE}}
-        -e MCP_ENABLED_TOOLS=navigate_and_extract_text
+        -e MCP_ENABLED_TOOLS=navigate_and_extract_text,session_create,session_close,navigate,extract_text
         {{if .MCP_CONFIG_PATH}}-v {{.MCP_CONFIG_PATH}}:/app/custom-config.yaml -e MCP_CONFIG_PATH=/app/custom-config.yaml{{end}}
         {{.DOCKER_IMAGE}}
 
