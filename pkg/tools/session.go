@@ -186,8 +186,7 @@ func SessionCloseHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeo
 		// Close the session (manager handles ownership validation and cleanup)
 		if err := mgr.CloseSession(ctx, mcpSessionID, sessionID); err != nil {
 			slog.Error("failed to close session", "tool", "session_close", "sessionID", sessionID, "error", err)
-			// Return error with code and descriptive message
-			return mcp.NewToolResultError(fmt.Sprintf("[%d] Session not found: %s", errors.CodeSessionNotFound, sessionID)), nil
+			return mcp.NewToolResultError(errors.FormatErrorForTool(errors.NewSessionNotFoundError(sessionID))), nil
 		}
 
 		slog.Info("session closed via tool", "tool", "session_close", "sessionID", sessionID)

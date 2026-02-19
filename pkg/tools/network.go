@@ -86,7 +86,7 @@ func GetNetworkLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *Tim
 		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
 		if !ok {
 			slog.Error("session not found", "tool", "get_network_logs", "sessionID", sessionID)
-			return mcp.NewToolResultError(fmt.Sprintf("[%d] Session not found: %s", errors.CodeSessionNotFound, sessionID)), nil
+			return mcp.NewToolResultError(errors.FormatErrorForTool(errors.NewSessionNotFoundError(sessionID))), nil
 		}
 
 		// Check if NetworkLogs buffer exists

@@ -59,7 +59,7 @@ func GetConsoleLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *Tim
 		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
 		if !ok {
 			slog.Error("session not found", "tool", "get_console_logs", "sessionID", sessionID)
-			return mcp.NewToolResultError(fmt.Sprintf("[%d] Session not found: %s", errors.CodeSessionNotFound, sessionID)), nil
+			return mcp.NewToolResultError(errors.FormatErrorForTool(errors.NewSessionNotFoundError(sessionID))), nil
 		}
 
 		// Check if ConsoleLogs buffer exists
@@ -165,7 +165,7 @@ func ScreenshotHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeout
 		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
 		if !ok {
 			slog.Error("session not found", "tool", "screenshot", "sessionID", sessionID)
-			return mcp.NewToolResultError(fmt.Sprintf("[%d] Session not found: %s", errors.CodeSessionNotFound, sessionID)), nil
+			return mcp.NewToolResultError(errors.FormatErrorForTool(errors.NewSessionNotFoundError(sessionID))), nil
 		}
 
 		// Get the active page from the session
@@ -181,10 +181,10 @@ func ScreenshotHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeout
 			// Element-specific screenshot
 			element, err := page.QuerySelector(selector)
 			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("[%d] Failed to find element: %v", errors.CodeElementNotFound, err)), nil
+				return mcp.NewToolResultError(errors.FormatErrorForTool(errors.WrapElementNotFoundError("", 0, err))), nil
 			}
 			if element == nil {
-				return mcp.NewToolResultError(fmt.Sprintf("[%d] Element not found: %s", errors.CodeElementNotFound, selector)), nil
+				return mcp.NewToolResultError(errors.FormatErrorForTool(errors.NewElementNotFoundError(selector, 0))), nil
 			}
 
 			screenshotBytes, err := element.Screenshot()
@@ -335,7 +335,7 @@ func ExtractTextHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeou
 		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
 		if !ok {
 			slog.Error("session not found", "tool", "extract_text", "sessionID", sessionID)
-			return mcp.NewToolResultError(fmt.Sprintf("[%d] Session not found: %s", errors.CodeSessionNotFound, sessionID)), nil
+			return mcp.NewToolResultError(errors.FormatErrorForTool(errors.NewSessionNotFoundError(sessionID))), nil
 		}
 
 		// Get the active page from the session
@@ -356,7 +356,7 @@ func ExtractTextHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeou
 
 		// Check if element was found (JavaScript returns null if selector doesn't match)
 		if result == nil {
-			return mcp.NewToolResultError(fmt.Sprintf("[%d] Element not found: %s", errors.CodeElementNotFound, selector)), nil
+			return mcp.NewToolResultError(errors.FormatErrorForTool(errors.NewElementNotFoundError(selector, 0))), nil
 		}
 
 		// Serialize result to JSON
@@ -560,7 +560,7 @@ func GetHTMLHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCon
 		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
 		if !ok {
 			slog.Error("session not found", "tool", "get_html", "sessionID", sessionID)
-			return mcp.NewToolResultError(fmt.Sprintf("[%d] Session not found: %s", errors.CodeSessionNotFound, sessionID)), nil
+			return mcp.NewToolResultError(errors.FormatErrorForTool(errors.NewSessionNotFoundError(sessionID))), nil
 		}
 
 		// Get the active page from the session
@@ -593,10 +593,10 @@ func GetHTMLHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCon
 			// Get element HTML
 			element, err := page.QuerySelector(selector)
 			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("[%d] Failed to find element: %v", errors.CodeElementNotFound, err)), nil
+				return mcp.NewToolResultError(errors.FormatErrorForTool(errors.WrapElementNotFoundError("", 0, err))), nil
 			}
 			if element == nil {
-				return mcp.NewToolResultError(fmt.Sprintf("[%d] Element not found: %s", errors.CodeElementNotFound, selector)), nil
+				return mcp.NewToolResultError(errors.FormatErrorForTool(errors.NewElementNotFoundError(selector, 0))), nil
 			}
 
 			if outer {
@@ -667,7 +667,7 @@ func EvaluateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
 		if !ok {
 			slog.Error("session not found", "tool", "evaluate", "sessionID", sessionID)
-			return mcp.NewToolResultError(fmt.Sprintf("[%d] Session not found: %s", errors.CodeSessionNotFound, sessionID)), nil
+			return mcp.NewToolResultError(errors.FormatErrorForTool(errors.NewSessionNotFoundError(sessionID))), nil
 		}
 
 		// Get the active page from the session
@@ -789,7 +789,7 @@ func QuerySelectorHandler(mgr session.BrowserSessionManager, timeoutConfig *Time
 		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
 		if !ok {
 			slog.Error("session not found", "tool", "query_selector", "sessionID", sessionID)
-			return mcp.NewToolResultError(fmt.Sprintf("[%d] Session not found: %s", errors.CodeSessionNotFound, sessionID)), nil
+			return mcp.NewToolResultError(errors.FormatErrorForTool(errors.NewSessionNotFoundError(sessionID))), nil
 		}
 
 		// Get the active page from the session
@@ -838,10 +838,10 @@ func QuerySelectorHandler(mgr session.BrowserSessionManager, timeoutConfig *Time
 		// Query single element
 		element, err := page.QuerySelector(selector)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("[%d] Failed to find element: %v", errors.CodeElementNotFound, err)), nil
+			return mcp.NewToolResultError(errors.FormatErrorForTool(errors.WrapElementNotFoundError("", 0, err))), nil
 		}
 		if element == nil {
-			return mcp.NewToolResultError(fmt.Sprintf("[%d] Element not found: %s", errors.CodeElementNotFound, selector)), nil
+			return mcp.NewToolResultError(errors.FormatErrorForTool(errors.NewElementNotFoundError(selector, 0))), nil
 		}
 
 		info, err := extractElementInfo(element)
@@ -945,7 +945,7 @@ func GetAccessibilityTreeHandler(mgr session.BrowserSessionManager, timeoutConfi
 		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
 		if !ok {
 			slog.Error("session not found", "tool", "get_accessibility_tree", "sessionID", sessionID)
-			return mcp.NewToolResultError(fmt.Sprintf("[%d] Session not found: %s", errors.CodeSessionNotFound, sessionID)), nil
+			return mcp.NewToolResultError(errors.FormatErrorForTool(errors.NewSessionNotFoundError(sessionID))), nil
 		}
 
 		// Get the active page from the session
@@ -1168,7 +1168,7 @@ func GetLinksHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
 		if !ok {
 			slog.Error("session not found", "tool", "get_links", "sessionID", sessionID)
-			return mcp.NewToolResultError(fmt.Sprintf("[%d] Session not found: %s", errors.CodeSessionNotFound, sessionID)), nil
+			return mcp.NewToolResultError(errors.FormatErrorForTool(errors.NewSessionNotFoundError(sessionID))), nil
 		}
 
 		// Get the active page from the session
@@ -1186,7 +1186,7 @@ func GetLinksHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 				opts.Timeout = PlaywrightTimeoutFromContext(ctx)
 			}
 			if _, err := page.Goto(url, opts); err != nil {
-				if ctxErr := HandleContextError(ctx, "get_links"); ctxErr != nil {
+				if ctxErr := HandleContextError(ctx, fmt.Sprintf("navigation to %s", url)); ctxErr != nil {
 					slog.Error("get_links navigation context error", "tool", "get_links", "sessionID", sessionID, "url", url, "error", ctxErr)
 					return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
 				}
@@ -1313,10 +1313,12 @@ func NavigateAndExtractTextHandler(mgr session.BrowserSessionManager, timeoutCon
 		if _, err := page.Goto(url, gotoOpts); err != nil {
 			if isTimeoutError(err) {
 				slog.Error("navigation timeout", "tool", "navigate_and_extract_text", "url", url, "error", err)
-				return mcp.NewToolResultError(fmt.Sprintf("[%d] Navigation timeout for %s: %v", errors.CodeTimeout, url, err)), nil
+				return mcp.NewToolResultError(errors.FormatErrorForTool(
+					errors.WrapTimeoutError(fmt.Sprintf("navigation to %s", url), 0, err))), nil
 			}
 			slog.Error("navigation failed", "tool", "navigate_and_extract_text", "url", url, "error", err)
-			return mcp.NewToolResultError(fmt.Sprintf("[%d] Navigation failed for %s: %v", errors.CodeNavigationFailed, url, err)), nil
+			return mcp.NewToolResultError(errors.FormatErrorForTool(
+				errors.WrapNavigationError(url, "", err))), nil
 		}
 
 		// Get selector or default to body
@@ -1330,7 +1332,7 @@ func NavigateAndExtractTextHandler(mgr session.BrowserSessionManager, timeoutCon
 
 		// Check if element was found (JavaScript returns null if selector doesn't match)
 		if result == nil {
-			return mcp.NewToolResultError(fmt.Sprintf("[%d] Element not found: %s", errors.CodeElementNotFound, selector)), nil
+			return mcp.NewToolResultError(errors.FormatErrorForTool(errors.NewElementNotFoundError(selector, 0))), nil
 		}
 
 		text, ok := result.(string)

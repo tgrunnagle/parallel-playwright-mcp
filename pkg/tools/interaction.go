@@ -88,7 +88,7 @@ func ClickHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfi
 		}
 
 		if err := locator.Click(opts); err != nil {
-			if ctxErr := HandleContextError(ctx, "click"); ctxErr != nil {
+			if ctxErr := HandleContextError(ctx, fmt.Sprintf("click on %s", selector)); ctxErr != nil {
 				slog.Error("click context error", "tool", "click", "sessionID", sessionID, "selector", selector, "error", ctxErr)
 				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
 			}
@@ -174,7 +174,7 @@ func TypeHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig
 		opts := buildTypeOptions(args)
 
 		if err := locator.PressSequentially(text, opts); err != nil {
-			if ctxErr := HandleContextError(ctx, "type"); ctxErr != nil {
+			if ctxErr := HandleContextError(ctx, fmt.Sprintf("type on %s", selector)); ctxErr != nil {
 				slog.Error("type context error", "tool", "type", "sessionID", sessionID, "selector", selector, "error", ctxErr)
 				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
 			}
@@ -254,7 +254,7 @@ func FillHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig
 		opts := buildFillOptions(args)
 
 		if err := locator.Fill(value, opts); err != nil {
-			if ctxErr := HandleContextError(ctx, "fill"); ctxErr != nil {
+			if ctxErr := HandleContextError(ctx, fmt.Sprintf("fill on %s", selector)); ctxErr != nil {
 				slog.Error("fill context error", "tool", "fill", "sessionID", sessionID, "selector", selector, "error", ctxErr)
 				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
 			}
@@ -365,7 +365,7 @@ func SelectOptionHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeo
 		}
 
 		if err != nil {
-			if ctxErr := HandleContextError(ctx, "select_option"); ctxErr != nil {
+			if ctxErr := HandleContextError(ctx, fmt.Sprintf("select_option on %s", selector)); ctxErr != nil {
 				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
 			}
 			return handleInteractionError(err, "select_option", selector), nil
@@ -439,7 +439,7 @@ func HoverHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfi
 		opts := buildHoverOptions(args)
 
 		if err := locator.Hover(opts); err != nil {
-			if ctxErr := HandleContextError(ctx, "hover"); ctxErr != nil {
+			if ctxErr := HandleContextError(ctx, fmt.Sprintf("hover on %s", selector)); ctxErr != nil {
 				slog.Error("hover context error", "tool", "hover", "sessionID", sessionID, "selector", selector, "error", ctxErr)
 				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
 			}
@@ -529,7 +529,7 @@ func PressKeyHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 			opts := buildPressOptions(args)
 
 			if err := locator.Press(keyWithModifiers, opts); err != nil {
-				if ctxErr := HandleContextError(ctx, "press_key"); ctxErr != nil {
+				if ctxErr := HandleContextError(ctx, fmt.Sprintf("press_key on %s", selector)); ctxErr != nil {
 					slog.Error("press_key context error", "tool", "press_key", "sessionID", sessionID, "key", keyWithModifiers, "error", ctxErr)
 					return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
 				}
@@ -667,7 +667,7 @@ func buildKeyWithModifiers(key string, args map[string]any) string {
 // newInteractionSessionNotFoundError creates an error result for invalid session ID.
 // Uses error code -32001 (Session Not Found).
 func newInteractionSessionNotFoundError(sessionID string) *mcp.CallToolResult {
-	return mcp.NewToolResultError(fmt.Sprintf("[%d] Session not found: %s", errors.CodeSessionNotFound, sessionID))
+	return mcp.NewToolResultError(errors.FormatErrorForTool(errors.NewSessionNotFoundError(sessionID)))
 }
 
 // handleInteractionError classifies interaction errors and returns appropriate error results.
@@ -687,16 +687,18 @@ func handleInteractionError(err error, operation, selector string) *mcp.CallTool
 		strings.Contains(errMsg, "element is not editable") ||
 		strings.Contains(errMsg, "element is disabled") {
 		slog.Error("element not found or not actionable", "operation", operation, "selector", selector, "error", err)
-		return mcp.NewToolResultError(fmt.Sprintf("[%d] Element not found or not actionable: %s - %v", errors.CodeElementNotFound, selector, err))
+		return mcp.NewToolResultError(errors.FormatErrorForTool(
+			errors.WrapElementNotFoundError(selector, 0, err)))
 	}
 
 	// Check for timeout errors
 	if strings.Contains(errMsg, "timeout") || strings.Contains(errMsg, "exceeded") {
 		slog.Error("interaction timeout", "operation", operation, "selector", selector, "error", err)
-		return mcp.NewToolResultError(fmt.Sprintf("[%d] Timeout waiting for element: %s - %v", errors.CodeTimeout, selector, err))
+		return mcp.NewToolResultError(errors.FormatErrorForTool(
+			errors.WrapTimeoutError(fmt.Sprintf("%s on %s", operation, selector), 0, err)))
 	}
 
-	// Return generic interaction error for unclassified errors
+	// Return generic interaction error for unclassified errors (code -32005 has no error type)
 	slog.Error("interaction failed", "operation", operation, "selector", selector, "error", err)
 	return mcp.NewToolResultError(fmt.Sprintf("[%d] %s failed: %s - %v", errors.CodeInteractionFailed, operation, selector, err))
 }
