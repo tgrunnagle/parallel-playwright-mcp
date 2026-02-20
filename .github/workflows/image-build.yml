@@ -18,3 +18,11 @@ jobs:
           push: false
           load: true
           tags: playwright-mcp:ci
+
+      - name: Scan Docker image for vulnerabilities
+        uses: aquasecurity/trivy-action@c1824fd6edce30d7ab345a9989de00bbd46ef284 # 0.34.0
+        with:
+          image-ref: playwright-mcp:ci
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'

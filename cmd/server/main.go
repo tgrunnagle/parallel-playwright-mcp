@@ -127,22 +127,25 @@ func run(ctx context.Context, emergencyCleanup **shutdown.EmergencyCleanup) erro
 	}
 
 	// Pass browser-specific launch options from config
-	if len(cfg.Browser.Chromium.Args) > 0 || cfg.Browser.Chromium.Channel != "" {
+	if len(cfg.Browser.Chromium.Args) > 0 || cfg.Browser.Chromium.Channel != "" || cfg.Browser.Chromium.UserAgent != "" {
 		poolOpts.ChromiumOptions = &browser.BrowserLaunchOptions{
-			Args:    cfg.Browser.Chromium.Args,
-			Channel: cfg.Browser.Chromium.Channel,
+			Args:      cfg.Browser.Chromium.Args,
+			Channel:   cfg.Browser.Chromium.Channel,
+			UserAgent: cfg.Browser.Chromium.UserAgent,
 		}
 	}
-	if len(cfg.Browser.Firefox.Args) > 0 || cfg.Browser.Firefox.Channel != "" {
+	if len(cfg.Browser.Firefox.Args) > 0 || cfg.Browser.Firefox.Channel != "" || cfg.Browser.Firefox.UserAgent != "" {
 		poolOpts.FirefoxOptions = &browser.BrowserLaunchOptions{
-			Args:    cfg.Browser.Firefox.Args,
-			Channel: cfg.Browser.Firefox.Channel,
+			Args:      cfg.Browser.Firefox.Args,
+			Channel:   cfg.Browser.Firefox.Channel,
+			UserAgent: cfg.Browser.Firefox.UserAgent,
 		}
 	}
-	if len(cfg.Browser.WebKit.Args) > 0 || cfg.Browser.WebKit.Channel != "" {
+	if len(cfg.Browser.WebKit.Args) > 0 || cfg.Browser.WebKit.Channel != "" || cfg.Browser.WebKit.UserAgent != "" {
 		poolOpts.WebKitOptions = &browser.BrowserLaunchOptions{
-			Args:    cfg.Browser.WebKit.Args,
-			Channel: cfg.Browser.WebKit.Channel,
+			Args:      cfg.Browser.WebKit.Args,
+			Channel:   cfg.Browser.WebKit.Channel,
+			UserAgent: cfg.Browser.WebKit.UserAgent,
 		}
 	}
 

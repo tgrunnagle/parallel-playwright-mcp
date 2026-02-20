@@ -290,17 +290,10 @@ func parseClipRegion(vp map[string]any) *playwright.Rect {
 	}
 }
 
-// TextNode represents a node in the hierarchical text structure.
-type TextNode struct {
-	Tag      string     `json:"tag"`
-	Text     string     `json:"text,omitempty"`
-	Children []TextNode `json:"children,omitempty"`
-}
-
 // ExtractTextTool returns the extract_text MCP tool definition.
 func ExtractTextTool() mcp.Tool {
 	return mcp.NewTool("extract_text",
-		mcp.WithDescription("Extract visible text from page in hierarchical structure"),
+		mcp.WithDescription("Extract visible text from page as markdown"),
 		mcp.WithString("sessionId",
 			mcp.Required(),
 			mcp.Description("Browser session ID"),
@@ -348,8 +341,8 @@ func ExtractTextHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeou
 		// Get selector or default to body
 		selector := req.GetString("selector", "body")
 
-		// Execute JavaScript to extract hierarchical text structure
-		result, err := page.Evaluate(extractTextJS, selector)
+		// Execute JavaScript to extract visible text as markdown
+		result, err := page.Evaluate(extractTextAsMarkdownJS, selector)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to extract text: %v", err)), nil
 		}
@@ -359,48 +352,19 @@ func ExtractTextHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeou
 			return mcp.NewToolResultError(errors.FormatErrorForTool(errors.NewElementNotFoundError(selector, 0))), nil
 		}
 
-		// Serialize result to JSON
-		jsonBytes, err := json.Marshal(result)
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to serialize text structure: %v", err)), nil
+		text, ok := result.(string)
+		if !ok {
+			return mcp.NewToolResultError("Failed to extract text: unexpected result type"), nil
 		}
 
-		return mcp.NewToolResultText(string(jsonBytes)), nil
+		text = strings.TrimSpace(text)
+		if text == "" {
+			return mcp.NewToolResultText("No visible text found on the page."), nil
+		}
+
+		return mcp.NewToolResultText(text), nil
 	}
 }
-
-// extractTextJS is the JavaScript code that extracts hierarchical text from the DOM.
-const extractTextJS = `(selector) => {
-	function extractNode(element) {
-		const node = { tag: element.tagName.toLowerCase() };
-		const children = [];
-		let directText = '';
-
-		for (const child of element.childNodes) {
-			if (child.nodeType === Node.TEXT_NODE) {
-				const text = child.textContent.trim();
-				if (text) directText += (directText ? ' ' : '') + text;
-			} else if (child.nodeType === Node.ELEMENT_NODE) {
-				const style = window.getComputedStyle(child);
-				if (style.display !== 'none' && style.visibility !== 'hidden') {
-					const childNode = extractNode(child);
-					if (childNode.text || (childNode.children && childNode.children.length > 0)) {
-						children.push(childNode);
-					}
-				}
-			}
-		}
-
-		if (directText) node.text = directText;
-		if (children.length > 0) node.children = children;
-
-		return node;
-	}
-
-	const element = document.querySelector(selector);
-	if (!element) return null;
-	return extractNode(element);
-}`
 
 // extractTextAsMarkdownJS is the JavaScript code that extracts visible text from the DOM
 // and formats it as markdown. Used by navigate_and_extract_text for a cleaner, more
