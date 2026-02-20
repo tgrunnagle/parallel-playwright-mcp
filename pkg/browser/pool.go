@@ -35,6 +35,14 @@ const (
 	BrowserWebKit BrowserType = "webkit"
 )
 
+// defaultUserAgents provides realistic user agent strings per browser type
+// so that automated sessions appear as normal browser traffic.
+var defaultUserAgents = map[BrowserType]string{
+	BrowserChromium: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+	BrowserFirefox:  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
+	BrowserWebKit:   "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Safari/605.1.15",
+}
+
 // Viewport defines browser viewport dimensions.
 type Viewport struct {
 	// Width is the viewport width in pixels.
@@ -96,6 +104,8 @@ type BrowserLaunchOptions struct {
 	Channel string
 	// Timeout specifies the maximum time to wait for browser launch in milliseconds.
 	Timeout *float64
+	// UserAgent overrides the default user agent string for contexts created with this browser.
+	UserAgent string
 }
 
 // PoolOptions configures the browser pool.
@@ -321,8 +331,16 @@ func (p *browserPool) NewContext(ctx context.Context, browserType BrowserType, o
 			Height: opts.Viewport.Height,
 		}
 	}
-	if opts.UserAgent != "" {
+	// User agent priority: per-session opts > per-browser config > hardcoded default
+	switch {
+	case opts.UserAgent != "":
 		contextOpts.UserAgent = playwright.String(opts.UserAgent)
+	case p.launchOptions[browserType] != nil && p.launchOptions[browserType].UserAgent != "":
+		contextOpts.UserAgent = playwright.String(p.launchOptions[browserType].UserAgent)
+	default:
+		if ua, ok := defaultUserAgents[browserType]; ok {
+			contextOpts.UserAgent = playwright.String(ua)
+		}
 	}
 	if opts.Locale != "" {
 		contextOpts.Locale = playwright.String(opts.Locale)

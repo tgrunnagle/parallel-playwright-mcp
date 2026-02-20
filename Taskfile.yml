@@ -54,23 +54,27 @@ tasks:
   test:
     desc: Run unit tests
     cmds:
+      - go clean -testcache
       - go test -v ./...
 
   test:coverage:
     desc: Run tests with coverage report
     cmds:
+      - go clean -testcache
       - go test -v -coverprofile=coverage.out ./...
       - go tool cover -html=coverage.out -o coverage.html
 
   test:integration:
     desc: Run integration tests (requires Playwright installed)
     cmds:
+      - go clean -testcache
       - go test -v -tags=integration ./...
 
   test:e2e:
     desc: Run E2E tests (requires Playwright installed and builds server)
     deps: [build]
     cmds:
+      - go clean -testcache
       - go test -v -tags=e2e ./e2e/...
 
   lint:

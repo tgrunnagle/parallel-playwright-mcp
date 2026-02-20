@@ -70,8 +70,9 @@ type BrowserConfig struct {
 
 // BrowserLaunchConfig contains per-browser launch arguments.
 type BrowserLaunchConfig struct {
-	Args    []string `yaml:"args"`
-	Channel string   `yaml:"channel"`
+	Args      []string `yaml:"args"`
+	Channel   string   `yaml:"channel"`
+	UserAgent string   `yaml:"userAgent"`
 }
 
 // SessionConfig contains session management settings.

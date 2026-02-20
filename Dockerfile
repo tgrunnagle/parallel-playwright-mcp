@@ -11,7 +11,7 @@ RUN go build -o playwright-mcp-server ./cmd/server && \
     go build -o playwright-cli github.com/playwright-community/playwright-go/cmd/playwright
 
 # Runtime stage - minimal image with Playwright browsers
-FROM debian:bookworm-slim
+FROM ubuntu:24.04
 
 # Install ca-certificates, Playwright browsers, and their system dependencies.
 # The playwright-cli binary (built from the project's pinned playwright-go version)

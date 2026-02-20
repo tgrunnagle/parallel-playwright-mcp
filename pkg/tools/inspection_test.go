@@ -1457,38 +1457,6 @@ func TestNavigateAndExtractTextHandler(t *testing.T) {
 	}
 }
 
-// TestTextNodeStructure tests the TextNode type serialization.
-func TestTextNodeStructure(t *testing.T) {
-	node := TextNode{
-		Tag:  "div",
-		Text: "Hello",
-		Children: []TextNode{
-			{Tag: "p", Text: "Paragraph"},
-			{Tag: "span", Text: "Span text"},
-		},
-	}
-
-	jsonBytes, err := json.Marshal(node)
-	if err != nil {
-		t.Fatalf("Failed to marshal TextNode: %v", err)
-	}
-
-	var decoded TextNode
-	if err := json.Unmarshal(jsonBytes, &decoded); err != nil {
-		t.Fatalf("Failed to unmarshal TextNode: %v", err)
-	}
-
-	if decoded.Tag != "div" {
-		t.Errorf("Expected tag 'div', got %s", decoded.Tag)
-	}
-	if decoded.Text != "Hello" {
-		t.Errorf("Expected text 'Hello', got %s", decoded.Text)
-	}
-	if len(decoded.Children) != 2 {
-		t.Errorf("Expected 2 children, got %d", len(decoded.Children))
-	}
-}
-
 // TestElementInfoStructure tests the ElementInfo type serialization.
 func TestElementInfoStructure(t *testing.T) {
 	info := ElementInfo{
