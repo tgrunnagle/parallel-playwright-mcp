@@ -44,7 +44,7 @@ task docker:run MCP_CONFIG_PATH=./custom.yaml
 
 ```bash
 go mod download
-go run github.com/playwright-community/playwright-go/cmd/playwright@latest install --with-deps
+go run github.com/mxschmitt/playwright-go/cmd/playwright install --with-deps
 go build -o bin/playwright-mcp-server ./cmd/server
 ./bin/playwright-mcp-server
 ```

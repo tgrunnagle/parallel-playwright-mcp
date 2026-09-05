@@ -6,7 +6,7 @@ A Playwright MCP (Model Context Protocol) server implemented in Go that supports
 
 - **Language**: Go 1.25+
 - **MCP Framework**: [mcp-go](https://github.com/mark3labs/mcp-go)
-- **Browser Automation**: [playwright-go](https://github.com/playwright-community/playwright-go)
+- **Browser Automation**: [playwright-go](https://github.com/mxschmitt/playwright-go)
 - **Task Runner**: [Task](https://taskfile.dev/)
 
 ## Code Entry Points

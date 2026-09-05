@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/playwright-community/playwright-go"
+	"github.com/mxschmitt/playwright-go"
 )
 
 // Integration tests require Playwright runtime to be installed.

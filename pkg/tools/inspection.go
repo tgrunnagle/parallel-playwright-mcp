@@ -11,7 +11,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-	"github.com/playwright-community/playwright-go"
+	"github.com/mxschmitt/playwright-go"
 	"github.com/tgrunnagle/parallel-playwright-mcp/pkg/browser"
 	"github.com/tgrunnagle/parallel-playwright-mcp/pkg/errors"
 	"github.com/tgrunnagle/parallel-playwright-mcp/pkg/session"

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/playwright-community/playwright-go"
+	"github.com/mxschmitt/playwright-go"
 )
 
 // waitForEntries polls the buffer until it has at least n entries or timeout is reached.
