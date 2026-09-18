@@ -8,7 +8,7 @@ RUN go mod download
 
 COPY . .
 RUN go build -o playwright-mcp-server ./cmd/server && \
-    go build -o playwright-cli github.com/playwright-community/playwright-go/cmd/playwright
+    go build -o playwright-cli github.com/mxschmitt/playwright-go/cmd/playwright
 
 # Runtime stage - minimal image with Playwright browsers
 FROM ubuntu:24.04

@@ -29,12 +29,12 @@ tasks:
   playwright:install:
     desc: Install Playwright browsers and dependencies
     cmds:
-      - go run github.com/playwright-community/playwright-go/cmd/playwright@latest install --with-deps
+      - go run github.com/mxschmitt/playwright-go/cmd/playwright install --with-deps
 
   playwright:install-chromium:
     desc: Install only Chromium browser
     cmds:
-      - go run github.com/playwright-community/playwright-go/cmd/playwright@latest install chromium
+      - go run github.com/mxschmitt/playwright-go/cmd/playwright install chromium
 
   build:
     desc: Build the server binary

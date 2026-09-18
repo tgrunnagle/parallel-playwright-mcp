@@ -717,7 +717,7 @@ playwright-mcp/
 | Package | Purpose |
 |---------|---------|
 | `github.com/mark3labs/mcp-go` | MCP protocol implementation (JSON-RPC, transport, tools) |
-| `github.com/playwright-community/playwright-go` | Browser automation |
+| `github.com/mxschmitt/playwright-go` | Browser automation |
 | `github.com/google/uuid` | Session ID generation |
 
 ---

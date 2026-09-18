@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/playwright-community/playwright-go"
+	"github.com/mxschmitt/playwright-go"
 	"github.com/tgrunnagle/parallel-playwright-mcp/pkg/session"
 )
 
@@ -105,6 +105,11 @@ func (m *mockLocator) Check(options ...playwright.LocatorCheckOptions) error    
 func (m *mockLocator) Clear(options ...playwright.LocatorClearOptions) error       { return nil }
 func (m *mockLocator) Count() (int, error)                                         { return 0, nil }
 func (m *mockLocator) Dblclick(options ...playwright.LocatorDblclickOptions) error { return nil }
+func (m *mockLocator) Describe(description string) playwright.Locator              { return m }
+func (m *mockLocator) Description() (string, error)                                { return "", nil }
+func (m *mockLocator) Drop(payload playwright.Payload, options ...playwright.LocatorDropOptions) error {
+	return nil
+}
 func (m *mockLocator) DispatchEvent(typ string, eventInit interface{}, options ...playwright.LocatorDispatchEventOptions) error {
 	return nil
 }
@@ -151,7 +156,8 @@ func (m *mockLocator) GetByText(text interface{}, options ...playwright.LocatorG
 func (m *mockLocator) GetByTitle(text interface{}, options ...playwright.LocatorGetByTitleOptions) playwright.Locator {
 	return m
 }
-func (m *mockLocator) Highlight() error { return nil }
+func (m *mockLocator) HideHighlight() error { return nil }
+func (m *mockLocator) Highlight() error     { return nil }
 func (m *mockLocator) InnerHTML(options ...playwright.LocatorInnerHTMLOptions) (string, error) {
 	return "", nil
 }
@@ -183,6 +189,7 @@ func (m *mockLocator) Last() playwright.Locator { return m }
 func (m *mockLocator) Locator(selectorOrLocator interface{}, options ...playwright.LocatorLocatorOptions) playwright.Locator {
 	return m
 }
+func (m *mockLocator) Normalize() playwright.Locator                    { return m }
 func (m *mockLocator) Nth(index int) playwright.Locator                 { return m }
 func (m *mockLocator) Or(locator playwright.Locator) playwright.Locator { return m }
 func (m *mockLocator) Page() (playwright.Page, error)                   { return nil, nil }
@@ -206,7 +213,10 @@ func (m *mockLocator) TextContent(options ...playwright.LocatorTextContentOption
 func (m *mockLocator) Type(text string, options ...playwright.LocatorTypeOptions) error { return nil }
 func (m *mockLocator) Uncheck(options ...playwright.LocatorUncheckOptions) error        { return nil }
 func (m *mockLocator) WaitFor(options ...playwright.LocatorWaitForOptions) error        { return nil }
-func (m *mockLocator) Err() error                                                       { return nil }
+func (m *mockLocator) WaitForFunction(expression string, arg any, options ...playwright.LocatorWaitForFunctionOptions) error {
+	return nil
+}
+func (m *mockLocator) Err() error { return nil }
 
 // mockInteractionPage is a mock implementation of playwright.Page for interaction testing.
 type mockInteractionPage struct {

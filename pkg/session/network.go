@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/playwright-community/playwright-go"
+	"github.com/mxschmitt/playwright-go"
 )
 
 // DefaultNetworkLogBufferSize is the default maximum number of network log entries.
