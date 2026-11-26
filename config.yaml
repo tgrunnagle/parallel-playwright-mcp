@@ -54,6 +54,10 @@ retry:
     - -32002                  # ElementNotFound
     - -32003                  # Timeout
 
+# Tool Configuration
+tools:
+  maxResponseChars: 40000  # Response budget: max characters a content tool returns per call (default: 40000)
+
 # Configuration Notes:
 #
 # Environment Variable Overrides:
@@ -65,6 +69,7 @@ retry:
 #   MCP_TIMEOUT_NAVIGATION - Override session.timeout.navigation (milliseconds)
 #   MCP_TIMEOUT_ELEMENT    - Override session.timeout.element (milliseconds)
 #   MCP_TIMEOUT_SCRIPT     - Override session.timeout.script (milliseconds)
+#   MCP_MAX_RESPONSE_CHARS - Override tools.maxResponseChars (positive integer, default 40000)
 #
 # Example: Enable debug logging
 #   MCP_LOG_LEVEL=debug task run

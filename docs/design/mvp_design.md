@@ -394,13 +394,23 @@ type BrowserStats struct {
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
 | `screenshot` | Capture PNG screenshot | `sessionId`*, `fullPage`, `selector` |
-| `extract_text` | Extract visible text with page structure hierarchy | `sessionId`*, `selector` (optional) |
-| `navigate_and_extract_text` | Navigate to a URL and extract visible text with page structure hierarchy (no session required) | `url`*, `waitUntil`, `timeout` |
-| `get_html` | Get page HTML source | `sessionId`*, `selector` (optional), `outer` |
+| `extract_text` | Extract visible text as markdown, with form controls as inline tokens | `sessionId`*, `selector` (optional), `maxChars`, `offset` |
+| `navigate_and_extract_text` | Navigate to a URL and extract visible text as markdown (no session required) | `url`*, `waitUntil`, `selector`, `browserType`, `maxChars`, `offset` |
+| `get_html` | Get page HTML source | `sessionId`*, `selector` (optional), `outer`, `maxChars`, `offset` |
 | `get_accessibility_tree` | Get accessibility snapshot | `sessionId`* |
-| `evaluate` | Execute JavaScript | `sessionId`*, `expression`* |
-| `query_selector` | Query element info | `sessionId`*, `selector`*, `all` |
-| `get_network_logs` | Get captured network requests | `sessionId`*, `limit`, `filter` |
+| `evaluate` | Execute JavaScript | `sessionId`*, `expression`*, `maxChars` |
+| `query_selector` | Query element info | `sessionId`*, `selector`*, `all`, `limit`, `offset` |
+| `get_links` | Get hyperlinks with IDs and labels | `sessionId`*, `url`, `waitUntil`, `timeout`, `limit`, `offset` |
+| `get_console_logs` | Get captured console messages | `sessionId`*, `level`, `limit`, `offset` |
+| `get_network_logs` | Get captured network requests | `sessionId`*, `limit`, `offset`, `filter` |
+
+**Response budget and pagination.** Content tools return at most `tools.maxResponseChars` characters (Unicode code points, default 40000) in their content block per call. A second text content block, the pagination block, carries truncation notices or list metadata, so page content can never write into it.
+
+- Text tools (`extract_text`, `navigate_and_extract_text`, `get_html`) take `maxChars` and `offset` in characters. Output within the budget is returned unchanged as one block. Cut output adds `[truncated: <n> more characters; call again with offset=<k>]`; an `offset` at or past the end returns an empty block and `[end of content: <total> characters]`.
+- `evaluate` takes `maxChars` only, because paging would re-run the script. Cut output adds `[truncated: result JSON is incomplete; narrow the expression]`.
+- List tools (`query_selector` with `all: true`, `get_links`, `get_console_logs`, `get_network_logs`) take `limit` (default 50) and `offset` in items. The first block stays the bare JSON array; the second is `{"total": <n>, "offset": <k>, "returned": <m>, "hasMore": <bool>}`. Trailing items that do not fit the budget are dropped; a single item larger than the budget is returned alone with its string fields cut, so `offset` always advances.
+- The log tools select newest first: `offset` 0 is the newest entries and `offset` k skips the k newest. Items are returned oldest first, and `total` counts entries after the `level` or `filter` is applied. The buffers are live, so offsets and `total` can shift between calls.
+- `maxChars` above the budget is clamped. A negative `maxChars` or `offset`, or a non-positive `limit`, returns `[-32602]` naming the parameter, before the page is touched.
 
 ### 5.5 Tab Management Tools
 
@@ -486,7 +496,7 @@ All parameters are optional with sensible defaults:
 ```json
 {
   "name": "extract_text",
-  "description": "Extract visible text from page in a hierarchical structure representing the page layout",
+  "description": "Extract visible text from page as markdown",
   "inputSchema": {
     "type": "object",
     "required": ["sessionId"],
@@ -498,48 +508,36 @@ All parameters are optional with sensible defaults:
       "selector": {
         "type": "string",
         "description": "CSS selector to extract from (defaults to body)"
+      },
+      "maxChars": {
+        "type": "number",
+        "description": "Maximum characters to return (default and upper bound: the server's response budget)"
+      },
+      "offset": {
+        "type": "number",
+        "description": "Character offset to start from, for reading the next slice of truncated output (default: 0)"
       }
     }
   }
 }
 ```
 
-**Example extract_text output:**
+**Example extract_text output** (called with `maxChars: 270` on a longer page):
+
+The page is rendered as markdown. Links and images carry absolute URLs, and form controls appear inline as `[<role> "<label>": <value>]`. Password fields show only `set` or `empty`, and iframes render as `[iframe "<title or src>"]`.
+
 ```json
 {
-  "content": [{
-    "type": "text",
-    "text": {
-      "tag": "body",
-      "children": [
-        {
-          "tag": "h1",
-          "text": "Welcome to Example"
-        },
-        {
-          "tag": "nav",
-          "children": [
-            { "tag": "a", "text": "Home" },
-            { "tag": "a", "text": "About" },
-            { "tag": "a", "text": "Contact" }
-          ]
-        },
-        {
-          "tag": "main",
-          "children": [
-            { "tag": "p", "text": "This is the main content..." },
-            {
-              "tag": "ul",
-              "children": [
-                { "tag": "li", "text": "First item" },
-                { "tag": "li", "text": "Second item" }
-              ]
-            }
-          ]
-        }
-      ]
+  "content": [
+    {
+      "type": "text",
+      "text": "# Welcome to Example\n\n[Home](https://example.com/) [About](https://example.com/about)\n\nSign in to continue.\n\nEmail [textbox \"Email\": a@b.c]\nPassword [password \"Password\": set]\n[checkbox \"Remember me\": unchecked] Remember me\n[button \"Sign in\"]\n\n## Recent posts\n\n- First i"
+    },
+    {
+      "type": "text",
+      "text": "[truncated: 1840 more characters; call again with offset=270]"
     }
-  }]
+  ]
 }
 ```
 
@@ -611,6 +609,9 @@ session:
 logging:
   level: "info"
   format: "json"
+
+tools:
+  maxResponseChars: 40000  # Response budget for content tools, in characters
 ```
 
 ### 7.1 Environment Variable Overrides
@@ -621,6 +622,7 @@ logging:
 | `MCP_PORT` | Server port | `3000` |
 | `MCP_BROWSER_HEADLESS` | Run browsers headless | `true` |
 | `MCP_LOG_LEVEL` | Log level (debug/info/warn/error) | `info` |
+| `MCP_MAX_RESPONSE_CHARS` | Response budget for content tools, in characters (`tools.maxResponseChars`; must be a positive integer) | `40000` |
 
 ---
 
