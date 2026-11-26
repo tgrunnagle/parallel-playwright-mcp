@@ -290,8 +290,49 @@ func WrapNavigationError(url, reason string, err error) *NavigationError {
 	return &NavigationError{URL: url, Reason: reason, Err: err}
 }
 
+// InvalidParamsError indicates a tool argument failed validation.
+type InvalidParamsError struct {
+	// Param is the name of the invalid parameter.
+	Param string
+	// Reason describes why the value was rejected.
+	Reason string
+}
+
+// Error implements the error interface.
+func (e *InvalidParamsError) Error() string {
+	if e.Reason == "" {
+		return fmt.Sprintf("invalid parameter %q", e.Param)
+	}
+	return fmt.Sprintf("invalid parameter %q: %s", e.Param, e.Reason)
+}
+
+// ErrorCode returns the JSON-RPC error code for invalid parameter errors.
+func (e *InvalidParamsError) ErrorCode() int {
+	return CodeInvalidParams
+}
+
+// ErrorData returns additional context for the error response.
+func (e *InvalidParamsError) ErrorData() map[string]any {
+	data := map[string]any{
+		"suggestion": SuggestInvalidParams,
+	}
+	if e.Param != "" {
+		data["parameter"] = e.Param
+	}
+	if e.Reason != "" {
+		data["reason"] = e.Reason
+	}
+	return data
+}
+
+// NewInvalidParamsError creates a new InvalidParamsError for the named parameter.
+func NewInvalidParamsError(param, reason string) *InvalidParamsError {
+	return &InvalidParamsError{Param: param, Reason: reason}
+}
+
 // Compile-time interface compliance checks.
 var (
+	_ MCPError = (*InvalidParamsError)(nil)
 	_ MCPError = (*SessionNotFoundError)(nil)
 	_ MCPError = (*ElementNotFoundError)(nil)
 	_ MCPError = (*TimeoutError)(nil)

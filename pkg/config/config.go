@@ -33,6 +33,7 @@ const (
 	DefaultMaxBackoff       = 5 * time.Second
 	DefaultBackoffFactor    = 2.0
 	DefaultJitter           = 0.1
+	DefaultMaxResponseChars = tools.DefaultMaxResponseChars
 )
 
 // Valid values for validation.
@@ -49,6 +50,7 @@ type Config struct {
 	Session      SessionConfig `yaml:"session"`
 	Logging      LoggingConfig `yaml:"logging"`
 	Retry        RetrySettings `yaml:"retry"`
+	Tools        ToolsConfig   `yaml:"tools"`
 	EnabledTools []string      `yaml:"enabled_tools"`
 }
 
@@ -82,6 +84,21 @@ type SessionConfig struct {
 	DefaultTimeout   time.Duration   `yaml:"defaultTimeout"`
 	IdleTimeout      time.Duration   `yaml:"idleTimeout"`
 	Timeout          TimeoutSettings `yaml:"timeout"`
+}
+
+// ToolsConfig contains settings shared by MCP tools.
+//
+// Example YAML configuration:
+//
+//	tools:
+//	  maxResponseChars: 40000  # Response budget for content tools, in characters
+type ToolsConfig struct {
+	MaxResponseChars int `yaml:"maxResponseChars"`
+}
+
+// ToResponseConfig converts ToolsConfig to tools.ResponseConfig for use by content tools.
+func (tc *ToolsConfig) ToResponseConfig() *tools.ResponseConfig {
+	return &tools.ResponseConfig{MaxResponseChars: tc.MaxResponseChars}
 }
 
 // LoggingConfig contains logging settings.
@@ -215,6 +232,9 @@ func LoadWithDefaults() *Config {
 			Jitter:          DefaultJitter,
 			RetryableErrors: []int{-32002, -32003}, // CodeElementNotFound, CodeTimeout
 		},
+		Tools: ToolsConfig{
+			MaxResponseChars: DefaultMaxResponseChars,
+		},
 	}
 }
 
@@ -328,6 +348,15 @@ func (c *Config) applyEnvironmentOverrides() []error {
 		}
 	}
 
+	if maxChars := os.Getenv("MCP_MAX_RESPONSE_CHARS"); maxChars != "" {
+		val, err := strconv.Atoi(maxChars)
+		if err != nil || val < 1 {
+			errs = append(errs, fmt.Errorf("invalid MCP_MAX_RESPONSE_CHARS %q: must be a positive integer", maxChars))
+		} else {
+			c.Tools.MaxResponseChars = val
+		}
+	}
+
 	if enabledTools := os.Getenv("MCP_ENABLED_TOOLS"); enabledTools != "" {
 		var parsed []string
 		for _, name := range strings.Split(enabledTools, ",") {
@@ -435,6 +464,11 @@ func (c *Config) Validate() []error {
 	}
 	if c.Session.Timeout.ScriptMs <= 0 {
 		errs = append(errs, fmt.Errorf("invalid timeout script %dms: must be positive", c.Session.Timeout.ScriptMs))
+	}
+
+	// Validate tools settings
+	if c.Tools.MaxResponseChars < 1 {
+		errs = append(errs, fmt.Errorf("invalid tools maxResponseChars %d: must be a positive integer", c.Tools.MaxResponseChars))
 	}
 
 	// Validate enabled_tools

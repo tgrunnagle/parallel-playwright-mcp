@@ -30,6 +30,8 @@ type ErrorData struct {
 	URL string `json:"url,omitempty"`
 	// Timeout is the timeout value in milliseconds.
 	Timeout int `json:"timeout,omitempty"`
+	// Parameter is the name of the invalid tool parameter (for invalid params errors).
+	Parameter string `json:"parameter,omitempty"`
 	// Operation describes the operation that failed.
 	Operation string `json:"operation,omitempty"`
 	// Reason describes why the operation failed.
@@ -95,6 +97,11 @@ func FormatError(err error) *ErrorResponse {
 	var navErr *NavigationError
 	if errors.As(err, &navErr) {
 		return formatNavigationError(navErr)
+	}
+
+	var paramsErr *InvalidParamsError
+	if errors.As(err, &paramsErr) {
+		return formatInvalidParamsError(paramsErr)
 	}
 
 	// Handle as generic internal error
@@ -197,6 +204,19 @@ func formatNavigationError(e *NavigationError) *ErrorResponse {
 	}
 }
 
+// formatInvalidParamsError formats an InvalidParamsError into an ErrorResponse.
+func formatInvalidParamsError(e *InvalidParamsError) *ErrorResponse {
+	return &ErrorResponse{
+		Code:    CodeInvalidParams,
+		Message: msgInvalidParams,
+		Data: &ErrorData{
+			Parameter:  e.Param,
+			Reason:     e.Reason,
+			Suggestion: SuggestInvalidParams,
+		},
+	}
+}
+
 // FormatErrorWithCode formats an error with a specific JSON-RPC error code.
 // This is useful for standard JSON-RPC errors (parse, invalid request, etc.)
 // that don't have custom error types.
@@ -277,6 +297,9 @@ func FormatErrorForTool(err error) string {
 		}
 		if resp.Data.Selector != "" {
 			result += fmt.Sprintf(" (selector: %s)", resp.Data.Selector)
+		}
+		if resp.Data.Parameter != "" {
+			result += fmt.Sprintf(" (parameter: %s)", resp.Data.Parameter)
 		}
 		if resp.Data.URL != "" {
 			result += fmt.Sprintf(" (url: %s)", resp.Data.URL)
