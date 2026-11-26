@@ -163,9 +163,24 @@ func startTestHTTPServer(t *testing.T) *httptest.Server {
 			<p>Visible paragraph</p>
 			<p style="display:none">Hidden paragraph</p>
 			<p style="visibility:hidden">Invisible paragraph</p>
+			<div aria-hidden="true"><p>Aria hidden paragraph</p></div>
+			<p>Shown <span aria-hidden="true">decorative icon</span>label</p>
 			<script>var x = "script content";</script>
 			<style>.foo { color: red; }</style>
 			<p>Another visible paragraph</p>
+		</body></html>`)
+	})
+	mux.HandleFunc("/md-structure", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<!DOCTYPE html><html><body>
+			<p><a href="/about">About</a> and <a href="javascript:void(0)">Script link</a></p>
+			<p><img src="/a.png" alt="Logo"></p>
+			<h2><a href="/x">Docs</a></h2>
+			<table id="outer">
+				<tr><th>Key</th><th>Detail</th></tr>
+				<tr><td>Outer row</td><td><table><tr><td>Inner A</td><td>Inner B</td></tr></table></td></tr>
+				<tr><td>Linked</td><td><a href="/cell">Cell link</a></td></tr>
+			</table>
 		</body></html>`)
 	})
 	mux.HandleFunc("/md-code", func(w http.ResponseWriter, r *http.Request) {
@@ -3639,6 +3654,50 @@ func TestNavigateAndExtractTextMarkdownIntegration(t *testing.T) {
 		}
 	})
 
+	t.Run("relative links", func(t *testing.T) {
+		text := extractMarkdown(t, map[string]any{"url": ts.URL + "/md-structure"})
+
+		if want := "[About](" + ts.URL + "/about)"; !strings.Contains(text, want) {
+			t.Errorf("Expected %q in output, got:\n%s", want, text)
+		}
+		if !strings.Contains(text, "Script link") || strings.Contains(text, "javascript:") {
+			t.Errorf("Expected javascript: link rendered as text only, got:\n%s", text)
+		}
+	})
+
+	t.Run("images", func(t *testing.T) {
+		text := extractMarkdown(t, map[string]any{"url": ts.URL + "/md-structure"})
+
+		if want := "![Logo](" + ts.URL + "/a.png)"; !strings.Contains(text, want) {
+			t.Errorf("Expected %q in output, got:\n%s", want, text)
+		}
+	})
+
+	t.Run("heading links", func(t *testing.T) {
+		text := extractMarkdown(t, map[string]any{"url": ts.URL + "/md-structure"})
+
+		if want := "## [Docs](" + ts.URL + "/x)"; !strings.Contains(text, want) {
+			t.Errorf("Expected %q in output, got:\n%s", want, text)
+		}
+	})
+
+	t.Run("nested table", func(t *testing.T) {
+		text := extractMarkdown(t, map[string]any{"url": ts.URL + "/md-structure"})
+
+		if n := strings.Count(text, "Outer row"); n != 1 {
+			t.Errorf("Expected outer row once, found %d times:\n%s", n, text)
+		}
+		if n := strings.Count(text, "Inner A"); n != 1 {
+			t.Errorf("Expected nested cell text once, found %d times:\n%s", n, text)
+		}
+		if !strings.Contains(text, "| Outer row | Inner A Inner B |") {
+			t.Errorf("Expected nested table flattened into its cell, got:\n%s", text)
+		}
+		if want := "| Linked | [Cell link](" + ts.URL + "/cell) |"; !strings.Contains(text, want) {
+			t.Errorf("Expected %q in output, got:\n%s", want, text)
+		}
+	})
+
 	t.Run("unordered and ordered lists", func(t *testing.T) {
 		text := extractMarkdown(t, map[string]any{"url": ts.URL + "/md-lists"})
 
@@ -3709,6 +3768,12 @@ func TestNavigateAndExtractTextMarkdownIntegration(t *testing.T) {
 		}
 		if strings.Contains(text, "script content") {
 			t.Error("Script content should not appear in output")
+		}
+		if strings.Contains(text, "Aria hidden paragraph") || strings.Contains(text, "decorative icon") {
+			t.Errorf("aria-hidden text should not appear in output, got:\n%s", text)
+		}
+		if !strings.Contains(text, "Shown label") {
+			t.Errorf("Expected visible siblings of aria-hidden text, got:\n%s", text)
 		}
 		if strings.Contains(text, "color: red") {
 			t.Error("Style content should not appear in output")

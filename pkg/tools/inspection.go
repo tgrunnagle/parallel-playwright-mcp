@@ -377,11 +377,47 @@ func ExtractTextHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeou
 }
 
 // extractTextAsMarkdownJS is the JavaScript code that extracts visible text from the DOM
-// and formats it as markdown. Used by navigate_and_extract_text for a cleaner, more
-// readable output compared to the hierarchical JSON structure.
+// and formats it as markdown. Shared by extract_text and navigate_and_extract_text.
+//
+// Relative link and image URLs are resolved against the page, so they come out
+// absolute; absolute URLs are kept as written.
+// Heading and table cell content goes through the inline renderer, so links inside
+// them survive. Tables read table.rows, so a nested table renders once, flattened
+// into its cell. Subtrees under aria-hidden="true" are treated as hidden.
 const extractTextAsMarkdownJS = `(selector) => {
 	const BT = String.fromCharCode(96);
 	const SKIP = new Set(['script','style','noscript','svg','template','iframe','meta','link']);
+	let cellDepth = 0;
+
+	function isHidden(node) {
+		if (node.getAttribute('aria-hidden') === 'true') return true;
+		try {
+			const style = window.getComputedStyle(node);
+			if (style.display === 'none' || style.visibility === 'hidden') return true;
+		} catch(e) {}
+		return false;
+	}
+
+	// resolveURL returns an absolute URL for a link or image attribute. Absolute
+	// values are kept as written; relative ones use the browser-resolved property.
+	function resolveURL(raw, resolved) {
+		if (!raw) return '';
+		return /^[a-z][a-z0-9+.-]*:/i.test(raw.trim()) ? raw.trim() : (resolved || '');
+	}
+
+	// oneLine collapses rendered content onto a single line.
+	function oneLine(s) {
+		return s.replace(/\s*\n\s*/g, ' ').replace(/[ \t]+/g, ' ').trim();
+	}
+
+	function renderCell(cell) {
+		cellDepth++;
+		try {
+			return oneLine(Array.from(cell.childNodes).map(md).join('')).replace(/\|/g, '\\|');
+		} finally {
+			cellDepth--;
+		}
+	}
 
 	function md(node) {
 		if (node.nodeType === Node.TEXT_NODE) {
@@ -391,17 +427,13 @@ const extractTextAsMarkdownJS = `(selector) => {
 
 		const tag = node.tagName.toLowerCase();
 		if (SKIP.has(tag)) return '';
-
-		try {
-			const style = window.getComputedStyle(node);
-			if (style.display === 'none' || style.visibility === 'hidden') return '';
-		} catch(e) {}
+		if (isHidden(node)) return '';
 
 		const inner = () => Array.from(node.childNodes).map(md).join('');
 
 		switch(tag) {
 		case 'h1': case 'h2': case 'h3': case 'h4': case 'h5': case 'h6': {
-			const t = node.textContent.trim();
+			const t = oneLine(inner());
 			return t ? '\n\n' + '#'.repeat(+tag[1]) + ' ' + t + '\n\n' : '';
 		}
 		case 'p': {
@@ -420,12 +452,16 @@ const extractTextAsMarkdownJS = `(selector) => {
 		}
 		case 'a': {
 			const t = inner().trim();
-			const href = node.getAttribute('href') || '';
-			return t && href ? '[' + t + '](' + href + ')' : (t || '');
+			const href = resolveURL(node.getAttribute('href'), node.href);
+			if (!t) return '';
+			if (!href || /^javascript:/i.test(href)) return t;
+			return '[' + t + '](' + href + ')';
 		}
 		case 'img': {
 			const alt = node.alt || node.getAttribute('aria-label') || '';
-			return alt ? '![' + alt + ']' : '';
+			if (!alt) return '';
+			const src = resolveURL(node.getAttribute('src'), node.currentSrc || node.src);
+			return src ? '![' + alt + '](' + src + ')' : alt;
 		}
 		case 'code': {
 			if (node.parentElement && node.parentElement.tagName.toLowerCase() === 'pre') {
@@ -456,18 +492,18 @@ const extractTextAsMarkdownJS = `(selector) => {
 			return '- ' + t + '\n';
 		}
 		case 'table': {
-			const rows = Array.from(node.querySelectorAll('tr'));
+			const rows = Array.from(node.rows).filter(r => !isHidden(r));
 			if (!rows.length) return '';
-			let out = '\n\n';
-			let headerDone = false;
-			for (const row of rows) {
-				const cells = Array.from(row.querySelectorAll('th, td'));
-				out += '| ' + cells.map(c => c.textContent.trim().replace(/\|/g, '\\|')).join(' | ') + ' |\n';
-				if (!headerDone) {
-					out += '| ' + cells.map(() => '---').join(' | ') + ' |\n';
-					headerDone = true;
-				}
+			const rendered = rows.map(r => Array.from(r.cells).filter(c => !isHidden(c)).map(renderCell));
+			if (cellDepth > 0) {
+				// A table nested in a cell flattens into that cell's text.
+				return ' ' + rendered.map(cells => cells.filter(Boolean).join(' ')).filter(Boolean).join(' ') + ' ';
 			}
+			let out = '\n\n';
+			rendered.forEach((cells, i) => {
+				out += '| ' + cells.join(' | ') + ' |\n';
+				if (i === 0) out += '| ' + cells.map(() => '---').join(' | ') + ' |\n';
+			});
 			return out + '\n';
 		}
 		case 'thead': case 'tbody': case 'tfoot': case 'tr': case 'th': case 'td':
