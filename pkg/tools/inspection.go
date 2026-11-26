@@ -384,9 +384,16 @@ func ExtractTextHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeou
 // Heading and table cell content goes through the inline renderer, so links inside
 // them survive. Tables read table.rows, so a nested table renders once, flattened
 // into its cell. Subtrees under aria-hidden="true" are treated as hidden.
+//
+// Form controls render inline as [<role> "<label>": <value>]; password values are
+// never emitted, only whether the field is set. Open shadow roots are walked in
+// place of the host's light DOM, with each slot rendering its assigned nodes.
+// Iframes render as an [iframe "<title or src>"] placeholder without their content.
 const extractTextAsMarkdownJS = `(selector) => {
 	const BT = String.fromCharCode(96);
-	const SKIP = new Set(['script','style','noscript','svg','template','iframe','meta','link']);
+	const SKIP = new Set(['script','style','noscript','svg','template','meta','link']);
+	const TEXTBOX_TYPES = new Set(['text','email','search','tel','url']);
+	const BUTTON_TYPES = new Set(['submit','button','reset','image']);
 	let cellDepth = 0;
 
 	function isHidden(node) {
@@ -405,6 +412,86 @@ const extractTextAsMarkdownJS = `(selector) => {
 		return /^[a-z][a-z0-9+.-]*:/i.test(raw.trim()) ? raw.trim() : (resolved || '');
 	}
 
+	// kids returns the nodes rendered in place of an element's children: an open
+	// shadow root's children, a slot's assigned nodes (or its fallback content),
+	// or the light-DOM children.
+	function kids(node) {
+		if (node.shadowRoot) return Array.from(node.shadowRoot.childNodes);
+		if (node.tagName === 'SLOT') {
+			const assigned = node.assignedNodes();
+			if (assigned.length) return assigned;
+		}
+		return Array.from(node.childNodes);
+	}
+
+	// labelText returns an element's text without the text of controls inside it.
+	function labelText(el) {
+		const clone = el.cloneNode(true);
+		clone.querySelectorAll('input,select,textarea,button').forEach(c => c.remove());
+		return clone.textContent.replace(/\s+/g, ' ').trim();
+	}
+
+	// controlLabel takes the label from the first of: aria-labelledby, aria-label,
+	// intrinsic (a button's own text), label[for=id], a wrapping label,
+	// placeholder, name.
+	function controlLabel(node, intrinsic) {
+		const root = node.getRootNode();
+		const byId = id => (root.getElementById && root.getElementById(id)) || document.getElementById(id);
+		const labelledBy = (node.getAttribute('aria-labelledby') || '').trim();
+		if (labelledBy) {
+			const t = labelledBy.split(/\s+/).map(byId).filter(Boolean).map(labelText).filter(Boolean).join(' ');
+			if (t) return t;
+		}
+		const ariaLabel = (node.getAttribute('aria-label') || '').trim();
+		if (ariaLabel) return ariaLabel;
+		if (intrinsic) return intrinsic;
+		if (node.id && root.querySelector) {
+			const forLabel = root.querySelector('label[for="' + CSS.escape(node.id) + '"]');
+			const t = forLabel ? labelText(forLabel) : '';
+			if (t) return t;
+		}
+		const wrapping = node.closest('label');
+		const wrapped = wrapping ? labelText(wrapping) : '';
+		if (wrapped) return wrapped;
+		const placeholder = (node.getAttribute('placeholder') || '').trim();
+		if (placeholder) return placeholder;
+		return (node.getAttribute('name') || '').trim();
+	}
+
+	function quote(s) {
+		return '"' + String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+	}
+
+	function token(role, label, value) {
+		const v = value === undefined ? '' : ': ' + String(value).replace(/\s+/g, ' ').trim();
+		return ' [' + role + ' ' + quote(label) + v + '] ';
+	}
+
+	function renderInput(node) {
+		const type = (node.getAttribute('type') || 'text').toLowerCase();
+		if (type === 'hidden') return '';
+		if (type === 'password') {
+			return token('password', controlLabel(node), node.value ? 'set' : 'empty');
+		}
+		if (type === 'checkbox' || type === 'radio') {
+			return token(type, controlLabel(node), node.checked ? 'checked' : 'unchecked');
+		}
+		if (BUTTON_TYPES.has(type)) {
+			let own = node.value;
+			if (!own && type === 'submit') own = 'Submit';
+			if (!own && type === 'reset') own = 'Reset';
+			if (type === 'image') own = node.alt || own;
+			return token('button', controlLabel(node, (own || '').trim()));
+		}
+		const role = type === 'number' ? 'spinbutton' : 'textbox';
+		return token(role, controlLabel(node), node.value);
+	}
+
+	function renderSelect(node) {
+		const selected = Array.from(node.selectedOptions || []).map(o => (o.label || o.text || '').trim());
+		return token('combobox', controlLabel(node), selected.join(', '));
+	}
+
 	// oneLine collapses rendered content onto a single line.
 	function oneLine(s) {
 		return s.replace(/\s*\n\s*/g, ' ').replace(/[ \t]+/g, ' ').trim();
@@ -413,7 +500,7 @@ const extractTextAsMarkdownJS = `(selector) => {
 	function renderCell(cell) {
 		cellDepth++;
 		try {
-			return oneLine(Array.from(cell.childNodes).map(md).join('')).replace(/\|/g, '\\|');
+			return oneLine(kids(cell).map(md).join('')).replace(/\|/g, '\\|');
 		} finally {
 			cellDepth--;
 		}
@@ -429,9 +516,17 @@ const extractTextAsMarkdownJS = `(selector) => {
 		if (SKIP.has(tag)) return '';
 		if (isHidden(node)) return '';
 
-		const inner = () => Array.from(node.childNodes).map(md).join('');
+		const inner = () => kids(node).map(md).join('');
 
 		switch(tag) {
+		case 'input': return renderInput(node);
+		case 'textarea': return token('textbox', controlLabel(node), node.value);
+		case 'select': return renderSelect(node);
+		case 'button': return token('button', controlLabel(node, node.textContent.replace(/\s+/g, ' ').trim()));
+		case 'iframe': {
+			const src = resolveURL(node.getAttribute('src'), node.src);
+			return ' [iframe ' + quote((node.getAttribute('title') || '').trim() || src) + '] ';
+		}
 		case 'h1': case 'h2': case 'h3': case 'h4': case 'h5': case 'h6': {
 			const t = oneLine(inner());
 			return t ? '\n\n' + '#'.repeat(+tag[1]) + ' ' + t + '\n\n' : '';
@@ -524,7 +619,16 @@ const extractTextAsMarkdownJS = `(selector) => {
 	const el = document.querySelector(selector);
 	if (!el) return null;
 
-	let text = md(el);
+	// Tidy whitespace outside fenced code: collapse runs of spaces and trim each
+	// line, so whitespace-only lines collapse with the surrounding blank lines.
+	let inFence = false;
+	let text = md(el).split('\n').map(line => {
+		if (line.trim().startsWith(BT.repeat(3))) {
+			inFence = !inFence;
+			return line.trim();
+		}
+		return inFence ? line : line.replace(/[ \t]+/g, ' ').trim();
+	}).join('\n');
 	text = text.replace(/\n{3,}/g, '\n\n').trim();
 	return text;
 }`

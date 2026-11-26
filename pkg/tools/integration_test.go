@@ -183,6 +183,49 @@ func startTestHTTPServer(t *testing.T) *httptest.Server {
 			</table>
 		</body></html>`)
 	})
+	mux.HandleFunc("/md-forms", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<!DOCTYPE html><html><body>
+			<form>
+				<label for="email">Email</label> <input id="email" type="email" value="a@b.c">
+				<label><input type="checkbox" checked> Subscribe</label>
+				<label><input type="checkbox"> Remember me</label>
+				<label for="role">Role</label>
+				<select id="role"><option value="a">Admin</option><option value="u" selected>User</option></select>
+				<input type="search" aria-label="Search box" value="query">
+				<input type="number" placeholder="Quantity" value="3">
+				<span id="bio-label">Biography</span> <textarea aria-labelledby="bio-label">Hello there</textarea>
+				<input type="radio" name="color" value="red">
+				<input type="hidden" name="csrf" value="hidden-token-value">
+				<label for="pw">Password</label> <input id="pw" type="password" value="hunter2-secret">
+				<label for="pw2">Confirm</label> <input id="pw2" type="password">
+				<button type="submit">Send</button>
+				<input type="submit" value="Go">
+			</form>
+		</body></html>`)
+	})
+	mux.HandleFunc("/md-shadow", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<!DOCTYPE html><html><body>
+			<div id="host"><span>Slotted light text</span></div>
+			<div id="host2"><p>Unslotted light text</p></div>
+			<script>
+				document.getElementById('host').attachShadow({mode: 'open'}).innerHTML =
+					'<p>Shadow text before</p><slot></slot><p>Shadow text after</p>';
+				document.getElementById('host2').attachShadow({mode: 'open'}).innerHTML =
+					'<p>Second shadow root</p>';
+			</script>
+		</body></html>`)
+	})
+	mux.HandleFunc("/md-iframe", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<!DOCTYPE html><html><body>
+			<p>Before frames</p>
+			<iframe title="Payment form" srcdoc="<p>Inside titled frame</p>"></iframe>
+			<iframe src="/md-headings"></iframe>
+			<p>After frames</p>
+		</body></html>`)
+	})
 	mux.HandleFunc("/md-code", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		fmt.Fprint(w, `<!DOCTYPE html><html><body>
@@ -3695,6 +3738,83 @@ func TestNavigateAndExtractTextMarkdownIntegration(t *testing.T) {
 		}
 		if want := "| Linked | [Cell link](" + ts.URL + "/cell) |"; !strings.Contains(text, want) {
 			t.Errorf("Expected %q in output, got:\n%s", want, text)
+		}
+	})
+
+	t.Run("form controls", func(t *testing.T) {
+		text := extractMarkdown(t, map[string]any{"url": ts.URL + "/md-forms"})
+
+		for _, want := range []string{
+			`[textbox "Email": a@b.c]`,
+			`[checkbox "Subscribe": checked]`,
+			`[checkbox "Remember me": unchecked]`,
+			`[combobox "Role": User]`,
+			`[textbox "Search box": query]`,
+			`[spinbutton "Quantity": 3]`,
+			`[textbox "Biography": Hello there]`,
+			`[radio "color": unchecked]`,
+			`[button "Send"]`,
+			`[button "Go"]`,
+		} {
+			if !strings.Contains(text, want) {
+				t.Errorf("Expected %s in output, got:\n%s", want, text)
+			}
+		}
+		if strings.Contains(text, "hidden-token-value") || strings.Contains(text, "csrf") {
+			t.Errorf("type=hidden input should be skipped, got:\n%s", text)
+		}
+	})
+
+	t.Run("password redaction", func(t *testing.T) {
+		text := extractMarkdown(t, map[string]any{"url": ts.URL + "/md-forms"})
+
+		if !strings.Contains(text, `[password "Password": set]`) {
+			t.Errorf("Expected filled password token, got:\n%s", text)
+		}
+		if !strings.Contains(text, `[password "Confirm": empty]`) {
+			t.Errorf("Expected empty password token, got:\n%s", text)
+		}
+		if strings.Contains(text, "hunter2") {
+			t.Errorf("Password value must never appear in output, got:\n%s", text)
+		}
+	})
+
+	t.Run("shadow dom", func(t *testing.T) {
+		text := extractMarkdown(t, map[string]any{"url": ts.URL + "/md-shadow"})
+
+		for _, want := range []string{"Shadow text before", "Shadow text after", "Second shadow root"} {
+			if !strings.Contains(text, want) {
+				t.Errorf("Expected shadow root text %q, got:\n%s", want, text)
+			}
+		}
+		if n := strings.Count(text, "Slotted light text"); n != 1 {
+			t.Errorf("Expected slotted light-DOM text exactly once, found %d times:\n%s", n, text)
+		}
+		if before, after := strings.Index(text, "Shadow text before"), strings.Index(text, "Slotted light text"); before > after {
+			t.Errorf("Expected slotted text rendered in place of its slot, got:\n%s", text)
+		}
+		if strings.Contains(text, "Unslotted light text") {
+			t.Errorf("Light-DOM children with no slot are not rendered by the browser, got:\n%s", text)
+		}
+	})
+
+	t.Run("iframe placeholder", func(t *testing.T) {
+		text := extractMarkdown(t, map[string]any{"url": ts.URL + "/md-iframe"})
+
+		if n := strings.Count(text, `[iframe "Payment form"]`); n != 1 {
+			t.Errorf("Expected one titled iframe token, found %d:\n%s", n, text)
+		}
+		if want := `[iframe "` + ts.URL + `/md-headings"]`; strings.Count(text, want) != 1 {
+			t.Errorf("Expected one %s token, got:\n%s", want, text)
+		}
+		if n := strings.Count(text, "[iframe "); n != 2 {
+			t.Errorf("Expected 2 iframe tokens, found %d:\n%s", n, text)
+		}
+		if strings.Contains(text, "Inside titled frame") || strings.Contains(text, "Main Title") {
+			t.Errorf("Iframe content should be absent, got:\n%s", text)
+		}
+		if !strings.Contains(text, "Before frames") || !strings.Contains(text, "After frames") {
+			t.Errorf("Expected surrounding text, got:\n%s", text)
 		}
 	})
 
