@@ -719,7 +719,7 @@ func TestExtractTextHandler(t *testing.T) {
 			mgr := &mockSessionManager{
 				getSessionFunc: tt.getSessionFunc,
 			}
-			handler := ExtractTextHandler(mgr, DefaultTimeoutConfig())
+			handler := ExtractTextHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{
@@ -750,6 +750,8 @@ func TestExtractTextHandler(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("pagination", testExtractTextPagination)
 }
 
 // TestGetHTMLTool tests the get_html tool definition.
@@ -844,7 +846,7 @@ func TestGetHTMLHandler(t *testing.T) {
 			mgr := &mockSessionManager{
 				getSessionFunc: tt.getSessionFunc,
 			}
-			handler := GetHTMLHandler(mgr, DefaultTimeoutConfig())
+			handler := GetHTMLHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{
@@ -985,7 +987,7 @@ func TestEvaluateHandler(t *testing.T) {
 			mgr := &mockSessionManager{
 				getSessionFunc: tt.getSessionFunc,
 			}
-			handler := EvaluateHandler(mgr, DefaultTimeoutConfig())
+			handler := EvaluateHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{
@@ -1016,6 +1018,8 @@ func TestEvaluateHandler(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("pagination", testEvaluateTruncation)
 }
 
 // TestQuerySelectorTool tests the query_selector tool definition.
@@ -1419,7 +1423,7 @@ func TestNavigateAndExtractTextHandler(t *testing.T) {
 			mgr := &mockSessionManager{
 				createSessionFunc: tt.createSessionFunc,
 			}
-			handler := NavigateAndExtractTextHandler(mgr, DefaultTimeoutConfig())
+			handler := NavigateAndExtractTextHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{

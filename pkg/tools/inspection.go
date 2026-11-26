@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -301,11 +302,17 @@ func ExtractTextTool() mcp.Tool {
 		mcp.WithString("selector",
 			mcp.Description("CSS selector to extract from (defaults to body)"),
 		),
+		mcp.WithNumber("maxChars",
+			mcp.Description("Maximum characters to return (default and upper bound: the server's response budget)"),
+		),
+		mcp.WithNumber("offset",
+			mcp.Description("Character offset to start from, for reading the next slice of truncated output (default: 0)"),
+		),
 	)
 }
 
 // ExtractTextHandler returns the handler function for extract_text.
-func ExtractTextHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
+func ExtractTextHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig, responseConfig *ResponseConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		slog.Debug("tool handler called", "tool", "extract_text")
 
@@ -322,6 +329,11 @@ func ExtractTextHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeou
 		if sessionID == "" {
 			slog.Error("missing required sessionId", "tool", "extract_text")
 			return mcp.NewToolResultError("sessionId is required"), nil
+		}
+
+		maxChars, offset, err := textPageParams(args, responseConfig.budget())
+		if err != nil {
+			return invalidParamsResult(err), nil
 		}
 
 		// Get session with ownership validation
@@ -358,11 +370,11 @@ func ExtractTextHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeou
 		}
 
 		text = strings.TrimSpace(text)
-		if text == "" {
+		if text == "" && offset == 0 {
 			return mcp.NewToolResultText("No visible text found on the page."), nil
 		}
 
-		return mcp.NewToolResultText(text), nil
+		return textPageResult(text, offset, maxChars), nil
 	}
 }
 
@@ -497,11 +509,17 @@ func GetHTMLTool() mcp.Tool {
 		mcp.WithBoolean("outer",
 			mcp.Description("Return outerHTML instead of innerHTML (default: false)"),
 		),
+		mcp.WithNumber("maxChars",
+			mcp.Description("Maximum characters to return (default and upper bound: the server's response budget)"),
+		),
+		mcp.WithNumber("offset",
+			mcp.Description("Character offset to start from, for reading the next slice of truncated output (default: 0)"),
+		),
 	)
 }
 
 // GetHTMLHandler returns the handler function for get_html.
-func GetHTMLHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
+func GetHTMLHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig, responseConfig *ResponseConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		slog.Debug("tool handler called", "tool", "get_html")
 
@@ -518,6 +536,11 @@ func GetHTMLHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCon
 		if sessionID == "" {
 			slog.Error("missing required sessionId", "tool", "get_html")
 			return mcp.NewToolResultError("sessionId is required"), nil
+		}
+
+		maxChars, offset, err := textPageParams(args, responseConfig.budget())
+		if err != nil {
+			return invalidParamsResult(err), nil
 		}
 
 		// Get session with ownership validation
@@ -545,7 +568,6 @@ func GetHTMLHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCon
 		}
 
 		var html string
-		var err error
 
 		if selector == "" {
 			// Get entire page content
@@ -579,7 +601,7 @@ func GetHTMLHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCon
 			}
 		}
 
-		return mcp.NewToolResultText(html), nil
+		return textPageResult(html, offset, maxChars), nil
 	}
 }
 
@@ -595,11 +617,14 @@ func EvaluateTool() mcp.Tool {
 			mcp.Required(),
 			mcp.Description("JavaScript expression to evaluate"),
 		),
+		mcp.WithNumber("maxChars",
+			mcp.Description("Maximum characters of result JSON to return (default and upper bound: the server's response budget). Output over the limit is cut, not paged"),
+		),
 	)
 }
 
 // EvaluateHandler returns the handler function for evaluate.
-func EvaluateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
+func EvaluateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig, responseConfig *ResponseConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		slog.Debug("tool handler called", "tool", "evaluate")
 
@@ -623,6 +648,11 @@ func EvaluateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 		if expression == "" {
 			slog.Error("missing required expression", "tool", "evaluate", "sessionID", sessionID)
 			return mcp.NewToolResultError("expression is required"), nil
+		}
+
+		maxChars, err := maxCharsParam(args, responseConfig.budget())
+		if err != nil {
+			return invalidParamsResult(err), nil
 		}
 
 		slog.Debug("evaluating expression", "tool", "evaluate", "sessionID", sessionID)
@@ -677,7 +707,11 @@ func EvaluateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 				return mcp.NewToolResultError(fmt.Sprintf("Failed to serialize result: %v", err)), nil
 			}
 
-			return mcp.NewToolResultText(string(jsonBytes)), nil
+			resultJSON := string(jsonBytes)
+			if utf8.RuneCountInString(resultJSON) > maxChars {
+				return pagedResult(runeSlice(resultJSON, 0, maxChars), evaluateTruncatedNotice), nil
+			}
+			return mcp.NewToolResultText(resultJSON), nil
 		case <-ctx.Done():
 			slog.Warn("evaluate returning due to context cancellation; Playwright goroutine still running",
 				"tool", "evaluate", "sessionID", sessionID, "error", ctx.Err())
@@ -1203,11 +1237,17 @@ func NavigateAndExtractTextTool() mcp.Tool {
 			mcp.Description("Browser to use: chromium, firefox, webkit"),
 			mcp.Enum("chromium", "firefox", "webkit"),
 		),
+		mcp.WithNumber("maxChars",
+			mcp.Description("Maximum characters to return (default and upper bound: the server's response budget)"),
+		),
+		mcp.WithNumber("offset",
+			mcp.Description("Character offset to start from, for reading the next slice of truncated output (default: 0)"),
+		),
 	)
 }
 
 // NavigateAndExtractTextHandler returns the handler function for navigate_and_extract_text.
-func NavigateAndExtractTextHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
+func NavigateAndExtractTextHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig, responseConfig *ResponseConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		slog.Debug("tool handler called", "tool", "navigate_and_extract_text")
 
@@ -1224,6 +1264,11 @@ func NavigateAndExtractTextHandler(mgr session.BrowserSessionManager, timeoutCon
 		if url == "" {
 			slog.Error("missing required url", "tool", "navigate_and_extract_text")
 			return mcp.NewToolResultError("url is required"), nil
+		}
+
+		maxChars, offset, err := textPageParams(args, responseConfig.budget())
+		if err != nil {
+			return invalidParamsResult(err), nil
 		}
 
 		// Parse browserType with default
@@ -1305,10 +1350,10 @@ func NavigateAndExtractTextHandler(mgr session.BrowserSessionManager, timeoutCon
 		}
 
 		text = strings.TrimSpace(text)
-		if text == "" {
+		if text == "" && offset == 0 {
 			return mcp.NewToolResultText("No visible text found on the page."), nil
 		}
 
-		return mcp.NewToolResultText(text), nil
+		return textPageResult(text, offset, maxChars), nil
 	}
 }

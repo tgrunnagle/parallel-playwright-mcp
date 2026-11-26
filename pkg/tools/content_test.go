@@ -1,12 +1,16 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
+	"github.com/mxschmitt/playwright-go"
+	"github.com/tgrunnagle/parallel-playwright-mcp/pkg/session"
 )
 
 // textBlocks returns the text of every text content block in a result.
@@ -404,4 +408,191 @@ func TestPageParams(t *testing.T) {
 			}
 		})
 	}
+}
+
+// mockContentPage is a playwright.Page whose Evaluate returns canned values. Any
+// other method panics through the nil embedded interface, so a test fails loudly
+// if a handler touches the page in an unexpected way.
+type mockContentPage struct {
+	playwright.Page
+	evaluateFunc func(expression string, arg ...any) (any, error)
+	evaluated    int
+}
+
+func (m *mockContentPage) Evaluate(expression string, arg ...any) (any, error) {
+	m.evaluated++
+	if m.evaluateFunc == nil {
+		panic("mockContentPage.Evaluate called without evaluateFunc")
+	}
+	return m.evaluateFunc(expression, arg...)
+}
+
+// sessionWithPage returns a session manager whose only session has page active.
+func sessionWithPage(page playwright.Page) *mockSessionManager {
+	return &mockSessionManager{
+		getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+			return &session.BrowserSession{
+				ID:          "sess-test",
+				Pages:       map[string]playwright.Page{"tab-1": page},
+				ActiveTabID: "tab-1",
+			}, true
+		},
+	}
+}
+
+// callTool invokes a handler with the given arguments and returns its result.
+func callTool(t *testing.T, handler server.ToolHandlerFunc, name string, args map[string]any) *mcp.CallToolResult {
+	t.Helper()
+	result, err := handler(context.Background(), mcp.CallToolRequest{
+		Params: mcp.CallToolParams{Name: name, Arguments: args},
+	})
+	if err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("handler returned nil result")
+	}
+	return result
+}
+
+// testExtractTextPagination covers maxChars/offset validation, clamping, and
+// slicing for extract_text. It runs as a subtest of TestExtractTextHandler.
+func testExtractTextPagination(t *testing.T) {
+	longText := strings.Repeat("0123456789", 30) // 300 runes
+
+	for _, tc := range []struct {
+		name  string
+		args  map[string]any
+		param string
+	}{
+		{"negative maxChars", map[string]any{"maxChars": float64(-1)}, "maxChars"},
+		{"negative offset", map[string]any{"offset": float64(-5)}, "offset"},
+	} {
+		t.Run(tc.name+" is rejected before the page is touched", func(t *testing.T) {
+			page := &mockContentPage{}
+			getSessionCalled := false
+			mgr := &mockSessionManager{
+				getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+					getSessionCalled = true
+					return &session.BrowserSession{
+						ID:          "sess-test",
+						Pages:       map[string]playwright.Page{"tab-1": page},
+						ActiveTabID: "tab-1",
+					}, true
+				},
+			}
+			args := map[string]any{"sessionId": "sess-test"}
+			for k, v := range tc.args {
+				args[k] = v
+			}
+			result := callTool(t, ExtractTextHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig()), "extract_text", args)
+			if !result.IsError {
+				t.Fatal("expected error result")
+			}
+			text := extractTextContent(result.Content)
+			if !strings.HasPrefix(text, "[-32602]") || !strings.Contains(text, tc.param) {
+				t.Errorf("error = %q, want [-32602] naming %s", text, tc.param)
+			}
+			if page.evaluated != 0 || getSessionCalled {
+				t.Error("page or session was touched before validation")
+			}
+		})
+	}
+
+	t.Run("maxChars above the budget is clamped to the budget", func(t *testing.T) {
+		page := &mockContentPage{evaluateFunc: func(string, ...any) (any, error) { return longText, nil }}
+		handler := ExtractTextHandler(sessionWithPage(page), DefaultTimeoutConfig(), &ResponseConfig{MaxResponseChars: 100})
+		result := callTool(t, handler, "extract_text", map[string]any{"sessionId": "sess-test", "maxChars": float64(5000)})
+		blocks := textBlocks(t, result)
+		if len(blocks) != 2 {
+			t.Fatalf("got %d blocks, want 2", len(blocks))
+		}
+		if n := utf8.RuneCountInString(blocks[0]); n != 100 {
+			t.Errorf("first block is %d runes, want 100 (the budget)", n)
+		}
+		if blocks[1] != "[truncated: 200 more characters; call again with offset=100]" {
+			t.Errorf("notice = %q", blocks[1])
+		}
+	})
+
+	t.Run("offset returns the next slice", func(t *testing.T) {
+		page := &mockContentPage{evaluateFunc: func(string, ...any) (any, error) { return longText, nil }}
+		handler := ExtractTextHandler(sessionWithPage(page), DefaultTimeoutConfig(), DefaultResponseConfig())
+		result := callTool(t, handler, "extract_text", map[string]any{"sessionId": "sess-test", "maxChars": float64(100), "offset": float64(250)})
+		blocks := textBlocks(t, result)
+		if blocks[0] != longText[250:] || blocks[1] != "[end of content: 300 characters]" {
+			t.Errorf("blocks = %q", blocks)
+		}
+	})
+
+	t.Run("text within budget is one block", func(t *testing.T) {
+		page := &mockContentPage{evaluateFunc: func(string, ...any) (any, error) { return "short text", nil }}
+		handler := ExtractTextHandler(sessionWithPage(page), DefaultTimeoutConfig(), nil)
+		result := callTool(t, handler, "extract_text", map[string]any{"sessionId": "sess-test"})
+		if blocks := textBlocks(t, result); len(blocks) != 1 || blocks[0] != "short text" {
+			t.Errorf("blocks = %q", blocks)
+		}
+	})
+}
+
+// testEvaluateTruncation covers maxChars for evaluate. It runs as a subtest of
+// TestEvaluateHandler.
+func testEvaluateTruncation(t *testing.T) {
+	large := strings.Repeat("x", 5000)
+
+	t.Run("over budget is cut with incomplete-JSON notice", func(t *testing.T) {
+		page := &mockContentPage{evaluateFunc: func(string, ...any) (any, error) { return large, nil }}
+		handler := EvaluateHandler(sessionWithPage(page), DefaultTimeoutConfig(), &ResponseConfig{MaxResponseChars: 1000})
+		result := callTool(t, handler, "evaluate", map[string]any{"sessionId": "sess-test", "expression": "big()"})
+		blocks := textBlocks(t, result)
+		if len(blocks) != 2 {
+			t.Fatalf("got %d blocks, want 2", len(blocks))
+		}
+		if n := utf8.RuneCountInString(blocks[0]); n != 1000 {
+			t.Errorf("first block is %d runes, want 1000", n)
+		}
+		if blocks[1] != "[truncated: result JSON is incomplete; narrow the expression]" {
+			t.Errorf("notice = %q", blocks[1])
+		}
+	})
+
+	t.Run("maxChars narrows the cut", func(t *testing.T) {
+		page := &mockContentPage{evaluateFunc: func(string, ...any) (any, error) { return large, nil }}
+		handler := EvaluateHandler(sessionWithPage(page), DefaultTimeoutConfig(), DefaultResponseConfig())
+		result := callTool(t, handler, "evaluate", map[string]any{"sessionId": "sess-test", "expression": "big()", "maxChars": float64(10)})
+		if blocks := textBlocks(t, result); blocks[0] != "\"xxxxxxxxx" {
+			t.Errorf("first block = %q", blocks[0])
+		}
+	})
+
+	t.Run("within budget is unchanged", func(t *testing.T) {
+		page := &mockContentPage{evaluateFunc: func(string, ...any) (any, error) { return float64(2), nil }}
+		handler := EvaluateHandler(sessionWithPage(page), DefaultTimeoutConfig(), DefaultResponseConfig())
+		result := callTool(t, handler, "evaluate", map[string]any{"sessionId": "sess-test", "expression": "1+1"})
+		if blocks := textBlocks(t, result); len(blocks) != 1 || blocks[0] != "2" {
+			t.Errorf("blocks = %q", blocks)
+		}
+	})
+
+	t.Run("negative maxChars is rejected", func(t *testing.T) {
+		page := &mockContentPage{}
+		handler := EvaluateHandler(sessionWithPage(page), DefaultTimeoutConfig(), DefaultResponseConfig())
+		result := callTool(t, handler, "evaluate", map[string]any{"sessionId": "sess-test", "expression": "1", "maxChars": float64(-1)})
+		if text := extractTextContent(result.Content); !result.IsError || !strings.HasPrefix(text, "[-32602]") {
+			t.Errorf("result = %q, want [-32602]", text)
+		}
+		if page.evaluated != 0 {
+			t.Error("page was evaluated before validation")
+		}
+	})
+
+	t.Run("evaluate has no offset parameter", func(t *testing.T) {
+		props := EvaluateTool().InputSchema.Properties
+		if _, ok := props["offset"]; ok {
+			t.Error("evaluate should not declare offset")
+		}
+		if _, ok := props["maxChars"]; !ok {
+			t.Error("evaluate should declare maxChars")
+		}
+	})
 }

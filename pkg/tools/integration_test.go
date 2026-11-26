@@ -1329,7 +1329,7 @@ func TestExtractTextToolIntegration(t *testing.T) {
 
 	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
 	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
-	extractTextHandler := ExtractTextHandler(mgr, DefaultTimeoutConfig())
+	extractTextHandler := ExtractTextHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -1450,7 +1450,7 @@ func TestGetHTMLToolIntegration(t *testing.T) {
 
 	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
 	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
-	getHTMLHandler := GetHTMLHandler(mgr, DefaultTimeoutConfig())
+	getHTMLHandler := GetHTMLHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -1569,7 +1569,7 @@ func TestEvaluateToolIntegration(t *testing.T) {
 
 	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
 	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
-	evaluateHandler := EvaluateHandler(mgr, DefaultTimeoutConfig())
+	evaluateHandler := EvaluateHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -1908,7 +1908,7 @@ func TestGetConsoleLogsToolIntegration(t *testing.T) {
 
 	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
 	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
-	evaluateHandler := EvaluateHandler(mgr, DefaultTimeoutConfig())
+	evaluateHandler := EvaluateHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 	consoleLogsHandler := GetConsoleLogsHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
@@ -3274,7 +3274,7 @@ func TestTimeoutBehaviorIntegration(t *testing.T) {
 			Element:    5 * time.Second,
 			Script:     1 * time.Second,
 		}
-		evalHandler := EvaluateHandler(mgr, shortScriptConfig)
+		evalHandler := EvaluateHandler(mgr, shortScriptConfig, DefaultResponseConfig())
 
 		// JavaScript that runs for a long time (Promise that resolves after 30s)
 		req := mcp.CallToolRequest{
@@ -3585,7 +3585,7 @@ func TestNavigateAndExtractTextMarkdownIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	handler := NavigateAndExtractTextHandler(mgr, DefaultTimeoutConfig())
+	handler := NavigateAndExtractTextHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 	ctx := context.Background()
 	ts := startTestHTTPServer(t)
 
