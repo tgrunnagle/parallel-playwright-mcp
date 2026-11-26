@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -595,4 +596,204 @@ func testEvaluateTruncation(t *testing.T) {
 			t.Error("evaluate should declare maxChars")
 		}
 	})
+}
+
+// testConsoleLogsPagination covers newest-first selection and paging for
+// get_console_logs. It runs as a subtest of TestGetConsoleLogsHandler.
+func testConsoleLogsPagination(t *testing.T) {
+	newSession := func(n int, levelOf func(i int) session.ConsoleLogLevel) *mockSessionManager {
+		buf := session.NewConsoleLogBuffer(100)
+		for i := 1; i <= n; i++ {
+			buf.Add(session.ConsoleLogEntry{Level: levelOf(i), Text: fmt.Sprintf("entry %d", i)})
+		}
+		return &mockSessionManager{
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				return &session.BrowserSession{ID: "sess-test", ConsoleLogs: buf}, true
+			},
+		}
+	}
+	allLog := func(int) session.ConsoleLogLevel { return session.ConsoleLogLevelLog }
+
+	decode := func(t *testing.T, result *mcp.CallToolResult) ([]session.ConsoleLogEntry, listPageMeta) {
+		t.Helper()
+		blocks := textBlocks(t, result)
+		if len(blocks) != 2 {
+			t.Fatalf("got %d blocks, want entries and pagination block: %q", len(blocks), blocks)
+		}
+		var entries []session.ConsoleLogEntry
+		if err := json.Unmarshal([]byte(blocks[0]), &entries); err != nil {
+			t.Fatalf("entries: %v", err)
+		}
+		var meta listPageMeta
+		if err := json.Unmarshal([]byte(blocks[1]), &meta); err != nil {
+			t.Fatalf("meta: %v", err)
+		}
+		return entries, meta
+	}
+
+	t.Run("no limit returns the newest 50 in chronological order", func(t *testing.T) {
+		handler := GetConsoleLogsHandler(newSession(80, allLog), DefaultTimeoutConfig(), DefaultResponseConfig())
+		entries, meta := decode(t, callTool(t, handler, "get_console_logs", map[string]any{"sessionId": "sess-test"}))
+		if len(entries) != 50 {
+			t.Fatalf("got %d entries, want 50", len(entries))
+		}
+		for i, e := range entries {
+			if want := fmt.Sprintf("entry %d", 31+i); e.Text != want {
+				t.Fatalf("entries[%d] = %q, want %q", i, e.Text, want)
+			}
+		}
+		if meta != (listPageMeta{Total: 80, Offset: 0, Returned: 50, HasMore: true}) {
+			t.Errorf("meta = %+v", meta)
+		}
+	})
+
+	t.Run("offset skips the newest entries", func(t *testing.T) {
+		handler := GetConsoleLogsHandler(newSession(80, allLog), DefaultTimeoutConfig(), DefaultResponseConfig())
+		entries, meta := decode(t, callTool(t, handler, "get_console_logs", map[string]any{
+			"sessionId": "sess-test", "limit": float64(10), "offset": float64(5),
+		}))
+		if len(entries) != 10 || entries[0].Text != "entry 66" || entries[9].Text != "entry 75" {
+			t.Errorf("got %d entries %q..%q, want entry 66..75", len(entries), entries[0].Text, entries[len(entries)-1].Text)
+		}
+		if !meta.HasMore || meta.Offset != 5 {
+			t.Errorf("meta = %+v", meta)
+		}
+	})
+
+	t.Run("total counts entries after the level filter", func(t *testing.T) {
+		levelOf := func(i int) session.ConsoleLogLevel {
+			if i%4 == 0 {
+				return session.ConsoleLogLevelError
+			}
+			return session.ConsoleLogLevelLog
+		}
+		handler := GetConsoleLogsHandler(newSession(80, levelOf), DefaultTimeoutConfig(), DefaultResponseConfig())
+		entries, meta := decode(t, callTool(t, handler, "get_console_logs", map[string]any{
+			"sessionId": "sess-test", "level": "error",
+		}))
+		if meta.Total != 20 || len(entries) != 20 || meta.HasMore {
+			t.Errorf("got %d entries, meta %+v; want all 20 errors", len(entries), meta)
+		}
+	})
+
+	t.Run("invalid limit is rejected", func(t *testing.T) {
+		handler := GetConsoleLogsHandler(newSession(1, allLog), DefaultTimeoutConfig(), DefaultResponseConfig())
+		result := callTool(t, handler, "get_console_logs", map[string]any{"sessionId": "sess-test", "limit": float64(-1)})
+		if text := extractTextContent(result.Content); !result.IsError || !strings.Contains(text, "[-32602] Invalid parameters (parameter: limit)") {
+			t.Errorf("result = %q", text)
+		}
+	})
+}
+
+// mockElementHandle is a playwright.ElementHandle with canned info.
+type mockElementHandle struct {
+	playwright.ElementHandle
+	info map[string]any
+}
+
+func (m *mockElementHandle) Evaluate(expression string, arg ...any) (any, error) {
+	return m.info, nil
+}
+
+func (m *mockElementHandle) BoundingBox() (*playwright.Rect, error) {
+	return &playwright.Rect{X: 1, Y: 2, Width: 3, Height: 4}, nil
+}
+
+// mockQueryPage is a playwright.Page that answers QuerySelector(All) with mocks.
+type mockQueryPage struct {
+	playwright.Page
+	elements []playwright.ElementHandle
+}
+
+func (m *mockQueryPage) QuerySelector(selector string, options ...playwright.PageQuerySelectorOptions) (playwright.ElementHandle, error) {
+	if len(m.elements) == 0 {
+		return nil, nil
+	}
+	return m.elements[0], nil
+}
+
+func (m *mockQueryPage) QuerySelectorAll(selector string) ([]playwright.ElementHandle, error) {
+	return m.elements, nil
+}
+
+// testQuerySelectorPagination covers query_selector with and without all. It
+// runs as a subtest of TestQuerySelectorHandler.
+func testQuerySelectorPagination(t *testing.T) {
+	page := &mockQueryPage{}
+	for i := 0; i < 70; i++ {
+		page.elements = append(page.elements, &mockElementHandle{info: map[string]any{
+			"tag":        "li",
+			"attributes": map[string]any{"id": fmt.Sprintf("item-%d", i)},
+			"text":       fmt.Sprintf("Item %d", i),
+		}})
+	}
+	handler := QuerySelectorHandler(sessionWithPage(page), DefaultTimeoutConfig(), DefaultResponseConfig())
+
+	t.Run("without all returns a single element object", func(t *testing.T) {
+		result := callTool(t, handler, "query_selector", map[string]any{"sessionId": "sess-test", "selector": "li"})
+		blocks := textBlocks(t, result)
+		if len(blocks) != 1 {
+			t.Fatalf("got %d blocks, want 1", len(blocks))
+		}
+		var info ElementInfo
+		if err := json.Unmarshal([]byte(blocks[0]), &info); err != nil {
+			t.Fatalf("not a single element object: %v\n%s", err, blocks[0])
+		}
+		if info.Tag != "li" || info.Text != "Item 0" || info.BoundingBox == nil {
+			t.Errorf("info = %+v", info)
+		}
+	})
+
+	t.Run("with all pages by item", func(t *testing.T) {
+		result := callTool(t, handler, "query_selector", map[string]any{
+			"sessionId": "sess-test", "selector": "li", "all": true, "offset": float64(60),
+		})
+		blocks := textBlocks(t, result)
+		if len(blocks) != 2 {
+			t.Fatalf("got %d blocks, want 2", len(blocks))
+		}
+		var infos []ElementInfo
+		if err := json.Unmarshal([]byte(blocks[0]), &infos); err != nil {
+			t.Fatalf("first block is not a bare array: %v", err)
+		}
+		if len(infos) != 10 || infos[0].Text != "Item 60" {
+			t.Errorf("got %d infos", len(infos))
+		}
+		var meta listPageMeta
+		if err := json.Unmarshal([]byte(blocks[1]), &meta); err != nil {
+			t.Fatal(err)
+		}
+		if meta != (listPageMeta{Total: 70, Offset: 60, Returned: 10, HasMore: false}) {
+			t.Errorf("meta = %+v", meta)
+		}
+	})
+}
+
+// testGetLinksPagination covers get_links paging. It runs as a subtest of
+// TestGetLinksHandler.
+func testGetLinksPagination(t *testing.T) {
+	links := make([]any, 120)
+	for i := range links {
+		links[i] = map[string]any{"href": fmt.Sprintf("http://host/%d", i), "label": fmt.Sprintf("Link %d", i)}
+	}
+	page := &mockContentPage{evaluateFunc: func(string, ...any) (any, error) { return links, nil }}
+	handler := GetLinksHandler(sessionWithPage(page), DefaultTimeoutConfig(), DefaultResponseConfig())
+
+	result := callTool(t, handler, "get_links", map[string]any{"sessionId": "sess-test"})
+	blocks := textBlocks(t, result)
+	var got []LinkInfo
+	if err := json.Unmarshal([]byte(blocks[0]), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 50 || blocks[1] != `{"total":120,"offset":0,"returned":50,"hasMore":true}` {
+		t.Errorf("got %d links, meta %s", len(got), blocks[1])
+	}
+
+	result = callTool(t, handler, "get_links", map[string]any{"sessionId": "sess-test", "limit": float64(0)})
+	if !result.IsError || !strings.Contains(extractTextContent(result.Content), "(parameter: limit)") {
+		t.Errorf("limit 0 = %q, want invalid params", extractTextContent(result.Content))
+	}
+	if page.evaluated != 1 {
+		t.Errorf("page evaluated %d times, want 1 (invalid call must not touch it)", page.evaluated)
+	}
 }

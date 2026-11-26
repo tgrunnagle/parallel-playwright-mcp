@@ -207,16 +207,16 @@ func run(ctx context.Context, emergencyCleanup **shutdown.EmergencyCleanup) erro
 	addTool(tools.SessionCloseTool(), tools.SessionCloseHandler(sessionMgr, timeoutConfig))
 
 	// Register inspection tools
-	addTool(tools.GetConsoleLogsTool(), tools.GetConsoleLogsHandler(sessionMgr, timeoutConfig))
-	addTool(tools.GetNetworkLogsTool(), tools.GetNetworkLogsHandler(sessionMgr, timeoutConfig))
+	addTool(tools.GetConsoleLogsTool(), tools.GetConsoleLogsHandler(sessionMgr, timeoutConfig, responseConfig))
+	addTool(tools.GetNetworkLogsTool(), tools.GetNetworkLogsHandler(sessionMgr, timeoutConfig, responseConfig))
 	addTool(tools.ScreenshotTool(), tools.ScreenshotHandler(sessionMgr, timeoutConfig))
 	addTool(tools.ExtractTextTool(), tools.ExtractTextHandler(sessionMgr, timeoutConfig, responseConfig))
 	addTool(tools.GetHTMLTool(), tools.GetHTMLHandler(sessionMgr, timeoutConfig, responseConfig))
 	addTool(tools.EvaluateTool(), tools.EvaluateHandler(sessionMgr, timeoutConfig, responseConfig))
-	addTool(tools.QuerySelectorTool(), tools.QuerySelectorHandler(sessionMgr, timeoutConfig))
+	addTool(tools.QuerySelectorTool(), tools.QuerySelectorHandler(sessionMgr, timeoutConfig, responseConfig))
 	addTool(tools.GetAccessibilityTreeTool(), tools.GetAccessibilityTreeHandler(sessionMgr, timeoutConfig))
 	addTool(tools.NavigateAndExtractTextTool(), tools.NavigateAndExtractTextHandler(sessionMgr, timeoutConfig, responseConfig))
-	addTool(tools.GetLinksTool(), tools.GetLinksHandler(sessionMgr, timeoutConfig))
+	addTool(tools.GetLinksTool(), tools.GetLinksHandler(sessionMgr, timeoutConfig, responseConfig))
 
 	// Register navigation tools
 	addTool(tools.NavigateTool(), tools.NavigateHandler(sessionMgr, timeoutConfig))

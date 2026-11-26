@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -29,6 +30,9 @@ func GetConsoleLogsTool() mcp.Tool {
 		mcp.WithNumber("limit",
 			mcp.Description("Maximum number of entries to return (default: 50)"),
 		),
+		mcp.WithNumber("offset",
+			mcp.Description("Number of newest matching entries to skip (default: 0). Entries are selected newest first and returned oldest first; the buffer is live, so offsets and total shift as new entries arrive"),
+		),
 		mcp.WithString("level",
 			mcp.Enum("log", "info", "warn", "error", "debug"),
 			mcp.Description("Filter by log level (returns all levels if not specified)"),
@@ -37,7 +41,7 @@ func GetConsoleLogsTool() mcp.Tool {
 }
 
 // GetConsoleLogsHandler returns the handler function for get_console_logs.
-func GetConsoleLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
+func GetConsoleLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig, responseConfig *ResponseConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		slog.Debug("tool handler called", "tool", "get_console_logs")
 
@@ -56,6 +60,11 @@ func GetConsoleLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *Tim
 			return mcp.NewToolResultError("sessionId is required"), nil
 		}
 
+		limit, offset, err := listPageParams(args)
+		if err != nil {
+			return invalidParamsResult(err), nil
+		}
+
 		// Get session with ownership validation
 		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
 		if !ok {
@@ -66,17 +75,6 @@ func GetConsoleLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *Tim
 		// Check if ConsoleLogs buffer exists
 		if sess.ConsoleLogs == nil {
 			return mcp.NewToolResultError("Console log buffer not initialized for this session"), nil
-		}
-
-		// Extract limit parameter with default
-		limit := 50
-		if limitVal, ok := args["limit"]; ok && limitVal != nil {
-			switch v := limitVal.(type) {
-			case float64:
-				limit = int(v)
-			case int:
-				limit = v
-			}
 		}
 
 		// Extract and validate level filter parameter
@@ -91,16 +89,16 @@ func GetConsoleLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *Tim
 			}
 		}
 
-		// Retrieve console logs from session buffer
-		entries := sess.ConsoleLogs.Get(limit, level)
+		// Retrieve all matching entries (chronological), then select newest first:
+		// offset k skips the k newest entries. The page is returned oldest first.
+		entries := sess.ConsoleLogs.Get(0, level)
+		slices.Reverse(entries)
 
-		// Serialize entries to JSON
-		jsonBytes, err := json.Marshal(entries)
+		result, err := paginateItems(entries, offset, limit, responseConfig.budget(), true)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to serialize console logs: %v", err)), nil
 		}
-
-		return mcp.NewToolResultText(string(jsonBytes)), nil
+		return result, nil
 	}
 }
 
@@ -751,11 +749,17 @@ func QuerySelectorTool() mcp.Tool {
 		mcp.WithBoolean("all",
 			mcp.Description("Return all matching elements (default: false, first match only)"),
 		),
+		mcp.WithNumber("limit",
+			mcp.Description("With all: maximum number of elements to return (default: 50)"),
+		),
+		mcp.WithNumber("offset",
+			mcp.Description("With all: number of matching elements to skip (default: 0)"),
+		),
 	)
 }
 
 // QuerySelectorHandler returns the handler function for query_selector.
-func QuerySelectorHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
+func QuerySelectorHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig, responseConfig *ResponseConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		slog.Debug("tool handler called", "tool", "query_selector")
 
@@ -779,6 +783,11 @@ func QuerySelectorHandler(mgr session.BrowserSessionManager, timeoutConfig *Time
 		if selector == "" {
 			slog.Error("missing required selector", "tool", "query_selector", "sessionID", sessionID)
 			return mcp.NewToolResultError("selector is required"), nil
+		}
+
+		limit, offset, err := listPageParams(args)
+		if err != nil {
+			return invalidParamsResult(err), nil
 		}
 
 		slog.Debug("querying selector", "tool", "query_selector", "sessionID", sessionID, "selector", selector)
@@ -825,12 +834,11 @@ func QuerySelectorHandler(mgr session.BrowserSessionManager, timeoutConfig *Time
 				infos = append(infos, *info)
 			}
 
-			jsonBytes, err := json.Marshal(infos)
+			result, err := paginateItems(infos, offset, limit, responseConfig.budget(), false)
 			if err != nil {
 				return mcp.NewToolResultError(fmt.Sprintf("Failed to serialize element info: %v", err)), nil
 			}
-
-			return mcp.NewToolResultText(string(jsonBytes)), nil
+			return result, nil
 		}
 
 		// Query single element
@@ -1139,11 +1147,17 @@ func GetLinksTool() mcp.Tool {
 		mcp.WithNumber("timeout",
 			mcp.Description("Navigation timeout in milliseconds"),
 		),
+		mcp.WithNumber("limit",
+			mcp.Description("Maximum number of links to return (default: 50)"),
+		),
+		mcp.WithNumber("offset",
+			mcp.Description("Number of links to skip (default: 0)"),
+		),
 	)
 }
 
 // GetLinksHandler returns the handler function for get_links.
-func GetLinksHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
+func GetLinksHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig, responseConfig *ResponseConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		slog.Debug("tool handler called", "tool", "get_links")
 
@@ -1160,6 +1174,11 @@ func GetLinksHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 		if sessionID == "" {
 			slog.Error("missing required sessionId", "tool", "get_links")
 			return mcp.NewToolResultError("sessionId is required"), nil
+		}
+
+		limit, offset, err := listPageParams(args)
+		if err != nil {
+			return invalidParamsResult(err), nil
 		}
 
 		// Get session with ownership validation
@@ -1199,13 +1218,16 @@ func GetLinksHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to extract links: %v", err)), nil
 		}
 
-		// Serialize result to JSON
-		jsonBytes, err := json.Marshal(result)
+		links, ok := result.([]any)
+		if !ok && result != nil {
+			return mcp.NewToolResultError("Failed to extract links: unexpected result type"), nil
+		}
+
+		linksPage, err := paginateItems(links, offset, limit, responseConfig.budget(), false)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to serialize links: %v", err)), nil
 		}
-
-		return mcp.NewToolResultText(string(jsonBytes)), nil
+		return linksPage, nil
 	}
 }
 

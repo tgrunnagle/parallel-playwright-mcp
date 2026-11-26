@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -55,6 +56,40 @@ func TestGetNetworkLogsTool(t *testing.T) {
 	if _, ok := props["filter"]; !ok {
 		t.Error("Expected 'filter' property in input schema")
 	}
+}
+
+// numberedNetworkEntries returns n entries in chronological order whose URLs are
+// https://example.com/1 through https://example.com/n.
+func numberedNetworkEntries(n int) []session.NetworkLogEntry {
+	base := time.Now().Add(-time.Hour)
+	entries := make([]session.NetworkLogEntry, n)
+	for i := range entries {
+		entries[i] = session.NetworkLogEntry{
+			Timestamp: base.Add(time.Duration(i) * time.Second),
+			Method:    "GET",
+			URL:       fmt.Sprintf("https://example.com/%d", i+1),
+			Status:    200,
+		}
+	}
+	return entries
+}
+
+// decodeNetworkPage decodes the entry array and pagination block of a get_network_logs result.
+func decodeNetworkPage(t *testing.T, result *mcp.CallToolResult) ([]networkLogOutput, listPageMeta) {
+	t.Helper()
+	blocks := textBlocks(t, result)
+	if len(blocks) != 2 {
+		t.Fatalf("got %d blocks, want entries and pagination block", len(blocks))
+	}
+	var entries []networkLogOutput
+	if err := json.Unmarshal([]byte(blocks[0]), &entries); err != nil {
+		t.Fatalf("Failed to parse entries: %v", err)
+	}
+	var meta listPageMeta
+	if err := json.Unmarshal([]byte(blocks[1]), &meta); err != nil {
+		t.Fatalf("Failed to parse pagination block: %v", err)
+	}
+	return entries, meta
 }
 
 // TestGetNetworkLogsHandler tests the get_network_logs handler.
@@ -168,7 +203,7 @@ func TestGetNetworkLogsHandler(t *testing.T) {
 			},
 		},
 		{
-			name: "entries returned in reverse chronological order (most recent first)",
+			name: "entries returned in chronological order (oldest first)",
 			arguments: map[string]any{
 				"sessionId": "sess-test",
 			},
@@ -189,12 +224,12 @@ func TestGetNetworkLogsHandler(t *testing.T) {
 				if len(entries) != 3 {
 					t.Fatalf("Expected 3 entries, got %d", len(entries))
 				}
-				// Most recent should be first (third was added last)
-				if !strings.Contains(entries[0].URL, "third") {
-					t.Errorf("Expected most recent entry first (third), got %s", entries[0].URL)
+				// Oldest first: first was added first, third last
+				if !strings.Contains(entries[0].URL, "first") {
+					t.Errorf("Expected oldest entry first (first), got %s", entries[0].URL)
 				}
-				if !strings.Contains(entries[2].URL, "first") {
-					t.Errorf("Expected oldest entry last (first), got %s", entries[2].URL)
+				if !strings.Contains(entries[2].URL, "third") {
+					t.Errorf("Expected most recent entry last (third), got %s", entries[2].URL)
 				}
 			},
 		},
@@ -221,32 +256,113 @@ func TestGetNetworkLogsHandler(t *testing.T) {
 					t.Fatalf("Failed to parse response: %v", err)
 				}
 				if len(entries) != 2 {
-					t.Errorf("Expected 2 entries (limited), got %d", len(entries))
+					t.Fatalf("Expected 2 entries (limited), got %d", len(entries))
+				}
+				// The limit keeps the newest entries, returned oldest first
+				if entries[0].URL != "https://example.com/4" || entries[1].URL != "https://example.com/5" {
+					t.Errorf("Expected newest two entries (4, 5), got %s, %s", entries[0].URL, entries[1].URL)
 				}
 			},
 		},
 		{
-			name: "limit of 0 returns all entries",
+			name: "limit of 0 is rejected",
 			arguments: map[string]any{
 				"sessionId": "sess-test",
 				"limit":     float64(0),
 			},
+			expectError:    true,
+			expectedResult: "[-32602] Invalid parameters (parameter: limit)",
+		},
+		{
+			name: "negative offset is rejected",
+			arguments: map[string]any{
+				"sessionId": "sess-test",
+				"offset":    float64(-1),
+			},
+			expectError:    true,
+			expectedResult: "[-32602] Invalid parameters (parameter: offset)",
+		},
+		{
+			name: "no limit returns at most 50 entries, the newest",
+			arguments: map[string]any{
+				"sessionId": "sess-test",
+			},
 			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
-				entries := []session.NetworkLogEntry{
-					{Timestamp: time.Now(), Method: "GET", URL: "https://example.com/1", Status: 200},
-					{Timestamp: time.Now(), Method: "GET", URL: "https://example.com/2", Status: 200},
-					{Timestamp: time.Now(), Method: "GET", URL: "https://example.com/3", Status: 200},
+				return createSessionWithLogs(numberedNetworkEntries(80)), true
+			},
+			checkResult: func(t *testing.T, result *mcp.CallToolResult) {
+				entries, meta := decodeNetworkPage(t, result)
+				if len(entries) != 50 {
+					t.Fatalf("Expected 50 entries, got %d", len(entries))
+				}
+				if entries[0].URL != "https://example.com/31" || entries[49].URL != "https://example.com/80" {
+					t.Errorf("Expected entries 31..80, got %s..%s", entries[0].URL, entries[49].URL)
+				}
+				if meta != (listPageMeta{Total: 80, Offset: 0, Returned: 50, HasMore: true}) {
+					t.Errorf("meta = %+v", meta)
+				}
+			},
+		},
+		{
+			name: "offset skips the newest entries",
+			arguments: map[string]any{
+				"sessionId": "sess-test",
+				"offset":    float64(50),
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				return createSessionWithLogs(numberedNetworkEntries(80)), true
+			},
+			checkResult: func(t *testing.T, result *mcp.CallToolResult) {
+				entries, meta := decodeNetworkPage(t, result)
+				if len(entries) != 30 {
+					t.Fatalf("Expected 30 entries, got %d", len(entries))
+				}
+				if entries[0].URL != "https://example.com/1" || entries[29].URL != "https://example.com/30" {
+					t.Errorf("Expected entries 1..30, got %s..%s", entries[0].URL, entries[29].URL)
+				}
+				if meta.HasMore {
+					t.Errorf("meta = %+v, want no more", meta)
+				}
+			},
+		},
+		{
+			name: "total counts entries after the filter",
+			arguments: map[string]any{
+				"sessionId": "sess-test",
+				"limit":     float64(5),
+				"filter":    map[string]any{"statusMin": float64(400)},
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				entries := numberedNetworkEntries(20)
+				for i := range entries {
+					if i%2 == 0 {
+						entries[i].Status = 404
+					}
 				}
 				return createSessionWithLogs(entries), true
 			},
 			checkResult: func(t *testing.T, result *mcp.CallToolResult) {
-				text := extractTextContent(result.Content)
-				var entries []networkLogOutput
-				if err := json.Unmarshal([]byte(text), &entries); err != nil {
-					t.Fatalf("Failed to parse response: %v", err)
+				entries, meta := decodeNetworkPage(t, result)
+				if meta.Total != 10 || len(entries) != 5 || !meta.HasMore {
+					t.Errorf("got %d entries, meta %+v; want 5 of 10 filtered", len(entries), meta)
 				}
-				if len(entries) != 3 {
-					t.Errorf("Expected 3 entries (all), got %d", len(entries))
+				if entries[4].URL != "https://example.com/19" {
+					t.Errorf("Expected newest 404 last, got %s", entries[4].URL)
+				}
+			},
+		},
+		{
+			name: "nil buffer returns empty page",
+			arguments: map[string]any{
+				"sessionId": "sess-test",
+			},
+			getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+				return &session.BrowserSession{ID: "sess-test"}, true
+			},
+			checkResult: func(t *testing.T, result *mcp.CallToolResult) {
+				entries, meta := decodeNetworkPage(t, result)
+				if len(entries) != 0 || meta.Total != 0 {
+					t.Errorf("got %d entries, meta %+v", len(entries), meta)
 				}
 			},
 		},
@@ -314,7 +430,7 @@ func TestGetNetworkLogsHandler(t *testing.T) {
 			mgr := &mockSessionManager{
 				getSessionFunc: tt.getSessionFunc,
 			}
-			handler := GetNetworkLogsHandler(mgr, DefaultTimeoutConfig())
+			handler := GetNetworkLogsHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{
@@ -416,7 +532,7 @@ func TestGetNetworkLogsHandler_URLPatternFilter(t *testing.T) {
 					return createSessionWithLogs(), true
 				},
 			}
-			handler := GetNetworkLogsHandler(mgr, DefaultTimeoutConfig())
+			handler := GetNetworkLogsHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{
@@ -545,7 +661,7 @@ func TestGetNetworkLogsHandler_StatusFilters(t *testing.T) {
 					return createSessionWithLogs(), true
 				},
 			}
-			handler := GetNetworkLogsHandler(mgr, DefaultTimeoutConfig())
+			handler := GetNetworkLogsHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{
@@ -637,7 +753,7 @@ func TestGetNetworkLogsHandler_CombinedFilters(t *testing.T) {
 					return createSessionWithLogs(), true
 				},
 			}
-			handler := GetNetworkLogsHandler(mgr, DefaultTimeoutConfig())
+			handler := GetNetworkLogsHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{
@@ -830,7 +946,7 @@ func TestGetNetworkLogsHandler_EmptyFilter(t *testing.T) {
 			}, true
 		},
 	}
-	handler := GetNetworkLogsHandler(mgr, DefaultTimeoutConfig())
+	handler := GetNetworkLogsHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{

@@ -4,6 +4,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -149,5 +150,53 @@ func TestExtractTextPaginationIntegration(t *testing.T) {
 	}))
 	if len(past) != 2 || past[0] != "" || past[1] != fmt.Sprintf("[end of content: %d characters]", total) {
 		t.Errorf("offset at end = %q", past)
+	}
+}
+
+func TestGetLinksPaginationIntegration(t *testing.T) {
+	pool, mgr := setupPoolAndManager(t)
+	defer pool.Stop(context.Background())
+
+	ts := startContentTestServer(t)
+	sessionID := openSessionAt(t, mgr, ts.URL+"/links")
+	handler := GetLinksHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
+
+	decode := func(t *testing.T, result *mcp.CallToolResult) ([]LinkInfo, listPageMeta) {
+		t.Helper()
+		if result.IsError {
+			t.Fatalf("get_links failed: %s", extractTextContent(result.Content))
+		}
+		blocks := integrationTextBlocks(t, result)
+		if len(blocks) != 2 {
+			t.Fatalf("got %d blocks, want links and pagination block", len(blocks))
+		}
+		var links []LinkInfo
+		if err := json.Unmarshal([]byte(blocks[0]), &links); err != nil {
+			t.Fatalf("first block is not a bare JSON array: %v", err)
+		}
+		var meta listPageMeta
+		if err := json.Unmarshal([]byte(blocks[1]), &meta); err != nil {
+			t.Fatalf("second block is not pagination metadata: %v", err)
+		}
+		return links, meta
+	}
+
+	links, meta := decode(t, callIntegrationTool(t, handler, "get_links", map[string]any{"sessionId": sessionID}))
+	if len(links) != 50 || meta.Total != 120 || !meta.HasMore {
+		t.Errorf("first page: %d links, meta %+v; want 50 of 120 with more", len(links), meta)
+	}
+	if links[0].Href != ts.URL+"/page/0" || links[0].Label != "Link 0" {
+		t.Errorf("links[0] = %+v", links[0])
+	}
+
+	links, meta = decode(t, callIntegrationTool(t, handler, "get_links", map[string]any{
+		"sessionId": sessionID,
+		"offset":    float64(100),
+	}))
+	if len(links) != 20 || meta.Returned != 20 || meta.HasMore {
+		t.Errorf("offset 100: %d links, meta %+v; want 20 and no more", len(links), meta)
+	}
+	if links[0].Label != "Link 100" || links[19].Label != "Link 119" {
+		t.Errorf("offset 100 returned %q..%q", links[0].Label, links[19].Label)
 	}
 }

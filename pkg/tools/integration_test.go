@@ -1692,7 +1692,7 @@ func TestQuerySelectorToolIntegration(t *testing.T) {
 
 	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
 	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
-	querySelectorHandler := QuerySelectorHandler(mgr, DefaultTimeoutConfig())
+	querySelectorHandler := QuerySelectorHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -1909,7 +1909,7 @@ func TestGetConsoleLogsToolIntegration(t *testing.T) {
 	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
 	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
 	evaluateHandler := EvaluateHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
-	consoleLogsHandler := GetConsoleLogsHandler(mgr, DefaultTimeoutConfig())
+	consoleLogsHandler := GetConsoleLogsHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -2639,7 +2639,7 @@ func TestGetNetworkLogsToolIntegration(t *testing.T) {
 
 	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
 	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
-	networkLogsHandler := GetNetworkLogsHandler(mgr, DefaultTimeoutConfig())
+	networkLogsHandler := GetNetworkLogsHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 	closeHandler := SessionCloseHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
@@ -2979,7 +2979,7 @@ func TestGetNetworkLogsWithRealNetworkTrafficIntegration(t *testing.T) {
 
 	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
 	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
-	networkLogsHandler := GetNetworkLogsHandler(mgr, DefaultTimeoutConfig())
+	networkLogsHandler := GetNetworkLogsHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 	ctx := context.Background()
 
 	// Create a session
