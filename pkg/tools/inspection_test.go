@@ -879,6 +879,8 @@ func TestGetHTMLHandler(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("pagination", testGetHTMLPagination)
 }
 
 // TestEvaluateTool tests the evaluate tool definition.
@@ -1463,6 +1465,8 @@ func TestNavigateAndExtractTextHandler(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("pagination", testNavigateAndExtractTextPagination)
 }
 
 // TestElementInfoStructure tests the ElementInfo type serialization.

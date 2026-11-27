@@ -101,9 +101,9 @@ Tools can be restricted at startup with the `enabled_tools` config option or `MC
 Content tools return at most `tools.maxResponseChars` characters (default 40000) per call:
 
 - **Text tools** (`extract_text`, `navigate_and_extract_text`, `get_html`) take `maxChars` and `offset`, both in characters. When output is cut, a second content block reads `[truncated: <n> more characters; call again with offset=<k>]`; an `offset` at or past the end returns `[end of content: <total> characters]`. `evaluate` takes `maxChars` only and marks cut output as incomplete JSON.
-- **List tools** (`query_selector` with `all: true`, `get_links`, `get_console_logs`, `get_network_logs`) take `limit` (default 50) and `offset`, both in items. The first block is the bare JSON array; a second block holds `{"total", "offset", "returned", "hasMore"}`. The log tools select the newest entries first (`offset` k skips the k newest) and return them oldest first.
+- **List tools** (`query_selector` with `all: true`, `get_links`, `get_console_logs`, `get_network_logs`) take `limit` (default 50) and `offset`, both in items. The first block is the bare JSON array; a second block holds `{"total", "offset", "returned", "hasMore"}`. Continue with `offset + returned` while `hasMore` is true: fewer than `limit` items come back when the budget is reached. The log tools select the newest entries first (`offset` k skips the k newest) and return them oldest first.
 
-`maxChars` above the budget is clamped to it. A negative `maxChars` or `offset`, or a non-positive `limit`, returns a `[-32602]` error naming the parameter.
+`maxChars` above the budget is clamped to it. A non-positive `maxChars` or `limit`, or a negative `offset`, returns a `[-32602]` error naming the parameter.
 
 ## Task Targets
 

@@ -645,6 +645,94 @@ func testEvaluateTruncation(t *testing.T) {
 	})
 }
 
+// mockHTMLPage is a playwright.Page whose Content returns canned HTML.
+type mockHTMLPage struct {
+	playwright.Page
+	html string
+}
+
+func (m *mockHTMLPage) Content() (string, error) { return m.html, nil }
+
+// invalidTextParams are maxChars/offset values every text tool must reject with
+// [-32602] before it touches a session.
+var invalidTextParams = []struct {
+	name  string
+	args  map[string]any
+	param string
+}{
+	{"zero maxChars", map[string]any{"maxChars": float64(0)}, "maxChars"},
+	{"negative maxChars", map[string]any{"maxChars": float64(-1)}, "maxChars"},
+	{"negative offset", map[string]any{"offset": float64(-5)}, "offset"},
+}
+
+// assertInvalidParams checks that result is a [-32602] error naming param.
+func assertInvalidParams(t *testing.T, result *mcp.CallToolResult, param string) {
+	t.Helper()
+	if !result.IsError {
+		t.Fatal("expected error result")
+	}
+	text := extractTextContent(result.Content)
+	if !strings.HasPrefix(text, "[-32602]") || !strings.Contains(text, param) {
+		t.Errorf("error = %q, want [-32602] naming %s", text, param)
+	}
+}
+
+// testGetHTMLPagination covers maxChars/offset validation and slicing for
+// get_html. It runs as a subtest of TestGetHTMLHandler.
+func testGetHTMLPagination(t *testing.T) {
+	for _, tc := range invalidTextParams {
+		t.Run(tc.name+" is rejected before the session is looked up", func(t *testing.T) {
+			mgr := &mockSessionManager{
+				getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+					t.Error("session was looked up before validation")
+					return nil, false
+				},
+			}
+			args := map[string]any{"sessionId": "sess-test"}
+			for k, v := range tc.args {
+				args[k] = v
+			}
+			assertInvalidParams(t, callTool(t, GetHTMLHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig()), "get_html", args), tc.param)
+		})
+	}
+
+	t.Run("offset reads the next slice", func(t *testing.T) {
+		page := &mockHTMLPage{html: strings.Repeat("<p>x</p>", 40)} // 320 runes
+		handler := GetHTMLHandler(sessionWithPage(page), DefaultTimeoutConfig(), &ResponseConfig{MaxResponseChars: 100})
+		blocks := textBlocks(t, callTool(t, handler, "get_html", map[string]any{"sessionId": "sess-test", "offset": float64(100)}))
+		if len(blocks) != 2 {
+			t.Fatalf("got %d blocks, want slice and notice", len(blocks))
+		}
+		if blocks[0] != page.html[100:200] {
+			t.Errorf("slice = %q, want runes 100-200", blocks[0])
+		}
+		if want := "[truncated: 120 more characters; call again with offset=200]"; blocks[1] != want {
+			t.Errorf("notice = %q, want %q", blocks[1], want)
+		}
+	})
+}
+
+// testNavigateAndExtractTextPagination checks that navigate_and_extract_text
+// rejects bad maxChars/offset before it creates a browser session, so bad input
+// cannot leak one. It runs as a subtest of TestNavigateAndExtractTextHandler.
+func testNavigateAndExtractTextPagination(t *testing.T) {
+	for _, tc := range invalidTextParams {
+		t.Run(tc.name+" is rejected before a session is created", func(t *testing.T) {
+			mgr := &mockSessionManager{
+				createSessionFunc: func(ctx context.Context, mcpSessionID string, opts session.SessionOptions) (*session.BrowserSession, error) {
+					t.Error("session was created before validation")
+					return nil, fmt.Errorf("unexpected CreateSession")
+				},
+			}
+			args := map[string]any{"url": "https://example.com"}
+			for k, v := range tc.args {
+				args[k] = v
+			}
+			assertInvalidParams(t, callTool(t, NavigateAndExtractTextHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig()), "navigate_and_extract_text", args), tc.param)
+		})
+	}
+}
+
 // testConsoleLogsPagination covers newest-first selection and paging for
 // get_console_logs. It runs as a subtest of TestGetConsoleLogsHandler.
 func testConsoleLogsPagination(t *testing.T) {
@@ -691,6 +779,25 @@ func testConsoleLogsPagination(t *testing.T) {
 		}
 		if meta != (listPageMeta{Total: 80, Offset: 0, Returned: 50, HasMore: true}) {
 			t.Errorf("meta = %+v", meta)
+		}
+	})
+
+	t.Run("small budget keeps the newest entries", func(t *testing.T) {
+		budget := 300
+		handler := GetConsoleLogsHandler(newSession(80, allLog), DefaultTimeoutConfig(), &ResponseConfig{MaxResponseChars: budget})
+		result := callTool(t, handler, "get_console_logs", map[string]any{"sessionId": "sess-test"})
+		if n := utf8.RuneCountInString(textBlocks(t, result)[0]); n > budget {
+			t.Errorf("entries block is %d runes, budget %d", n, budget)
+		}
+		entries, meta := decode(t, result)
+		if len(entries) == 0 || len(entries) >= 50 || !meta.HasMore || meta.Returned != len(entries) {
+			t.Fatalf("got %d entries, meta %+v; want a budget-limited page with more to come", len(entries), meta)
+		}
+		first := 80 - len(entries) + 1
+		for i, e := range entries {
+			if want := fmt.Sprintf("entry %d", first+i); e.Text != want {
+				t.Fatalf("entries[%d] = %q, want %q (newest entries, oldest first)", i, e.Text, want)
+			}
 		}
 	})
 

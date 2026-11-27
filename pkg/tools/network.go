@@ -38,7 +38,7 @@ func GetNetworkLogsTool() mcp.Tool {
 			mcp.Description("Maximum number of entries to return (default: 50)"),
 		),
 		mcp.WithNumber("offset",
-			mcp.Description("Number of newest matching entries to skip (default: 0). Entries are selected newest first and returned oldest first; the buffer is live, so offsets and total shift as new entries arrive"),
+			mcp.Description("Number of newest matching entries to skip (default: 0). Entries are selected newest first and returned oldest first; the buffer is live, so offsets and total shift as new entries arrive. Continue with offset + returned from the second content block while hasMore is true; fewer than limit items may be returned when the response budget is reached"),
 		),
 		mcp.WithObject("filter",
 			mcp.Description("Filter criteria for network logs"),

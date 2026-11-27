@@ -140,8 +140,18 @@ func TestExtractTextPaginationIntegration(t *testing.T) {
 		"maxChars":  float64(maxChars),
 		"offset":    float64(nextOffset),
 	}))
+	if len(second) != 2 {
+		t.Fatalf("second call returned %d blocks, want slice and notice", len(second))
+	}
 	if second[0] != longPageText[maxChars:2*maxChars] {
 		t.Errorf("second slice is not the next %d characters", maxChars)
+	}
+	wantSecond := fmt.Sprintf("[truncated: %d more characters; call again with offset=%d]", total-2*maxChars, 2*maxChars)
+	if total <= 2*maxChars {
+		wantSecond = fmt.Sprintf("[end of content: %d characters]", total)
+	}
+	if second[1] != wantSecond {
+		t.Errorf("second notice = %q, want %q", second[1], wantSecond)
 	}
 
 	past := integrationTextBlocks(t, callIntegrationTool(t, handler, "extract_text", map[string]any{

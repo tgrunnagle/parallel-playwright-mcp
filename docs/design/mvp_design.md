@@ -408,9 +408,10 @@ type BrowserStats struct {
 
 - Text tools (`extract_text`, `navigate_and_extract_text`, `get_html`) take `maxChars` and `offset` in characters. Output within the budget is returned unchanged as one block. Cut output adds `[truncated: <n> more characters; call again with offset=<k>]`; an `offset` at or past the end returns an empty block and `[end of content: <total> characters]`.
 - `evaluate` takes `maxChars` only, because paging would re-run the script. Cut output adds `[truncated: result JSON is incomplete; narrow the expression]`.
-- List tools (`query_selector` with `all: true`, `get_links`, `get_console_logs`, `get_network_logs`) take `limit` (default 50) and `offset` in items. The first block stays the bare JSON array; the second is `{"total": <n>, "offset": <k>, "returned": <m>, "hasMore": <bool>}`. Trailing items that do not fit the budget are dropped; a single item larger than the budget is returned alone with its string fields cut, so `offset` always advances.
+- `query_selector` without `all` returns one element object, with its string fields cut the same way when it exceeds the budget.
+- List tools (`query_selector` with `all: true`, `get_links`, `get_console_logs`, `get_network_logs`) take `limit` (default 50) and `offset` in items. The first block stays the bare JSON array; the second is `{"total": <n>, "offset": <k>, "returned": <m>, "hasMore": <bool>}`. Trailing items that do not fit the budget are dropped, so continue with `offset + returned` while `hasMore` is true. A single item larger than the budget is returned alone with its string fields cut, or as `{"truncated": true}` when its keys alone exceed the budget, so `offset` always advances.
 - The log tools select newest first: `offset` 0 is the newest entries and `offset` k skips the k newest. Items are returned oldest first, and `total` counts entries after the `level` or `filter` is applied. The buffers are live, so offsets and `total` can shift between calls.
-- `maxChars` above the budget is clamped. A negative `maxChars` or `offset`, or a non-positive `limit`, returns `[-32602]` naming the parameter, before the page is touched.
+- `maxChars` above the budget is clamped. A non-positive `maxChars` or `limit`, or a negative `offset`, returns `[-32602]` naming the parameter, before the page is touched.
 
 ### 5.5 Tab Management Tools
 

@@ -31,7 +31,7 @@ func GetConsoleLogsTool() mcp.Tool {
 			mcp.Description("Maximum number of entries to return (default: 50)"),
 		),
 		mcp.WithNumber("offset",
-			mcp.Description("Number of newest matching entries to skip (default: 0). Entries are selected newest first and returned oldest first; the buffer is live, so offsets and total shift as new entries arrive"),
+			mcp.Description("Number of newest matching entries to skip (default: 0). Entries are selected newest first and returned oldest first; the buffer is live, so offsets and total shift as new entries arrive. Continue with offset + returned from the second content block while hasMore is true; fewer than limit items may be returned when the response budget is reached"),
 		),
 		mcp.WithString("level",
 			mcp.Enum("log", "info", "warn", "error", "debug"),
@@ -368,6 +368,8 @@ func ExtractTextHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeou
 		}
 
 		text = strings.TrimSpace(text)
+		// An empty page reports itself only on the first call; at a non-zero offset
+		// it falls through so the caller gets the usual end-of-content notice.
 		if text == "" && offset == 0 {
 			return mcp.NewToolResultText("No visible text found on the page."), nil
 		}
@@ -921,7 +923,7 @@ func QuerySelectorTool() mcp.Tool {
 			mcp.Description("With all: maximum number of elements to return (default: 50)"),
 		),
 		mcp.WithNumber("offset",
-			mcp.Description("With all: number of matching elements to skip (default: 0)"),
+			mcp.Description("With all: number of matching elements to skip (default: 0). Continue with offset + returned from the second content block while hasMore is true; fewer than limit items may be returned when the response budget is reached"),
 		),
 	)
 }
@@ -1325,7 +1327,7 @@ func GetLinksTool() mcp.Tool {
 			mcp.Description("Maximum number of links to return (default: 50)"),
 		),
 		mcp.WithNumber("offset",
-			mcp.Description("Number of links to skip (default: 0)"),
+			mcp.Description("Number of links to skip (default: 0). Continue with offset + returned from the second content block while hasMore is true; fewer than limit items may be returned when the response budget is reached"),
 		),
 	)
 }
@@ -1546,6 +1548,8 @@ func NavigateAndExtractTextHandler(mgr session.BrowserSessionManager, timeoutCon
 		}
 
 		text = strings.TrimSpace(text)
+		// An empty page reports itself only on the first call; at a non-zero offset
+		// it falls through so the caller gets the usual end-of-content notice.
 		if text == "" && offset == 0 {
 			return mcp.NewToolResultText("No visible text found on the page."), nil
 		}

@@ -787,6 +787,54 @@ func TestGetNetworkLogsHandler_CombinedFilters(t *testing.T) {
 	}
 }
 
+// TestGetNetworkLogsHandler_SmallBudget checks that a response budget smaller
+// than the default page keeps the newest entries, returned oldest first.
+func TestGetNetworkLogsHandler_SmallBudget(t *testing.T) {
+	buf := session.NewNetworkLogBuffer(100)
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := 1; i <= 80; i++ {
+		buf.Add(session.NetworkLogEntry{
+			Timestamp: base.Add(time.Duration(i) * time.Second),
+			Method:    "GET",
+			URL:       fmt.Sprintf("https://example.com/%d", i),
+			Status:    200,
+		})
+	}
+	mgr := &mockSessionManager{
+		getSessionFunc: func(mcpSessionID, browserSessionID string) (*session.BrowserSession, bool) {
+			return &session.BrowserSession{ID: "sess-test", NetworkLogs: buf}, true
+		},
+	}
+	budget := 600
+	handler := GetNetworkLogsHandler(mgr, DefaultTimeoutConfig(), &ResponseConfig{MaxResponseChars: budget})
+	result := callTool(t, handler, "get_network_logs", map[string]any{"sessionId": "sess-test"})
+
+	blocks := textBlocks(t, result)
+	if len(blocks) != 2 {
+		t.Fatalf("got %d blocks, want entries and pagination block", len(blocks))
+	}
+	if n := len([]rune(blocks[0])); n > budget {
+		t.Errorf("entries block is %d runes, budget %d", n, budget)
+	}
+	var entries []networkLogOutput
+	if err := json.Unmarshal([]byte(blocks[0]), &entries); err != nil {
+		t.Fatalf("entries: %v", err)
+	}
+	var meta listPageMeta
+	if err := json.Unmarshal([]byte(blocks[1]), &meta); err != nil {
+		t.Fatalf("meta: %v", err)
+	}
+	if len(entries) == 0 || len(entries) >= 50 || !meta.HasMore || meta.Returned != len(entries) || meta.Total != 80 {
+		t.Fatalf("got %d entries, meta %+v; want a budget-limited page with more to come", len(entries), meta)
+	}
+	first := 80 - len(entries) + 1
+	for i, e := range entries {
+		if want := fmt.Sprintf("https://example.com/%d", first+i); e.URL != want {
+			t.Fatalf("entries[%d].URL = %q, want %q (newest entries, oldest first)", i, e.URL, want)
+		}
+	}
+}
+
 // TestReverseNetworkEntries tests the reverseNetworkEntries helper function.
 func TestReverseNetworkEntries(t *testing.T) {
 	tests := []struct {
