@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -335,6 +336,52 @@ func TestPaginateItems(t *testing.T) {
 		}
 		if decoded[0]["n"] != float64(12345) {
 			t.Errorf("non-string field changed: %v", decoded[0]["n"])
+		}
+	})
+
+	t.Run("escaped string keeps the prefix that fits", func(t *testing.T) {
+		// Each "<" serializes as a six-rune escape, so the item is about 6000 runes.
+		items := []map[string]string{{"t": strings.Repeat("<", 1000)}}
+		budget := 4000
+		result, err := paginateItems(items, 0, 50, budget, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		first := textBlocks(t, result)[0]
+		if n := utf8.RuneCountInString(first); n > budget {
+			t.Errorf("first block is %d runes, budget %d", n, budget)
+		}
+		var decoded []map[string]string
+		if err := json.Unmarshal([]byte(first), &decoded); err != nil {
+			t.Fatalf("invalid JSON: %v", err)
+		}
+		cut := decoded[0]["t"]
+		if !strings.HasSuffix(cut, "…") || utf8.RuneCountInString(cut) < 600 {
+			t.Errorf("cut field = %d runes, want a prefix of at least 600 ending in …", utf8.RuneCountInString(cut))
+		}
+	})
+
+	t.Run("item that does not fit with strings emptied becomes a placeholder", func(t *testing.T) {
+		attrs := make(map[string]string, 5000)
+		for i := 0; i < 5000; i++ {
+			attrs[fmt.Sprintf("data-attribute-%04d", i)] = "v"
+		}
+		items := []map[string]any{{"tag": "div", "attributes": attrs}}
+		budget := 500
+		start := time.Now()
+		result, err := paginateItems(items, 0, 50, budget, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if elapsed := time.Since(start); elapsed > 5*time.Second {
+			t.Errorf("cutting took %v", elapsed)
+		}
+		first := textBlocks(t, result)[0]
+		if n := utf8.RuneCountInString(first); n > budget {
+			t.Errorf("first block is %d runes, budget %d", n, budget)
+		}
+		if first != "["+truncatedItem+"]" {
+			t.Errorf("first block = %s, want the truncated placeholder", first)
 		}
 	})
 
@@ -741,6 +788,30 @@ func testQuerySelectorPagination(t *testing.T) {
 		}
 		if info.Tag != "li" || info.Text != "Item 0" || info.BoundingBox == nil {
 			t.Errorf("info = %+v", info)
+		}
+	})
+
+	t.Run("without all cuts an element larger than the budget", func(t *testing.T) {
+		big := &mockQueryPage{elements: []playwright.ElementHandle{&mockElementHandle{info: map[string]any{
+			"tag":        "img",
+			"attributes": map[string]any{"data-x": strings.Repeat("a", 10000)},
+			"text":       "",
+		}}}}
+		budget := 2000
+		h := QuerySelectorHandler(sessionWithPage(big), DefaultTimeoutConfig(), &ResponseConfig{MaxResponseChars: budget})
+		blocks := textBlocks(t, callTool(t, h, "query_selector", map[string]any{"sessionId": "sess-test", "selector": "img"}))
+		if len(blocks) != 1 {
+			t.Fatalf("got %d blocks, want 1", len(blocks))
+		}
+		if n := utf8.RuneCountInString(blocks[0]); n > budget {
+			t.Errorf("result is %d runes, budget %d", n, budget)
+		}
+		var info ElementInfo
+		if err := json.Unmarshal([]byte(blocks[0]), &info); err != nil {
+			t.Fatalf("not a single element object: %v\n%s", err, blocks[0])
+		}
+		if v := info.Attributes["data-x"]; !strings.HasSuffix(v, "…") {
+			t.Errorf("data-x was not cut: %d runes", utf8.RuneCountInString(v))
 		}
 	})
 

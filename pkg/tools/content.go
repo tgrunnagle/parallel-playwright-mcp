@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"slices"
 	"unicode/utf8"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -185,8 +186,8 @@ type listPageMeta struct {
 // paginateItems returns the page of items starting at offset, at most limit items,
 // whose serialized JSON array fits in budget runes. items is in selection order:
 // offset k skips the first k items. Trailing items that do not fit are dropped; a
-// single item larger than the budget is returned alone with its string fields cut,
-// so the next offset always advances. When reverse is true the page is emitted in
+// single item larger than the budget is returned alone, cut by cutItemToBudget, so
+// the next offset always advances. When reverse is true the page is emitted in
 // reverse selection order (used by the log tools, which select newest first but
 // return entries oldest first).
 //
@@ -246,45 +247,71 @@ func paginateItems[T any](items []T, offset, limit, budget int, reverse bool) (*
 	}, nil
 }
 
-// stringRef points at a string value inside a decoded JSON tree.
+// truncatedItem stands in for an item that does not fit the budget even with every
+// string value emptied, for example one with thousands of long object keys.
+const truncatedItem = `{"truncated":true}`
+
+// stringRef is one string value (not object key) inside a decoded JSON tree, with
+// its serialized size in runes and a setter that replaces it in the tree.
 type stringRef struct {
-	get func() string
-	set func(string)
+	value string
+	cost  int
+	set   func(string)
 }
 
-// collectStrings records a reference to every string value (not object key) in v.
+// collectStrings records a reference to every string value in v.
 func collectStrings(v any, refs *[]stringRef) {
+	visit := func(child any, set func(string)) {
+		if s, ok := child.(string); ok {
+			*refs = append(*refs, stringRef{value: s, cost: jsonStringCost(s), set: set})
+			return
+		}
+		collectStrings(child, refs)
+	}
 	switch node := v.(type) {
 	case map[string]any:
 		for k, child := range node {
-			if _, ok := child.(string); ok {
-				key := k
-				*refs = append(*refs, stringRef{
-					get: func() string { return node[key].(string) },
-					set: func(s string) { node[key] = s },
-				})
-				continue
-			}
-			collectStrings(child, refs)
+			visit(child, func(s string) { node[k] = s })
 		}
 	case []any:
 		for i, child := range node {
-			if _, ok := child.(string); ok {
-				idx := i
-				*refs = append(*refs, stringRef{
-					get: func() string { return node[idx].(string) },
-					set: func(s string) { node[idx] = s },
-				})
-				continue
-			}
-			collectStrings(child, refs)
+			visit(child, func(s string) { node[i] = s })
 		}
 	}
 }
 
-// cutItemToBudget shortens the string fields of one serialized item, longest
-// first, until it fits in maxRunes. Each cut string ends with "…". If the item
-// still does not fit once every string is empty, it is returned as small as it got.
+// jsonStringCost is the size in runes of s serialized as a JSON string, including
+// its quotes and escapes (json.Marshal writes <, > and & as six-rune escapes).
+func jsonStringCost(s string) int {
+	out, _ := json.Marshal(s) // marshaling a string cannot fail
+	return utf8.RuneCount(out)
+}
+
+// cutString returns the longest rune prefix of s, ending with "…", whose serialized
+// cost is at most target, along with that cost. When even "…" alone is over target,
+// it returns the empty string.
+func cutString(s string, target int) (string, int) {
+	lo, hi := -1, utf8.RuneCountInString(s) // largest fitting prefix length is in [lo, hi)
+	for hi-lo > 1 {
+		mid := (lo + hi) / 2
+		if jsonStringCost(s[:runePrefixEnd(s, mid)]+"…") <= target {
+			lo = mid
+		} else {
+			hi = mid
+		}
+	}
+	if lo < 0 {
+		return "", jsonStringCost("")
+	}
+	cut := s[:runePrefixEnd(s, lo)] + "…"
+	return cut, jsonStringCost(cut)
+}
+
+// cutItemToBudget shrinks one serialized item to fit in maxRunes. String values are
+// cut longest first, each once, to the longest prefix whose serialized size fits,
+// ending with "…". The work is one marshal of each string per binary-search step,
+// not of the whole item. If the item still does not fit once every string is empty,
+// it is replaced by truncatedItem, or by null when even that does not fit.
 func cutItemToBudget(raw []byte, maxRunes int) ([]byte, error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
@@ -297,35 +324,28 @@ func cutItemToBudget(raw []byte, maxRunes int) ([]byte, error) {
 	holder := []any{tree}
 	var refs []stringRef
 	collectStrings(holder, &refs)
+	slices.SortStableFunc(refs, func(a, b stringRef) int { return b.cost - a.cost })
 
-	for {
-		out, err := json.Marshal(tree)
-		if err != nil {
-			return nil, err
+	size := utf8.RuneCount(raw)
+	for _, ref := range refs {
+		excess := size - maxRunes
+		if excess <= 0 {
+			break
 		}
-		size := utf8.RuneCount(out)
-		if size <= maxRunes {
-			return out, nil
-		}
-
-		var longest *stringRef
-		longestLen := 0
-		for i := range refs {
-			if n := utf8.RuneCountInString(refs[i].get()); n > longestLen {
-				longest, longestLen = &refs[i], n
-			}
-		}
-		if longest == nil {
-			return out, nil
-		}
-
-		keep := longestLen - (size - maxRunes) - 1 // leave room for the ellipsis
-		if keep < 0 {
-			longest.set("")
-		} else {
-			s := longest.get()
-			longest.set(s[:runePrefixEnd(s, keep)] + "…")
-		}
-		tree = holder[0]
+		cut, cost := cutString(ref.value, ref.cost-excess)
+		ref.set(cut)
+		size -= ref.cost - cost
 	}
+
+	out, err := json.Marshal(holder[0])
+	if err != nil {
+		return nil, err
+	}
+	if utf8.RuneCount(out) <= maxRunes {
+		return out, nil
+	}
+	if len(truncatedItem) <= maxRunes {
+		return []byte(truncatedItem), nil
+	}
+	return []byte("null"), nil
 }

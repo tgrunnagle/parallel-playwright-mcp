@@ -1027,6 +1027,12 @@ func QuerySelectorHandler(mgr session.BrowserSessionManager, timeoutConfig *Time
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to serialize element info: %v", err)), nil
 		}
+		if budget := responseConfig.budget(); utf8.RuneCount(jsonBytes) > budget {
+			// Cut long attribute values and text so the single object fits the budget.
+			if jsonBytes, err = cutItemToBudget(jsonBytes, budget); err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("Failed to serialize element info: %v", err)), nil
+			}
+		}
 
 		return mcp.NewToolResultText(string(jsonBytes)), nil
 	}
