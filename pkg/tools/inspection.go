@@ -438,7 +438,10 @@ const extractTextAsMarkdownJS = `(selector) => {
 	}
 
 	// labelText returns an element's text without the text of controls inside it.
+	// A control itself has no label text, so aria-labelledby pointing at a textarea
+	// cannot read its content.
 	function labelText(el) {
+		if (/^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(el.tagName)) return '';
 		const clone = el.cloneNode(true);
 		clone.querySelectorAll('input,select,textarea,button').forEach(c => c.remove());
 		return clone.textContent.replace(/\s+/g, ' ').trim();
@@ -480,16 +483,34 @@ const extractTextAsMarkdownJS = `(selector) => {
 		return ' [' + role + ' ' + quote(label) + v + '] ';
 	}
 
+	function isMasked(node) {
+		try {
+			const style = window.getComputedStyle(node);
+			const mask = style.webkitTextSecurity || style.getPropertyValue('-webkit-text-security');
+			return !!mask && mask !== 'none';
+		} catch(e) {
+			return false;
+		}
+	}
+
 	function isSecret(node, type) {
 		if (type === 'password') return true;
 		const ac = (node.getAttribute('autocomplete') || '').toLowerCase().split(/\s+/);
 		if (ac.some(t => SECRET_AUTOCOMPLETE.has(t))) return true;
-		try {
-			const style = window.getComputedStyle(node);
-			const mask = style.webkitTextSecurity || style.getPropertyValue('-webkit-text-security');
-			if (mask && mask !== 'none') return true;
-		} catch(e) {}
-		return false;
+		return isMasked(node);
+	}
+
+	// codeText returns the text of a code element with secret textareas removed, so
+	// their default content cannot leak through a surrounding pre or code.
+	function codeText(node) {
+		const areas = node.querySelectorAll('textarea');
+		if (!areas.length) return clean(node.textContent);
+		const clone = node.cloneNode(true);
+		const cloned = clone.querySelectorAll('textarea');
+		areas.forEach((area, i) => {
+			if (isSecret(area, 'textarea')) cloned[i].remove();
+		});
+		return clean(clone.textContent);
 	}
 
 	// secretToken renders a secret control with only whether it holds a value.
@@ -545,6 +566,11 @@ const extractTextAsMarkdownJS = `(selector) => {
 		const tag = node.tagName.toLowerCase();
 		if (SKIP.has(tag)) return '';
 		if (isHidden(node)) return '';
+		// A masked contenteditable is a custom secret field: report only whether it
+		// holds text, without walking its children.
+		if (node.isContentEditable && isMasked(node)) {
+			return token('password', controlLabel(node), node.textContent.trim() ? 'set' : 'empty');
+		}
 
 		const inner = () => kids(node).map(md).join('');
 
@@ -591,13 +617,13 @@ const extractTextAsMarkdownJS = `(selector) => {
 		}
 		case 'code': {
 			if (node.parentElement && node.parentElement.tagName.toLowerCase() === 'pre') {
-				return node.textContent;
+				return codeText(node);
 			}
-			const t = clean(node.textContent);
+			const t = codeText(node);
 			return t ? BT + t + BT : '';
 		}
 		case 'pre': {
-			const t = clean(node.textContent);
+			const t = codeText(node);
 			if (!t) return '';
 			return '\n\n' + CODE_OPEN + BT.repeat(3) + '\n' + t + '\n' + BT.repeat(3) + CODE_CLOSE + '\n\n';
 		}
@@ -658,14 +684,22 @@ const extractTextAsMarkdownJS = `(selector) => {
 	// Tidy whitespace outside code blocks: collapse runs of spaces and trim each
 	// line, so whitespace-only lines collapse with the surrounding blank lines. Code
 	// blocks are the sentinel-delimited segments and keep their text as written. A
-	// prose line that continues into or out of a code block (a list marker or "> "
-	// prefix) is not trimmed on that side.
+	// prose line that continues into or out of a code block is not trimmed on that
+	// side. The line just before a code block can only hold a wrapper prefix (a list
+	// marker, a list item's continuation indent, or "> "), because pre emits a blank
+	// line before its sentinel, so its leading indent is kept as is.
 	const parts = md(el).split(/(\u0000[^\u0000\u0001]*\u0001)/);
 	const text = parts.map((part, i) => {
 		if (i % 2 === 1) return part.slice(1, -1);
-		const lines = part.split('\n').map(line => line.replace(/[ \t]+/g, ' '));
+		const lines = part.split('\n');
 		const last = lines.length - 1;
+		const beforeCode = i < parts.length - 1;
 		const tidied = lines.map((line, j) => {
+			if (j === last && beforeCode) {
+				const indent = line.match(/^[ \t]*/)[0];
+				return indent + line.slice(indent.length).replace(/[ \t]+/g, ' ');
+			}
+			line = line.replace(/[ \t]+/g, ' ');
 			if (j > 0 || i === 0) line = line.trimStart();
 			if (j < last || i === parts.length - 1) line = line.trimEnd();
 			return line;

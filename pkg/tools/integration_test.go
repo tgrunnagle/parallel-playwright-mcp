@@ -210,6 +210,10 @@ func startTestHTTPServer(t *testing.T) *httptest.Server {
 				<label for="mail">Contact</label> <input id="mail" type="email" autocomplete="email" value="me@example.org">
 				<label for="phrase">Recovery phrase</label> <textarea id="phrase" style="-webkit-text-security: disc">secret-phrase</textarea>
 				<label for="otparea">Code area</label> <textarea id="otparea" autocomplete="one-time-code">135790</textarea>
+				<label for="echo">Echo</label> <input id="echo" aria-labelledby="phrase">
+				<pre>pre: <textarea style="-webkit-text-security: disc">pre-secret</textarea></pre>
+				<p><code>code: <textarea autocomplete="one-time-code">code-secret</textarea></code></p>
+				<span id="pinlbl">Custom PIN</span> <div contenteditable="true" aria-labelledby="pinlbl" style="-webkit-text-security: disc">typed-pin</div>
 				<div style="-webkit-text-security: disc"><label><input type="checkbox" checked> Masked box</label> <button type="submit">Masked send</button></div>
 				<button type="submit">Send</button>
 				<input type="submit" value="Go">
@@ -220,18 +224,34 @@ func startTestHTTPServer(t *testing.T) *httptest.Server {
 		w.Header().Set("Content-Type", "text/html")
 		fmt.Fprint(w, "<!DOCTYPE html><html><body>"+
 			"<ol><li><pre>  indented\n    more</pre></li></ol>"+
+			"<ol><li><p>step</p><pre>  sx</pre></li></ol>"+
+			"<ul><li>outer<ul><li><pre>  ny</pre></li></ul></li></ul>"+
 			"<blockquote><pre>  quoted</pre></blockquote>"+
 			"<p>a   b</p>"+
 			"<pre>  x</pre>"+
 			"<p>c   d</p>"+
 			"<pre>```\ncode\n```\n  after</pre>"+
 			"<p>e   f</p>"+
-			`<p id="s1"></p><p><code id="s2"></code></p><p><img id="s3" src="/i.png"></p>`+
+			// Each group puts U+0000 in one element and U+0001 in a later one, with a
+			// blank-line run between them. If a source were not cleaned, the pair would
+			// become a code segment and the run would survive the tidy pass.
+			`<p><span id="a1"></span></p><p>g1</p><p>h1</p><p><span id="b1"></span></p>`+
+			`<p><code id="a2"></code></p><p>g2</p><p>h2</p><p><code id="b2"></code></p>`+
+			`<p><img id="a3" src="/i.png"></p><p>g3</p><p>h3</p><p><img id="b3" src="/i.png"></p>`+
+			`<p><input id="a4" aria-label="First"></p><p>g4</p><p>h4</p><p><input id="b4" aria-label="Second"></p>`+
+			`<p><button id="a5">B</button></p><p>g5</p><p>h5</p><p><button id="b5">B</button></p>`+
+			`<p><a id="a6">A</a></p><p>g6</p><p>h6</p><p><a id="b6">B</a></p>`+
+			`<pre id="p7"></pre>`+
 			"<script>"+
 			"const nul = String.fromCharCode(0), soh = String.fromCharCode(1);"+
-			"document.getElementById('s1').textContent = 'sent' + nul + 'inel' + soh + ' text';"+
-			"document.getElementById('s2').textContent = 'in' + soh + 'line';"+
-			"document.getElementById('s3').alt = 'pic' + nul + 'ture';"+
+			"const $ = id => document.getElementById(id);"+
+			"$('a1').textContent = 'x' + nul; $('b1').textContent = soh + 'x';"+
+			"$('a2').textContent = 'c' + nul; $('b2').textContent = soh + 'c';"+
+			"$('a3').alt = 'p' + nul; $('b3').alt = soh + 'p';"+
+			"$('a4').value = 'v' + nul; $('b4').value = soh + 'v';"+
+			"$('a5').setAttribute('aria-label', 'L' + nul); $('b5').setAttribute('aria-label', soh + 'M');"+
+			"$('a6').setAttribute('href', 'https://a.example/' + nul); $('b6').setAttribute('href', 'https://b.example/' + soh);"+
+			"$('p7').textContent = '  k' + soh + '  m';"+
 			"</script>"+
 			"</body></html>")
 	})
@@ -3827,6 +3847,8 @@ func TestNavigateAndExtractTextMarkdownIntegration(t *testing.T) {
 			`[textbox "Contact": me@example.org]`,
 			`[checkbox "Masked box": checked]`,
 			`[button "Masked send"]`,
+			`[textbox "Echo"`,
+			`[password "Custom PIN": set]`,
 		} {
 			if !strings.Contains(text, want) {
 				t.Errorf("Expected %s in output, got:\n%s", want, text)
@@ -3835,6 +3857,7 @@ func TestNavigateAndExtractTextMarkdownIntegration(t *testing.T) {
 		for _, secret := range []string{
 			"shown-secret", "981234", "masked-pin", "new-secret", "4111111111111111", "737",
 			"5555444433331111", "246810", "secret-phrase", "135790",
+			"pre-secret", "code-secret", "typed-pin",
 		} {
 			if strings.Contains(text, secret) {
 				t.Errorf("Secret value %q must never appear in output, got:\n%s", secret, text)
@@ -3847,6 +3870,9 @@ func TestNavigateAndExtractTextMarkdownIntegration(t *testing.T) {
 
 		for _, want := range []string{
 			"1. ```\n     indented\n       more\n   ```",
+			// Code after prose in an item keeps the item's indent on every line.
+			"1. step\n\n   ```\n     sx\n   ```",
+			"- outer\n\n  - ```\n      ny\n    ```",
 			"> ```\n>   quoted\n> ```",
 			"a b",
 			"```\n  x\n```",
@@ -3854,10 +3880,10 @@ func TestNavigateAndExtractTextMarkdownIntegration(t *testing.T) {
 			// A line inside the code that starts with a fence does not end the block.
 			"```\n```\ncode\n```\n  after\n```",
 			"e f",
-			// Sentinel characters in page content are dropped, the rest is kept.
-			"sentinel text",
-			"`inline`",
-			"![picture](" + ts.URL + "/i.png)",
+			// Sentinel characters from every page source are stripped before the tidy
+			// pass, so none of the groups pairs into a code segment.
+			"g1\n\nh1", "g2\n\nh2", "g3\n\nh3", "g4\n\nh4", "g5\n\nh5", "g6\n\nh6",
+			"```\n  k  m\n```",
 		} {
 			if !strings.Contains(text, want) {
 				t.Errorf("Expected %q in output, got:\n%s", want, text)
