@@ -437,12 +437,13 @@ const extractTextAsMarkdownJS = `(selector) => {
 		return Array.from(node.childNodes);
 	}
 
-	// labelText returns an element's text without the text of controls inside it.
-	// A control itself has no label text, so aria-labelledby pointing at a textarea
-	// cannot read its content.
+	// labelText returns an element's text without the text of controls or secret
+	// content inside it. A value-bearing control or a secret element has no label
+	// text, so aria-labelledby pointing at one cannot read its content. A button
+	// keeps its text, which is visible content.
 	function labelText(el) {
-		if (/^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(el.tagName)) return '';
-		const clone = el.cloneNode(true);
+		if (/^(INPUT|SELECT|TEXTAREA)$/i.test(el.tagName) || isSecretContent(el)) return '';
+		const clone = withoutSecrets(el);
 		clone.querySelectorAll('input,select,textarea,button').forEach(c => c.remove());
 		return clone.textContent.replace(/\s+/g, ' ').trim();
 	}
@@ -500,17 +501,31 @@ const extractTextAsMarkdownJS = `(selector) => {
 		return isMasked(node);
 	}
 
-	// codeText returns the text of a code element with secret textareas removed, so
-	// their default content cannot leak through a surrounding pre or code.
-	function codeText(node) {
-		const areas = node.querySelectorAll('textarea');
-		if (!areas.length) return clean(node.textContent);
+	// isSecretContent reports whether an element's text is secret: a secret textarea,
+	// or a masked contenteditable or an element inside one (both properties inherit).
+	function isSecretContent(el) {
+		if (/^textarea$/i.test(el.tagName)) return isSecret(el, 'textarea');
+		return el.isContentEditable && isMasked(el);
+	}
+
+	// withoutSecrets returns a clone of node with its secret descendants removed.
+	// They are found on the original tree, where computed style is available, and
+	// the clone node at the same document-order index is dropped.
+	function withoutSecrets(node) {
 		const clone = node.cloneNode(true);
-		const cloned = clone.querySelectorAll('textarea');
-		areas.forEach((area, i) => {
-			if (isSecret(area, 'textarea')) cloned[i].remove();
+		if (!node.isContentEditable && !node.querySelector('textarea,[contenteditable]')) return clone;
+		const copies = clone.querySelectorAll('*');
+		node.querySelectorAll('*').forEach((d, i) => {
+			if (isSecretContent(d)) copies[i].remove();
 		});
-		return clean(clone.textContent);
+		return clone;
+	}
+
+	// codeText returns the text of a code element without secret content, so a
+	// secret textarea or masked contenteditable cannot leak through a surrounding
+	// pre or code.
+	function codeText(node) {
+		return clean(withoutSecrets(node).textContent);
 	}
 
 	// secretToken renders a secret control with only whether it holds a value.
@@ -686,8 +701,9 @@ const extractTextAsMarkdownJS = `(selector) => {
 	// blocks are the sentinel-delimited segments and keep their text as written. A
 	// prose line that continues into or out of a code block is not trimmed on that
 	// side. The line just before a code block can only hold a wrapper prefix (a list
-	// marker, a list item's continuation indent, or "> "), because pre emits a blank
-	// line before its sentinel, so its leading indent is kept as is.
+	// marker, a list item's continuation indent, "> ", or a mix of them), because pre
+	// emits a blank line before its sentinel, so that prefix is kept as is. Runs of
+	// blank quote lines collapse like runs of blank lines.
 	const parts = md(el).split(/(\u0000[^\u0000\u0001]*\u0001)/);
 	const text = parts.map((part, i) => {
 		if (i % 2 === 1) return part.slice(1, -1);
@@ -696,7 +712,7 @@ const extractTextAsMarkdownJS = `(selector) => {
 		const beforeCode = i < parts.length - 1;
 		const tidied = lines.map((line, j) => {
 			if (j === last && beforeCode) {
-				const indent = line.match(/^[ \t]*/)[0];
+				const indent = line.match(/^(?:[ \t]*>[ \t]?)*[ \t]*/)[0];
 				return indent + line.slice(indent.length).replace(/[ \t]+/g, ' ');
 			}
 			line = line.replace(/[ \t]+/g, ' ');
@@ -704,7 +720,7 @@ const extractTextAsMarkdownJS = `(selector) => {
 			if (j < last || i === parts.length - 1) line = line.trimEnd();
 			return line;
 		}).join('\n');
-		return tidied.replace(/\n{3,}/g, '\n\n').replace(SENTINELS, '');
+		return tidied.replace(/\n{3,}/g, '\n\n').replace(/^(>(?: >)*)(?:\n\1)+$/gm, '$1').replace(SENTINELS, '');
 	}).join('').trim();
 	return text;
 }`

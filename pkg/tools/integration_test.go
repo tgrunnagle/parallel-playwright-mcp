@@ -214,6 +214,11 @@ func startTestHTTPServer(t *testing.T) *httptest.Server {
 				<pre>pre: <textarea style="-webkit-text-security: disc">pre-secret</textarea></pre>
 				<p><code>code: <textarea autocomplete="one-time-code">code-secret</textarea></code></p>
 				<span id="pinlbl">Custom PIN</span> <div contenteditable="true" aria-labelledby="pinlbl" style="-webkit-text-security: disc">typed-pin</div>
+				<label>Wrapped PIN <div contenteditable="true" style="-webkit-text-security: disc">wrap-secret</div></label>
+				<div id="pwed" contenteditable="true" style="-webkit-text-security: disc">labelled-secret</div> <input type="checkbox" aria-labelledby="pwed">
+				<div id="pwbox">Box <span contenteditable="true" style="-webkit-text-security: disc">box-secret</span></div> <input type="checkbox" aria-labelledby="pwbox">
+				<pre>pre-ed: <span contenteditable="true" style="-webkit-text-security: disc">pre-ed-secret</span></pre>
+				<button type="button" id="savebtn">Save draft</button> <input id="draft" aria-labelledby="savebtn">
 				<div style="-webkit-text-security: disc"><label><input type="checkbox" checked> Masked box</label> <button type="submit">Masked send</button></div>
 				<button type="submit">Send</button>
 				<input type="submit" value="Go">
@@ -227,6 +232,7 @@ func startTestHTTPServer(t *testing.T) *httptest.Server {
 			"<ol><li><p>step</p><pre>  sx</pre></li></ol>"+
 			"<ul><li>outer<ul><li><pre>  ny</pre></li></ul></li></ul>"+
 			"<blockquote><pre>  quoted</pre></blockquote>"+
+			"<blockquote><ul><li><p>s</p><pre>  qx</pre></li></ul></blockquote>"+
 			"<p>a   b</p>"+
 			"<pre>  x</pre>"+
 			"<p>c   d</p>"+
@@ -3849,6 +3855,9 @@ func TestNavigateAndExtractTextMarkdownIntegration(t *testing.T) {
 			`[button "Masked send"]`,
 			`[textbox "Echo"`,
 			`[password "Custom PIN": set]`,
+			`[password "Wrapped PIN": set]`,
+			`[checkbox "Box": unchecked]`,
+			`[textbox "Save draft"`,
 		} {
 			if !strings.Contains(text, want) {
 				t.Errorf("Expected %s in output, got:\n%s", want, text)
@@ -3857,7 +3866,8 @@ func TestNavigateAndExtractTextMarkdownIntegration(t *testing.T) {
 		for _, secret := range []string{
 			"shown-secret", "981234", "masked-pin", "new-secret", "4111111111111111", "737",
 			"5555444433331111", "246810", "secret-phrase", "135790",
-			"pre-secret", "code-secret", "typed-pin",
+			"pre-secret", "code-secret", "typed-pin", "wrap-secret", "labelled-secret", "box-secret",
+			"pre-ed-secret",
 		} {
 			if strings.Contains(text, secret) {
 				t.Errorf("Secret value %q must never appear in output, got:\n%s", secret, text)
@@ -3874,6 +3884,8 @@ func TestNavigateAndExtractTextMarkdownIntegration(t *testing.T) {
 			"1. step\n\n   ```\n     sx\n   ```",
 			"- outer\n\n  - ```\n      ny\n    ```",
 			"> ```\n>   quoted\n> ```",
+			// In a list inside a blockquote, the fence keeps the item's indent after "> ".
+			"> - s\n>\n>   ```\n>     qx\n>   ```",
 			"a b",
 			"```\n  x\n```",
 			"c d",
@@ -3883,6 +3895,8 @@ func TestNavigateAndExtractTextMarkdownIntegration(t *testing.T) {
 			// Sentinel characters from every page source are stripped before the tidy
 			// pass, so none of the groups pairs into a code segment.
 			"g1\n\nh1", "g2\n\nh2", "g3\n\nh3", "g4\n\nh4", "g5\n\nh5", "g6\n\nh6",
+			// The content next to a stripped sentinel is kept.
+			"`c`", `[textbox "First": v]`, "![p](" + ts.URL + "/i.png)",
 			"```\n  k  m\n```",
 		} {
 			if !strings.Contains(text, want) {
