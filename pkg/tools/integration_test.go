@@ -202,6 +202,15 @@ func startTestHTTPServer(t *testing.T) *httptest.Server {
 				<label for="cur">Current</label> <input id="cur" type="text" autocomplete="current-password" value="shown-secret">
 				<label for="otp">Login code</label> <input id="otp" type="text" autocomplete="one-time-code" value="981234">
 				<label for="pin">PIN</label> <input id="pin" type="text" style="-webkit-text-security: disc" value="masked-pin">
+				<label for="newpw">New</label> <input id="newpw" type="text" autocomplete="new-password" value="new-secret">
+				<label for="ccn">Card</label> <input id="ccn" type="text" autocomplete="cc-number" value="4111111111111111">
+				<label for="csc">CVC</label> <input id="csc" type="text" autocomplete="cc-csc" value="737">
+				<label for="ccn2">Billing card</label> <input id="ccn2" type="text" autocomplete="section-a billing cc-number" value="5555444433331111">
+				<label for="otp2">Code</label> <input id="otp2" type="text" autocomplete="One-Time-Code" value="246810">
+				<label for="mail">Contact</label> <input id="mail" type="email" autocomplete="email" value="me@example.org">
+				<label for="phrase">Recovery phrase</label> <textarea id="phrase" style="-webkit-text-security: disc">secret-phrase</textarea>
+				<label for="otparea">Code area</label> <textarea id="otparea" autocomplete="one-time-code">135790</textarea>
+				<div style="-webkit-text-security: disc"><label><input type="checkbox" checked> Masked box</label> <button type="submit">Masked send</button></div>
 				<button type="submit">Send</button>
 				<input type="submit" value="Go">
 			</form>
@@ -215,6 +224,15 @@ func startTestHTTPServer(t *testing.T) *httptest.Server {
 			"<p>a   b</p>"+
 			"<pre>  x</pre>"+
 			"<p>c   d</p>"+
+			"<pre>```\ncode\n```\n  after</pre>"+
+			"<p>e   f</p>"+
+			`<p id="s1"></p><p><code id="s2"></code></p><p><img id="s3" src="/i.png"></p>`+
+			"<script>"+
+			"const nul = String.fromCharCode(0), soh = String.fromCharCode(1);"+
+			"document.getElementById('s1').textContent = 'sent' + nul + 'inel' + soh + ' text';"+
+			"document.getElementById('s2').textContent = 'in' + soh + 'line';"+
+			"document.getElementById('s3').alt = 'pic' + nul + 'ture';"+
+			"</script>"+
 			"</body></html>")
 	})
 	mux.HandleFunc("/md-shadow", func(w http.ResponseWriter, r *http.Request) {
@@ -3799,12 +3817,25 @@ func TestNavigateAndExtractTextMarkdownIntegration(t *testing.T) {
 			`[password "Current": set]`,
 			`[password "Login code": set]`,
 			`[password "PIN": set]`,
+			`[password "New": set]`,
+			`[password "Card": set]`,
+			`[password "CVC": set]`,
+			`[password "Billing card": set]`,
+			`[password "Code": set]`,
+			`[password "Recovery phrase": set]`,
+			`[password "Code area": set]`,
+			`[textbox "Contact": me@example.org]`,
+			`[checkbox "Masked box": checked]`,
+			`[button "Masked send"]`,
 		} {
 			if !strings.Contains(text, want) {
 				t.Errorf("Expected %s in output, got:\n%s", want, text)
 			}
 		}
-		for _, secret := range []string{"shown-secret", "981234", "masked-pin"} {
+		for _, secret := range []string{
+			"shown-secret", "981234", "masked-pin", "new-secret", "4111111111111111", "737",
+			"5555444433331111", "246810", "secret-phrase", "135790",
+		} {
 			if strings.Contains(text, secret) {
 				t.Errorf("Secret value %q must never appear in output, got:\n%s", secret, text)
 			}
@@ -3815,17 +3846,24 @@ func TestNavigateAndExtractTextMarkdownIntegration(t *testing.T) {
 		text := extractMarkdown(t, map[string]any{"url": ts.URL + "/md-nested-code"})
 
 		for _, want := range []string{
-			"1. ```\n  indented\n    more\n```",
+			"1. ```\n     indented\n       more\n   ```",
 			"> ```\n>   quoted\n> ```",
 			"a b",
 			"```\n  x\n```",
 			"c d",
+			// A line inside the code that starts with a fence does not end the block.
+			"```\n```\ncode\n```\n  after\n```",
+			"e f",
+			// Sentinel characters in page content are dropped, the rest is kept.
+			"sentinel text",
+			"`inline`",
+			"![picture](" + ts.URL + "/i.png)",
 		} {
 			if !strings.Contains(text, want) {
 				t.Errorf("Expected %q in output, got:\n%s", want, text)
 			}
 		}
-		if strings.Contains(text, "a   b") || strings.Contains(text, "c   d") {
+		if strings.Contains(text, "a   b") || strings.Contains(text, "c   d") || strings.Contains(text, "e   f") {
 			t.Errorf("Expected prose after code blocks to be tidied, got:\n%s", text)
 		}
 		if strings.ContainsAny(text, "\x00\x01") {

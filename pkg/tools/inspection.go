@@ -400,11 +400,13 @@ const extractTextAsMarkdownJS = `(selector) => {
 	const BUTTON_TYPES = new Set(['submit','button','reset','image']);
 	const SECRET_AUTOCOMPLETE = new Set(['current-password','new-password','one-time-code','cc-number','cc-csc']);
 	// Code blocks are wrapped in these sentinels so the final tidy pass can tell code
-	// from prose without parsing the rendered markdown. Page text never carries them:
-	// they are stripped from every text node and code body.
+	// from prose without parsing the rendered markdown. Page content never carries
+	// them: clean() strips them from every string taken from the page (text nodes,
+	// code bodies, attribute values, control values and labels).
 	const CODE_OPEN = String.fromCharCode(0);
 	const CODE_CLOSE = String.fromCharCode(1);
 	const SENTINELS = /[\u0000\u0001]/g;
+	const clean = s => String(s).replace(SENTINELS, '');
 	let cellDepth = 0;
 
 	function isHidden(node) {
@@ -420,7 +422,7 @@ const extractTextAsMarkdownJS = `(selector) => {
 	// values are kept as written; relative ones use the browser-resolved property.
 	function resolveURL(raw, resolved) {
 		if (!raw) return '';
-		return /^[a-z][a-z0-9+.-]*:/i.test(raw.trim()) ? raw.trim() : (resolved || '');
+		return clean(/^[a-z][a-z0-9+.-]*:/i.test(raw.trim()) ? raw.trim() : (resolved || ''));
 	}
 
 	// kids returns the nodes rendered in place of an element's children: an open
@@ -470,11 +472,11 @@ const extractTextAsMarkdownJS = `(selector) => {
 	}
 
 	function quote(s) {
-		return '"' + String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+		return '"' + clean(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
 	}
 
 	function token(role, label, value) {
-		const v = value === undefined ? '' : ': ' + String(value).replace(/\s+/g, ' ').trim();
+		const v = value === undefined ? '' : ': ' + clean(value).replace(/\s+/g, ' ').trim();
 		return ' [' + role + ' ' + quote(label) + v + '] ';
 	}
 
@@ -490,12 +492,14 @@ const extractTextAsMarkdownJS = `(selector) => {
 		return false;
 	}
 
+	// secretToken renders a secret control with only whether it holds a value.
+	function secretToken(node) {
+		return token('password', controlLabel(node), node.value ? 'set' : 'empty');
+	}
+
 	function renderInput(node) {
 		const type = (node.getAttribute('type') || 'text').toLowerCase();
 		if (type === 'hidden') return '';
-		if (isSecret(node, type)) {
-			return token('password', controlLabel(node), node.value ? 'set' : 'empty');
-		}
 		if (type === 'checkbox' || type === 'radio') {
 			return token(type, controlLabel(node), node.checked ? 'checked' : 'unchecked');
 		}
@@ -506,6 +510,9 @@ const extractTextAsMarkdownJS = `(selector) => {
 			if (type === 'image') own = node.alt || own;
 			return token('button', controlLabel(node, (own || '').trim()));
 		}
+		// Only text-entry controls can be secret: -webkit-text-security inherits, so a
+		// checkbox or button inside a masked wrapper keeps its own token.
+		if (isSecret(node, type)) return secretToken(node);
 		const role = type === 'number' ? 'spinbutton' : 'textbox';
 		return token(role, controlLabel(node), node.value);
 	}
@@ -531,7 +538,7 @@ const extractTextAsMarkdownJS = `(selector) => {
 
 	function md(node) {
 		if (node.nodeType === Node.TEXT_NODE) {
-			return node.textContent.replace(SENTINELS, '').replace(/[ \t]+/g, ' ');
+			return clean(node.textContent).replace(/[ \t]+/g, ' ');
 		}
 		if (node.nodeType !== Node.ELEMENT_NODE) return '';
 
@@ -543,7 +550,8 @@ const extractTextAsMarkdownJS = `(selector) => {
 
 		switch(tag) {
 		case 'input': return renderInput(node);
-		case 'textarea': return token('textbox', controlLabel(node), node.value);
+		case 'textarea':
+			return isSecret(node, 'textarea') ? secretToken(node) : token('textbox', controlLabel(node), node.value);
 		case 'select': return renderSelect(node);
 		case 'button': return token('button', controlLabel(node, node.textContent.replace(/\s+/g, ' ').trim()));
 		case 'iframe': {
@@ -576,7 +584,7 @@ const extractTextAsMarkdownJS = `(selector) => {
 			return '[' + t + '](' + href + ')';
 		}
 		case 'img': {
-			const alt = node.alt || node.getAttribute('aria-label') || '';
+			const alt = clean(node.alt || node.getAttribute('aria-label') || '');
 			if (!alt) return '';
 			const src = resolveURL(node.getAttribute('src'), node.currentSrc || node.src);
 			return src ? '![' + alt + '](' + src + ')' : alt;
@@ -585,11 +593,11 @@ const extractTextAsMarkdownJS = `(selector) => {
 			if (node.parentElement && node.parentElement.tagName.toLowerCase() === 'pre') {
 				return node.textContent;
 			}
-			const t = node.textContent;
+			const t = clean(node.textContent);
 			return t ? BT + t + BT : '';
 		}
 		case 'pre': {
-			const t = node.textContent.replace(SENTINELS, '');
+			const t = clean(node.textContent);
 			if (!t) return '';
 			return '\n\n' + CODE_OPEN + BT.repeat(3) + '\n' + t + '\n' + BT.repeat(3) + CODE_CLOSE + '\n\n';
 		}
@@ -604,11 +612,15 @@ const extractTextAsMarkdownJS = `(selector) => {
 			const ordered = parent && parent.tagName.toLowerCase() === 'ol';
 			const t = inner().trim();
 			if (!t) return '';
+			let marker = '- ';
 			if (ordered) {
-				const idx = Array.from(parent.children).filter(c => c.tagName === 'LI').indexOf(node) + 1;
-				return idx + '. ' + t + '\n';
+				marker = (Array.from(parent.children).filter(c => c.tagName === 'LI').indexOf(node) + 1) + '. ';
 			}
-			return '- ' + t + '\n';
+			// Indent continuation lines to the item's content column, so a code block
+			// inside the item stays part of it. The tidy pass trims prose lines, so only
+			// code keeps the indent.
+			const pad = ' '.repeat(marker.length);
+			return marker + t.split('\n').map((l, k) => k ? pad + l : l).join('\n') + '\n';
 		}
 		case 'table': {
 			const rows = Array.from(node.rows).filter(r => !isHidden(r));
