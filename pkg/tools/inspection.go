@@ -385,8 +385,10 @@ func ExtractTextHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeou
 // them survive. Tables read table.rows, so a nested table renders once, flattened
 // into its cell. Subtrees under aria-hidden="true" are treated as hidden.
 //
-// Form controls render inline as [<role> "<label>": <value>]; password values are
-// never emitted, only whether the field is set. Open shadow roots are walked in
+// Form controls render inline as [<role> "<label>": <value>]; secret values are
+// never emitted, only whether the field is set. A control is secret when it is a
+// password field, its autocomplete names a credential or card field, or its text
+// is masked with -webkit-text-security. Open shadow roots are walked in
 // place of the host's light DOM, with each slot rendering its assigned nodes.
 // Iframes render as an [iframe "<title or src>"] placeholder without their content.
 const extractTextAsMarkdownJS = `(selector) => {
@@ -394,6 +396,13 @@ const extractTextAsMarkdownJS = `(selector) => {
 	const SKIP = new Set(['script','style','noscript','svg','template','meta','link']);
 	const TEXTBOX_TYPES = new Set(['text','email','search','tel','url']);
 	const BUTTON_TYPES = new Set(['submit','button','reset','image']);
+	const SECRET_AUTOCOMPLETE = new Set(['current-password','new-password','one-time-code','cc-number','cc-csc']);
+	// Code blocks are wrapped in these sentinels so the final tidy pass can tell code
+	// from prose without parsing the rendered markdown. Page text never carries them:
+	// they are stripped from every text node and code body.
+	const CODE_OPEN = String.fromCharCode(0);
+	const CODE_CLOSE = String.fromCharCode(1);
+	const SENTINELS = /[\u0000\u0001]/g;
 	let cellDepth = 0;
 
 	function isHidden(node) {
@@ -467,10 +476,22 @@ const extractTextAsMarkdownJS = `(selector) => {
 		return ' [' + role + ' ' + quote(label) + v + '] ';
 	}
 
+	function isSecret(node, type) {
+		if (type === 'password') return true;
+		const ac = (node.getAttribute('autocomplete') || '').toLowerCase().split(/\s+/);
+		if (ac.some(t => SECRET_AUTOCOMPLETE.has(t))) return true;
+		try {
+			const style = window.getComputedStyle(node);
+			const mask = style.webkitTextSecurity || style.getPropertyValue('-webkit-text-security');
+			if (mask && mask !== 'none') return true;
+		} catch(e) {}
+		return false;
+	}
+
 	function renderInput(node) {
 		const type = (node.getAttribute('type') || 'text').toLowerCase();
 		if (type === 'hidden') return '';
-		if (type === 'password') {
+		if (isSecret(node, type)) {
 			return token('password', controlLabel(node), node.value ? 'set' : 'empty');
 		}
 		if (type === 'checkbox' || type === 'radio') {
@@ -508,7 +529,7 @@ const extractTextAsMarkdownJS = `(selector) => {
 
 	function md(node) {
 		if (node.nodeType === Node.TEXT_NODE) {
-			return node.textContent.replace(/[ \t]+/g, ' ');
+			return node.textContent.replace(SENTINELS, '').replace(/[ \t]+/g, ' ');
 		}
 		if (node.nodeType !== Node.ELEMENT_NODE) return '';
 
@@ -566,8 +587,9 @@ const extractTextAsMarkdownJS = `(selector) => {
 			return t ? BT + t + BT : '';
 		}
 		case 'pre': {
-			const t = node.textContent;
-			return t ? '\n\n' + BT.repeat(3) + '\n' + t + '\n' + BT.repeat(3) + '\n\n' : '';
+			const t = node.textContent.replace(SENTINELS, '');
+			if (!t) return '';
+			return '\n\n' + CODE_OPEN + BT.repeat(3) + '\n' + t + '\n' + BT.repeat(3) + CODE_CLOSE + '\n\n';
 		}
 		case 'blockquote': {
 			const t = inner().trim();
@@ -619,17 +641,23 @@ const extractTextAsMarkdownJS = `(selector) => {
 	const el = document.querySelector(selector);
 	if (!el) return null;
 
-	// Tidy whitespace outside fenced code: collapse runs of spaces and trim each
-	// line, so whitespace-only lines collapse with the surrounding blank lines.
-	let inFence = false;
-	let text = md(el).split('\n').map(line => {
-		if (line.trim().startsWith(BT.repeat(3))) {
-			inFence = !inFence;
-			return line.trim();
-		}
-		return inFence ? line : line.replace(/[ \t]+/g, ' ').trim();
-	}).join('\n');
-	text = text.replace(/\n{3,}/g, '\n\n').trim();
+	// Tidy whitespace outside code blocks: collapse runs of spaces and trim each
+	// line, so whitespace-only lines collapse with the surrounding blank lines. Code
+	// blocks are the sentinel-delimited segments and keep their text as written. A
+	// prose line that continues into or out of a code block (a list marker or "> "
+	// prefix) is not trimmed on that side.
+	const parts = md(el).split(/(\u0000[^\u0000\u0001]*\u0001)/);
+	const text = parts.map((part, i) => {
+		if (i % 2 === 1) return part.slice(1, -1);
+		const lines = part.split('\n').map(line => line.replace(/[ \t]+/g, ' '));
+		const last = lines.length - 1;
+		const tidied = lines.map((line, j) => {
+			if (j > 0 || i === 0) line = line.trimStart();
+			if (j < last || i === parts.length - 1) line = line.trimEnd();
+			return line;
+		}).join('\n');
+		return tidied.replace(/\n{3,}/g, '\n\n').replace(SENTINELS, '');
+	}).join('').trim();
 	return text;
 }`
 

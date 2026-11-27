@@ -199,10 +199,23 @@ func startTestHTTPServer(t *testing.T) *httptest.Server {
 				<input type="hidden" name="csrf" value="hidden-token-value">
 				<label for="pw">Password</label> <input id="pw" type="password" value="hunter2-secret">
 				<label for="pw2">Confirm</label> <input id="pw2" type="password">
+				<label for="cur">Current</label> <input id="cur" type="text" autocomplete="current-password" value="shown-secret">
+				<label for="otp">Login code</label> <input id="otp" type="text" autocomplete="one-time-code" value="981234">
+				<label for="pin">PIN</label> <input id="pin" type="text" style="-webkit-text-security: disc" value="masked-pin">
 				<button type="submit">Send</button>
 				<input type="submit" value="Go">
 			</form>
 		</body></html>`)
+	})
+	mux.HandleFunc("/md-nested-code", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, "<!DOCTYPE html><html><body>"+
+			"<ol><li><pre>  indented\n    more</pre></li></ol>"+
+			"<blockquote><pre>  quoted</pre></blockquote>"+
+			"<p>a   b</p>"+
+			"<pre>  x</pre>"+
+			"<p>c   d</p>"+
+			"</body></html>")
 	})
 	mux.HandleFunc("/md-shadow", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
@@ -3776,6 +3789,47 @@ func TestNavigateAndExtractTextMarkdownIntegration(t *testing.T) {
 		}
 		if strings.Contains(text, "hunter2") {
 			t.Errorf("Password value must never appear in output, got:\n%s", text)
+		}
+	})
+
+	t.Run("secret field redaction", func(t *testing.T) {
+		text := extractMarkdown(t, map[string]any{"url": ts.URL + "/md-forms"})
+
+		for _, want := range []string{
+			`[password "Current": set]`,
+			`[password "Login code": set]`,
+			`[password "PIN": set]`,
+		} {
+			if !strings.Contains(text, want) {
+				t.Errorf("Expected %s in output, got:\n%s", want, text)
+			}
+		}
+		for _, secret := range []string{"shown-secret", "981234", "masked-pin"} {
+			if strings.Contains(text, secret) {
+				t.Errorf("Secret value %q must never appear in output, got:\n%s", secret, text)
+			}
+		}
+	})
+
+	t.Run("code blocks in lists and blockquotes", func(t *testing.T) {
+		text := extractMarkdown(t, map[string]any{"url": ts.URL + "/md-nested-code"})
+
+		for _, want := range []string{
+			"1. ```\n  indented\n    more\n```",
+			"> ```\n>   quoted\n> ```",
+			"a b",
+			"```\n  x\n```",
+			"c d",
+		} {
+			if !strings.Contains(text, want) {
+				t.Errorf("Expected %q in output, got:\n%s", want, text)
+			}
+		}
+		if strings.Contains(text, "a   b") || strings.Contains(text, "c   d") {
+			t.Errorf("Expected prose after code blocks to be tidied, got:\n%s", text)
+		}
+		if strings.ContainsAny(text, "\x00\x01") {
+			t.Errorf("Code block sentinels must be stripped, got:\n%q", text)
 		}
 	})
 
