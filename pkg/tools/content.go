@@ -308,10 +308,12 @@ func cutString(s string, target int) (string, int) {
 }
 
 // cutItemToBudget shrinks one serialized item to fit in maxRunes. String values are
-// cut longest first, each once, to the longest prefix whose serialized size fits,
-// ending with "…". The work is one marshal of each string per binary-search step,
-// not of the whole item. If the item still does not fit once every string is empty,
-// it is replaced by truncatedItem, or by null when even that does not fit.
+// cut longest first, each to the longest prefix whose serialized size fits, ending
+// with "…". Each string is sized once and cut at most once by a binary search over
+// candidate prefixes; the whole item is marshaled once at the end. If the item still
+// does not fit once every string is empty, it is replaced by truncatedItem, or by
+// null when even that does not fit. Below 4 runes nothing valid fits, and null is
+// returned over budget.
 func cutItemToBudget(raw []byte, maxRunes int) ([]byte, error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()

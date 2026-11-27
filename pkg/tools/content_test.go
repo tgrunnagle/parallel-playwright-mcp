@@ -402,6 +402,47 @@ func TestPaginateItems(t *testing.T) {
 	})
 }
 
+func TestCutItemToBudget(t *testing.T) {
+	attrs := make(map[string]string, 200)
+	for i := 0; i < 200; i++ {
+		attrs[fmt.Sprintf("data-attribute-%03d", i)] = "value"
+	}
+	raw, err := json.Marshal(map[string]any{"tag": "div", "attributes": attrs})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		budget int
+		want   string
+	}{
+		{budget: 0, want: "null"},
+		{budget: 3, want: "null"},
+		{budget: 4, want: "null"},
+		{budget: 10, want: "null"},
+		{budget: 17, want: "null"},
+		{budget: 18, want: truncatedItem},
+		{budget: 500, want: truncatedItem},
+	} {
+		t.Run(fmt.Sprintf("budget %d", tc.budget), func(t *testing.T) {
+			out, err := cutItemToBudget(raw, tc.budget)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !json.Valid(out) {
+				t.Fatalf("output is not valid JSON: %s", out)
+			}
+			if string(out) != tc.want {
+				t.Errorf("output = %s, want %s", out, tc.want)
+			}
+			// Every budget that can hold null is met.
+			if n := utf8.RuneCount(out); tc.budget >= 4 && n > tc.budget {
+				t.Errorf("output is %d runes, budget %d", n, tc.budget)
+			}
+		})
+	}
+}
+
 func TestPageParams(t *testing.T) {
 	t.Run("text defaults to budget and offset 0", func(t *testing.T) {
 		maxChars, offset, err := textPageParams(map[string]any{}, 1000)
@@ -712,10 +753,91 @@ func testGetHTMLPagination(t *testing.T) {
 	})
 }
 
+// mockNavPage is a mockContentPage that also accepts navigation.
+type mockNavPage struct {
+	mockContentPage
+}
+
+func (m *mockNavPage) Goto(url string, options ...playwright.PageGotoOptions) (playwright.Response, error) {
+	return nil, nil
+}
+
 // testNavigateAndExtractTextPagination checks that navigate_and_extract_text
 // rejects bad maxChars/offset before it creates a browser session, so bad input
-// cannot leak one. It runs as a subtest of TestNavigateAndExtractTextHandler.
+// cannot leak one, and that it slices its result like extract_text. It runs as a
+// subtest of TestNavigateAndExtractTextHandler.
 func testNavigateAndExtractTextPagination(t *testing.T) {
+	longText := strings.Repeat("0123456789", 30) // 300 runes
+	tempSession := func() (*mockSessionManager, *bool) {
+		closed := false
+		page := &mockNavPage{mockContentPage{evaluateFunc: func(string, ...any) (any, error) { return longText, nil }}}
+		return &mockSessionManager{
+			createSessionFunc: func(ctx context.Context, mcpSessionID string, opts session.SessionOptions) (*session.BrowserSession, error) {
+				return &session.BrowserSession{
+					ID:          "sess-temp",
+					Pages:       map[string]playwright.Page{"tab-1": page},
+					ActiveTabID: "tab-1",
+				}, nil
+			},
+			closeSessionFunc: func(ctx context.Context, mcpSessionID, browserSessionID string) error {
+				closed = true
+				return nil
+			},
+		}, &closed
+	}
+
+	for _, tc := range []struct {
+		name       string
+		args       map[string]any
+		budget     int
+		wantSlice  string
+		wantNotice string
+	}{
+		{
+			name:       "small budget truncates with a continuation notice",
+			budget:     100,
+			wantSlice:  longText[:100],
+			wantNotice: "[truncated: 200 more characters; call again with offset=100]",
+		},
+		{
+			name:       "maxChars and offset read a later slice",
+			args:       map[string]any{"maxChars": float64(50), "offset": float64(250)},
+			budget:     DefaultMaxResponseChars,
+			wantSlice:  longText[250:],
+			wantNotice: "",
+		},
+		{
+			name:       "offset past the end reports the end of content",
+			args:       map[string]any{"offset": float64(300)},
+			budget:     DefaultMaxResponseChars,
+			wantSlice:  "",
+			wantNotice: "[end of content: 300 characters]",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mgr, closed := tempSession()
+			args := map[string]any{"url": "https://example.com"}
+			for k, v := range tc.args {
+				args[k] = v
+			}
+			handler := NavigateAndExtractTextHandler(mgr, DefaultTimeoutConfig(), &ResponseConfig{MaxResponseChars: tc.budget})
+			blocks := textBlocks(t, callTool(t, handler, "navigate_and_extract_text", args))
+			if blocks[0] != tc.wantSlice {
+				t.Errorf("slice = %q, want %q", blocks[0], tc.wantSlice)
+			}
+			if tc.wantNotice == "" {
+				if len(blocks) > 1 && strings.HasPrefix(blocks[1], "[truncated") {
+					t.Errorf("unexpected truncation notice %q", blocks[1])
+				}
+			} else if len(blocks) != 2 || blocks[1] != tc.wantNotice {
+				t.Errorf("blocks = %q, want notice %q", blocks, tc.wantNotice)
+			}
+			if !*closed {
+				t.Error("temporary session was not closed")
+			}
+		})
+	}
+
 	for _, tc := range invalidTextParams {
 		t.Run(tc.name+" is rejected before a session is created", func(t *testing.T) {
 			mgr := &mockSessionManager{
