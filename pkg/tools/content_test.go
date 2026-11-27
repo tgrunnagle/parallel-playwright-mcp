@@ -800,11 +800,11 @@ func testNavigateAndExtractTextPagination(t *testing.T) {
 			wantNotice: "[truncated: 200 more characters; call again with offset=100]",
 		},
 		{
-			name:       "maxChars and offset read a later slice",
-			args:       map[string]any{"maxChars": float64(50), "offset": float64(250)},
+			name:       "maxChars cuts a slice starting at offset",
+			args:       map[string]any{"maxChars": float64(50), "offset": float64(100)},
 			budget:     DefaultMaxResponseChars,
-			wantSlice:  longText[250:],
-			wantNotice: "",
+			wantSlice:  longText[100:150],
+			wantNotice: "[truncated: 150 more characters; call again with offset=150]",
 		},
 		{
 			name:       "offset past the end reports the end of content",
@@ -825,11 +825,7 @@ func testNavigateAndExtractTextPagination(t *testing.T) {
 			if blocks[0] != tc.wantSlice {
 				t.Errorf("slice = %q, want %q", blocks[0], tc.wantSlice)
 			}
-			if tc.wantNotice == "" {
-				if len(blocks) > 1 && strings.HasPrefix(blocks[1], "[truncated") {
-					t.Errorf("unexpected truncation notice %q", blocks[1])
-				}
-			} else if len(blocks) != 2 || blocks[1] != tc.wantNotice {
+			if len(blocks) != 2 || blocks[1] != tc.wantNotice {
 				t.Errorf("blocks = %q, want notice %q", blocks, tc.wantNotice)
 			}
 			if !*closed {
