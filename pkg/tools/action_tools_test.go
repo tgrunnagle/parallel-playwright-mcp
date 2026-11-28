@@ -87,8 +87,11 @@ func runActionTool(t *testing.T, tool actionTool, rc *ResponseConfig, snapshot s
 	result, err := tool.handler(mgr, DefaultTimeoutConfig(), rc)(context.Background(), mcp.CallToolRequest{
 		Params: mcp.CallToolParams{Name: tool.name, Arguments: args},
 	})
-	if err != nil || result == nil || result.IsError {
-		t.Fatalf("%s failed: %v %s", tool.name, err, extractTextContent(result.Content))
+	if err != nil || result == nil {
+		t.Fatalf("%s failed: %v, result %v", tool.name, err, result)
+	}
+	if result.IsError {
+		t.Fatalf("%s failed: %s", tool.name, extractTextContent(result.Content))
 	}
 	return result
 }

@@ -662,15 +662,16 @@ func newInteractionSessionNotFoundError(sessionID string) *mcp.CallToolResult {
 // handleInteractionError classifies interaction errors and returns appropriate error results.
 // Element not found errors get code -32002, with their own message when the selector
 // matched several elements; timeout errors get code -32003; unclassified interaction
-// errors get code -32005. locator is the target's locator, or nil for page-level actions.
-func handleInteractionError(err error, operation, selector string, locator playwright.Locator) *mcp.CallToolResult {
+// errors get code -32005. tool is the tool's name and target the label of its element
+// target; locator is the target's locator, or nil for page-level actions.
+func handleInteractionError(err error, tool, target string, locator playwright.Locator) *mcp.CallToolResult {
 	errMsg := strings.ToLower(err.Error())
 
 	// A selector that matched several elements gets its own -32002 message,
 	// describing the first matches so the caller can narrow the selector.
 	if strings.Contains(errMsg, "strict mode violation") {
-		slog.Error("selector matched several elements", "operation", operation, "selector", selector, "error", err)
-		return errorResult(multipleMatchError(locator, selector, strictModeCount(err, locator), err))
+		slog.Error("selector matched several elements", "tool", tool, "target", target, "error", err)
+		return errorResult(multipleMatchError(locator, target, strictModeCount(err, locator), err))
 	}
 
 	// Check for element not found or not actionable errors
@@ -682,21 +683,21 @@ func handleInteractionError(err error, operation, selector string, locator playw
 		strings.Contains(errMsg, "element is not stable") ||
 		strings.Contains(errMsg, "element is not editable") ||
 		strings.Contains(errMsg, "element is disabled") {
-		slog.Error("element not found or not actionable", "operation", operation, "selector", selector, "error", err)
+		slog.Error("element not found or not actionable", "tool", tool, "target", target, "error", err)
 		return mcp.NewToolResultError(errors.FormatErrorForTool(
-			errors.WrapElementNotFoundError(selector, 0, err)))
+			errors.WrapElementNotFoundError(target, 0, err)))
 	}
 
 	// Check for timeout errors
 	if strings.Contains(errMsg, "timeout") || strings.Contains(errMsg, "exceeded") {
-		slog.Error("interaction timeout", "operation", operation, "selector", selector, "error", err)
+		slog.Error("interaction timeout", "tool", tool, "target", target, "error", err)
 		return mcp.NewToolResultError(errors.FormatErrorForTool(
-			errors.WrapTimeoutError(fmt.Sprintf("%s on %s", operation, selector), 0, err)))
+			errors.WrapTimeoutError(fmt.Sprintf("%s on %s", tool, target), 0, err)))
 	}
 
 	// Return generic interaction error for unclassified errors
-	slog.Error("interaction failed", "operation", operation, "selector", selector, "error", err)
-	return errorResult(errors.WrapInteractionError(operation, selector, err))
+	slog.Error("interaction failed", "tool", tool, "target", target, "error", err)
+	return errorResult(errors.WrapInteractionError(tool, target, err))
 }
 
 // strictModeCountRe reads the match count from a Playwright strict mode violation.
