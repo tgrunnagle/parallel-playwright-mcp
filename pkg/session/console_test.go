@@ -1,6 +1,7 @@
 package session
 
 import (
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -627,4 +628,77 @@ func TestMapConsoleType(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestConsoleBufferSince checks that Since finds entries appended after a mark,
+// including on a full buffer that is evicting entries.
+func TestConsoleBufferSince(t *testing.T) {
+	t.Run("one new error on a full 100-entry buffer is new", func(t *testing.T) {
+		buf := NewConsoleLogBuffer(DefaultConsoleLogBufferSize)
+		for i := range DefaultConsoleLogBufferSize {
+			buf.Add(ConsoleLogEntry{Level: ConsoleLogLevelLog, Text: "old " + strconv.Itoa(i)})
+		}
+		if buf.Len() != 100 || buf.Total() != 100 {
+			t.Fatalf("Len() = %d, Total() = %d, want 100 and 100", buf.Len(), buf.Total())
+		}
+
+		mark := buf.Total()
+		buf.Add(ConsoleLogEntry{Level: ConsoleLogLevelError, Text: "new error"})
+
+		got := buf.Since(mark)
+		if len(got) != 1 || got[0].Text != "new error" || got[0].Level != ConsoleLogLevelError {
+			t.Fatalf("Since() = %+v, want only the new error", got)
+		}
+		if buf.Len() != 100 || buf.Total() != 101 {
+			t.Errorf("Len() = %d, Total() = %d, want 100 and 101", buf.Len(), buf.Total())
+		}
+	})
+
+	t.Run("nothing new", func(t *testing.T) {
+		buf := NewConsoleLogBuffer(5)
+		buf.Add(ConsoleLogEntry{Text: "a"})
+		if got := buf.Since(buf.Total()); len(got) != 0 {
+			t.Errorf("Since(Total()) = %+v, want empty", got)
+		}
+	})
+
+	t.Run("entries in order across the wrap", func(t *testing.T) {
+		buf := NewConsoleLogBuffer(3)
+		buf.Add(ConsoleLogEntry{Text: "a"})
+		buf.Add(ConsoleLogEntry{Text: "b"})
+		mark := buf.Total()
+		buf.Add(ConsoleLogEntry{Text: "c"})
+		buf.Add(ConsoleLogEntry{Text: "d"})
+		got := buf.Since(mark)
+		if len(got) != 2 || got[0].Text != "c" || got[1].Text != "d" {
+			t.Errorf("Since() = %+v, want c, d", got)
+		}
+	})
+
+	t.Run("more new entries than capacity returns what is held", func(t *testing.T) {
+		buf := NewConsoleLogBuffer(3)
+		mark := buf.Total()
+		for _, s := range []string{"a", "b", "c", "d", "e"} {
+			buf.Add(ConsoleLogEntry{Text: s})
+		}
+		got := buf.Since(mark)
+		if len(got) != 3 || got[0].Text != "c" || got[2].Text != "e" {
+			t.Errorf("Since() = %+v, want c, d, e", got)
+		}
+	})
+
+	t.Run("Clear keeps the total", func(t *testing.T) {
+		buf := NewConsoleLogBuffer(3)
+		buf.Add(ConsoleLogEntry{Text: "a"})
+		mark := buf.Total()
+		buf.Clear()
+		if buf.Total() != 1 {
+			t.Errorf("Total() after Clear = %d, want 1", buf.Total())
+		}
+		buf.Add(ConsoleLogEntry{Text: "b"})
+		got := buf.Since(mark)
+		if len(got) != 1 || got[0].Text != "b" {
+			t.Errorf("Since() = %+v, want b", got)
+		}
+	})
 }

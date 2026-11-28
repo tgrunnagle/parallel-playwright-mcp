@@ -79,6 +79,37 @@ go build -o bin/playwright-mcp-server ./cmd/server
 | `hover` | Hover over an element |
 | `press_key` | Press a keyboard key or key combination |
 
+Interaction tools take exactly one of `selector` (a CSS, XPath, or text selector) or `ref` (an element ref from a snapshot; `press_key` takes at most one).
+
+### Acting on refs
+
+`get_accessibility_tree` returns an ARIA snapshot, a compact YAML tree whose elements carry refs. Password values show as `•••`.
+
+```yaml
+- main [ref=e2]:
+  - heading "Checkout" [level=1] [ref=e3]
+  - textbox "Email" [ref=e4]: a@b.c
+  - button "Go" [ref=e5]
+  - button "Go" [ref=e6]
+```
+
+A ref picks out exactly one element, even between two identical "Go" buttons:
+
+```json
+{"name": "click", "arguments": {"sessionId": "sess-...", "ref": "e6", "includeSnapshot": true}}
+```
+
+Every navigation and interaction tool returns its usual line followed by a summary of the page after the action, which is also the result's structured content:
+
+```text
+Clicked element: ref=e6
+{"action":"click","target":"ref=e6","url":"http://localhost:8080/checkout","title":"Checkout","navigated":false,"newConsoleErrors":[],"failedRequests":["POST http://localhost:8080/api/cart 500"]}
+```
+
+The summary lists console errors and failed requests (status 400 or above, or no response, with query strings removed) that appeared since the action started, at most 5 of each; entries left out are counted under `more`. Navigation tools add `httpStatus`. With `includeSnapshot: true`, a second content block holds a fresh snapshot, so the next call can use its refs without another round trip.
+
+Refs go stale when the page navigates: the new document's refs get a new prefix such as `f2e3`. A stale ref fails at once with `[-32002] Stale element ref`; take a new snapshot. A selector that matches several elements fails with `[-32002] Selector matched <n> elements`, describing the first three.
+
 ### Inspection & Extraction
 
 | Tool | Description |
@@ -88,7 +119,7 @@ go build -o bin/playwright-mcp-server ./cmd/server
 | `get_html` | Get HTML source of the page or an element |
 | `evaluate` | Execute a JavaScript expression in the page context |
 | `query_selector` | Query element info by CSS selector |
-| `get_accessibility_tree` | Get an accessibility snapshot of the page |
+| `get_accessibility_tree` | Get an ARIA snapshot of the page, or of one element by `selector`, with element refs for the interaction tools |
 | `get_links` | Get all hyperlinks from the page with IDs and labels |
 | `get_console_logs` | Retrieve browser console log messages |
 | `get_network_logs` | Retrieve captured network request/response logs |
@@ -100,7 +131,7 @@ Tools can be restricted at startup with the `enabled_tools` config option or `MC
 
 Content tools return at most `tools.maxResponseChars` characters (default 40000) per call:
 
-- **Text tools** (`extract_text`, `navigate_and_extract_text`, `get_html`) take `maxChars` and `offset`, both in characters. When output is cut, a second content block reads `[truncated: <n> more characters; call again with offset=<k>]`; an `offset` at or past the end returns `[end of content: <total> characters]`. `evaluate` takes `maxChars` only and marks cut output as incomplete JSON.
+- **Text tools** (`extract_text`, `navigate_and_extract_text`, `get_html`, `get_accessibility_tree`) take `maxChars` and `offset`, both in characters. When output is cut, a second content block reads `[truncated: <n> more characters; call again with offset=<k>]`; an `offset` at or past the end returns `[end of content: <total> characters]`. `evaluate` takes `maxChars` only and marks cut output as incomplete JSON.
 - **List tools** (`query_selector` with `all: true`, `get_links`, `get_console_logs`, `get_network_logs`) take `limit` (default 50) and `offset`, both in items. The first block is the bare JSON array; a second block holds `{"total", "offset", "returned", "hasMore"}`. Continue with `offset + returned` while `hasMore` is true: fewer than `limit` items come back when the budget is reached. The log tools select the newest entries first (`offset` k skips the k newest) and return them oldest first.
 
 `maxChars` above the budget is clamped to it. A non-positive `maxChars` or `limit`, or a negative `offset`, returns a `[-32602]` error naming the parameter.

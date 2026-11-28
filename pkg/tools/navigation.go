@@ -34,11 +34,14 @@ func NavigateTool() mcp.Tool {
 		mcp.WithNumber("timeout",
 			mcp.Description("Navigation timeout in milliseconds (default: 30000)"),
 		),
+		mcp.WithBoolean("includeSnapshot",
+			mcp.Description(includeSnapshotDescription),
+		),
 	)
 }
 
 // NavigateHandler returns the handler function for navigate.
-func NavigateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
+func NavigateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig, responseConfig *ResponseConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		slog.Debug("tool handler called", "tool", "navigate")
 
@@ -54,14 +57,14 @@ func NavigateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 		sessionID := req.GetString("sessionId", "")
 		if sessionID == "" {
 			slog.Error("missing required sessionId", "tool", "navigate")
-			return mcp.NewToolResultError("sessionId is required"), nil
+			return requiredParamResult("sessionId"), nil
 		}
 
 		// Parse and validate required url parameter
 		url := req.GetString("url", "")
 		if url == "" {
 			slog.Error("missing required url", "tool", "navigate", "sessionID", sessionID)
-			return mcp.NewToolResultError("url is required"), nil
+			return requiredParamResult("url"), nil
 		}
 
 		slog.Debug("navigating", "tool", "navigate", "sessionID", sessionID, "url", url)
@@ -77,8 +80,10 @@ func NavigateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 		page := sess.ActivePage()
 		if page == nil {
 			slog.Error("no active page in session", "tool", "navigate", "sessionID", sessionID)
-			return mcp.NewToolResultError("no active page in session"), nil
+			return noActivePageResult(), nil
 		}
+
+		rec := startAction(sess, page, "navigate", "", args, timeoutConfig, responseConfig)
 
 		// Build Playwright options from optional parameters
 		opts := buildGotoOptions(args)
@@ -87,17 +92,19 @@ func NavigateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 		}
 
 		// Execute navigation
-		if _, err := page.Goto(url, opts); err != nil {
+		resp, err := page.Goto(url, opts)
+		if err != nil {
 			if ctxErr := HandleContextError(ctx, fmt.Sprintf("navigation to %s", url)); ctxErr != nil {
 				slog.Error("navigation context error", "tool", "navigate", "sessionID", sessionID, "url", url, "error", ctxErr)
-				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
+				return errorResult(ctxErr), nil
 			}
 			slog.Error("navigation failed", "tool", "navigate", "sessionID", sessionID, "url", url, "error", err)
 			return handleNavigationError(err, url), nil
 		}
+		rec.navigated(resp)
 
 		slog.Info("navigation completed", "tool", "navigate", "sessionID", sessionID, "url", url)
-		return mcp.NewToolResultText(fmt.Sprintf("Navigated to %s", url)), nil
+		return rec.finish(ctx, fmt.Sprintf("Navigated to %s", url)), nil
 	}
 }
 
@@ -117,11 +124,14 @@ func GoBackTool() mcp.Tool {
 		mcp.WithNumber("timeout",
 			mcp.Description("Navigation timeout in milliseconds (default: 30000)"),
 		),
+		mcp.WithBoolean("includeSnapshot",
+			mcp.Description(includeSnapshotDescription),
+		),
 	)
 }
 
 // GoBackHandler returns the handler function for go_back.
-func GoBackHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
+func GoBackHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig, responseConfig *ResponseConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		slog.Debug("tool handler called", "tool", "go_back")
 
@@ -137,7 +147,7 @@ func GoBackHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConf
 		sessionID := req.GetString("sessionId", "")
 		if sessionID == "" {
 			slog.Error("missing required sessionId", "tool", "go_back")
-			return mcp.NewToolResultError("sessionId is required"), nil
+			return requiredParamResult("sessionId"), nil
 		}
 
 		// Retrieve browser session (validates ownership)
@@ -151,8 +161,10 @@ func GoBackHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConf
 		page := sess.ActivePage()
 		if page == nil {
 			slog.Error("no active page in session", "tool", "go_back", "sessionID", sessionID)
-			return mcp.NewToolResultError("no active page in session"), nil
+			return noActivePageResult(), nil
 		}
+
+		rec := startAction(sess, page, "go_back", "", args, timeoutConfig, responseConfig)
 
 		// Build Playwright options from optional parameters
 		opts := buildGoBackOptions(args)
@@ -165,20 +177,21 @@ func GoBackHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConf
 		if err != nil {
 			if ctxErr := HandleContextError(ctx, "go_back"); ctxErr != nil {
 				slog.Error("go_back context error", "tool", "go_back", "sessionID", sessionID, "error", ctxErr)
-				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
+				return errorResult(ctxErr), nil
 			}
 			slog.Error("go_back failed", "tool", "go_back", "sessionID", sessionID, "error", err)
 			return handleNavigationError(err, "back"), nil
 		}
+		rec.navigated(resp)
 
 		// Handle case where no previous page exists
 		if resp == nil {
 			slog.Debug("no previous page in history", "tool", "go_back", "sessionID", sessionID)
-			return mcp.NewToolResultText("No previous page in history"), nil
+			return rec.finish(ctx, "No previous page in history"), nil
 		}
 
 		slog.Debug("navigated back", "tool", "go_back", "sessionID", sessionID, "url", resp.URL())
-		return mcp.NewToolResultText(fmt.Sprintf("Navigated back to %s", resp.URL())), nil
+		return rec.finish(ctx, fmt.Sprintf("Navigated back to %s", resp.URL())), nil
 	}
 }
 
@@ -198,11 +211,14 @@ func GoForwardTool() mcp.Tool {
 		mcp.WithNumber("timeout",
 			mcp.Description("Navigation timeout in milliseconds (default: 30000)"),
 		),
+		mcp.WithBoolean("includeSnapshot",
+			mcp.Description(includeSnapshotDescription),
+		),
 	)
 }
 
 // GoForwardHandler returns the handler function for go_forward.
-func GoForwardHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
+func GoForwardHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig, responseConfig *ResponseConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		slog.Debug("tool handler called", "tool", "go_forward")
 
@@ -218,7 +234,7 @@ func GoForwardHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutC
 		sessionID := req.GetString("sessionId", "")
 		if sessionID == "" {
 			slog.Error("missing required sessionId", "tool", "go_forward")
-			return mcp.NewToolResultError("sessionId is required"), nil
+			return requiredParamResult("sessionId"), nil
 		}
 
 		// Retrieve browser session (validates ownership)
@@ -232,8 +248,10 @@ func GoForwardHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutC
 		page := sess.ActivePage()
 		if page == nil {
 			slog.Error("no active page in session", "tool", "go_forward", "sessionID", sessionID)
-			return mcp.NewToolResultError("no active page in session"), nil
+			return noActivePageResult(), nil
 		}
+
+		rec := startAction(sess, page, "go_forward", "", args, timeoutConfig, responseConfig)
 
 		// Build Playwright options from optional parameters
 		opts := buildGoForwardOptions(args)
@@ -246,20 +264,21 @@ func GoForwardHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutC
 		if err != nil {
 			if ctxErr := HandleContextError(ctx, "go_forward"); ctxErr != nil {
 				slog.Error("go_forward context error", "tool", "go_forward", "sessionID", sessionID, "error", ctxErr)
-				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
+				return errorResult(ctxErr), nil
 			}
 			slog.Error("go_forward failed", "tool", "go_forward", "sessionID", sessionID, "error", err)
 			return handleNavigationError(err, "forward"), nil
 		}
+		rec.navigated(resp)
 
 		// Handle case where no forward page exists
 		if resp == nil {
 			slog.Debug("no forward page in history", "tool", "go_forward", "sessionID", sessionID)
-			return mcp.NewToolResultText("No forward page in history"), nil
+			return rec.finish(ctx, "No forward page in history"), nil
 		}
 
 		slog.Debug("navigated forward", "tool", "go_forward", "sessionID", sessionID, "url", resp.URL())
-		return mcp.NewToolResultText(fmt.Sprintf("Navigated forward to %s", resp.URL())), nil
+		return rec.finish(ctx, fmt.Sprintf("Navigated forward to %s", resp.URL())), nil
 	}
 }
 
@@ -279,11 +298,14 @@ func ReloadTool() mcp.Tool {
 		mcp.WithNumber("timeout",
 			mcp.Description("Reload timeout in milliseconds"),
 		),
+		mcp.WithBoolean("includeSnapshot",
+			mcp.Description(includeSnapshotDescription),
+		),
 	)
 }
 
 // ReloadHandler returns the handler function for reload.
-func ReloadHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
+func ReloadHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig, responseConfig *ResponseConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		slog.Debug("tool handler called", "tool", "reload")
 
@@ -299,7 +321,7 @@ func ReloadHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConf
 		sessionID := req.GetString("sessionId", "")
 		if sessionID == "" {
 			slog.Error("missing required sessionId", "tool", "reload")
-			return mcp.NewToolResultError("sessionId is required"), nil
+			return requiredParamResult("sessionId"), nil
 		}
 
 		// Retrieve browser session (validates ownership)
@@ -313,8 +335,10 @@ func ReloadHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConf
 		page := sess.ActivePage()
 		if page == nil {
 			slog.Error("no active page in session", "tool", "reload", "sessionID", sessionID)
-			return mcp.NewToolResultError("no active page in session"), nil
+			return noActivePageResult(), nil
 		}
+
+		rec := startAction(sess, page, "reload", "", args, timeoutConfig, responseConfig)
 
 		// Build Playwright reload options from optional parameters
 		opts := buildReloadOptions(args)
@@ -323,17 +347,19 @@ func ReloadHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConf
 		}
 
 		// Execute reload
-		if _, err := page.Reload(opts); err != nil {
+		resp, err := page.Reload(opts)
+		if err != nil {
 			if ctxErr := HandleContextError(ctx, "reload"); ctxErr != nil {
 				slog.Error("reload context error", "tool", "reload", "sessionID", sessionID, "error", ctxErr)
-				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
+				return errorResult(ctxErr), nil
 			}
 			slog.Error("reload failed", "tool", "reload", "sessionID", sessionID, "error", err)
 			return handleNavigationError(err, "reload"), nil
 		}
+		rec.navigated(resp)
 
 		slog.Debug("page reloaded", "tool", "reload", "sessionID", sessionID, "url", page.URL())
-		return mcp.NewToolResultText(fmt.Sprintf("Reloaded page: %s", page.URL())), nil
+		return rec.finish(ctx, fmt.Sprintf("Reloaded page: %s", page.URL())), nil
 	}
 }
 

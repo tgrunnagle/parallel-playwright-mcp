@@ -40,6 +40,7 @@ type NetworkLogBuffer struct {
 	maxSize int
 	head    int // Index where next entry will be written
 	count   int // Number of valid entries (0 to maxSize)
+	total   int // Entries ever appended; only increases, Clear included
 	mu      sync.RWMutex
 }
 
@@ -66,6 +67,34 @@ func (b *NetworkLogBuffer) Add(entry NetworkLogEntry) {
 	if b.count < b.maxSize {
 		b.count++
 	}
+	b.total++
+}
+
+// Total returns the number of entries ever appended to the buffer. It only
+// increases: eviction and Clear do not lower it, so it marks a point in the
+// stream that Since can read from.
+func (b *NetworkLogBuffer) Total() int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.total
+}
+
+// Since returns, in chronological order, the entries appended after the buffer's
+// Total was mark and still held. Entries evicted since then are not returned.
+func (b *NetworkLogBuffer) Since(mark int) []NetworkLogEntry {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	n := min(b.total-mark, b.count)
+	if n <= 0 {
+		return []NetworkLogEntry{}
+	}
+	result := make([]NetworkLogEntry, n)
+	start := (b.head - n + b.maxSize) % b.maxSize
+	for i := range n {
+		result[i] = b.entries[(start+i)%b.maxSize]
+	}
+	return result
 }
 
 // Entries returns up to limit entries in chronological order (oldest first).
@@ -98,7 +127,7 @@ func (b *NetworkLogBuffer) Entries(limit int) []NetworkLogEntry {
 	return result
 }
 
-// Clear removes all entries from the buffer.
+// Clear removes all entries from the buffer. Total is unchanged.
 func (b *NetworkLogBuffer) Clear() {
 	b.mu.Lock()
 	defer b.mu.Unlock()

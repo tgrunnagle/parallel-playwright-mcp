@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -19,14 +20,16 @@ import (
 // Click simulates a mouse click on an element identified by selector.
 func ClickTool() mcp.Tool {
 	return mcp.NewTool("click",
-		mcp.WithDescription("Click an element on the page"),
+		mcp.WithDescription("Click an element on the page. Target it with exactly one of selector or ref; a ref comes from get_accessibility_tree and fails at once with 'Stale element ref' once the page has changed"),
 		mcp.WithString("sessionId",
 			mcp.Required(),
 			mcp.Description("Browser session ID"),
 		),
 		mcp.WithString("selector",
-			mcp.Required(),
-			mcp.Description("CSS selector, XPath, or text selector for element to click"),
+			mcp.Description("CSS selector, XPath, or text selector for element to click. Provide exactly one of selector or ref"),
+		),
+		mcp.WithString("ref",
+			mcp.Description(refParamDescription),
 		),
 		mcp.WithString("button",
 			mcp.Description("Mouse button to use (left, right, middle)"),
@@ -38,11 +41,14 @@ func ClickTool() mcp.Tool {
 		mcp.WithNumber("timeout",
 			mcp.Description("Maximum time to wait for element in milliseconds"),
 		),
+		mcp.WithBoolean("includeSnapshot",
+			mcp.Description(includeSnapshotDescription),
+		),
 	)
 }
 
 // ClickHandler returns the handler function for click.
-func ClickHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
+func ClickHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig, responseConfig *ResponseConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		slog.Debug("tool handler called", "tool", "click")
 
@@ -56,30 +62,22 @@ func ClickHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfi
 		sessionID := req.GetString("sessionId", "")
 		if sessionID == "" {
 			slog.Error("missing required sessionId", "tool", "click")
-			return mcp.NewToolResultError("sessionId is required"), nil
+			return requiredParamResult("sessionId"), nil
 		}
 
-		selector := req.GetString("selector", "")
-		if selector == "" {
-			slog.Error("missing required selector", "tool", "click", "sessionID", sessionID)
-			return mcp.NewToolResultError("selector is required"), nil
+		target, errResult := targetFromArgs(args, false, "click", sessionID)
+		if errResult != nil {
+			return errResult, nil
 		}
+		label := target.Label
 
-		slog.Debug("clicking element", "tool", "click", "sessionID", sessionID, "selector", selector)
+		slog.Debug("clicking element", "tool", "click", "sessionID", sessionID, "target", label)
 
-		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
-		if !ok {
-			slog.Error("session not found", "tool", "click", "sessionID", sessionID)
-			return newInteractionSessionNotFoundError(sessionID), nil
+		act, errResult := beginElementAction(mgr, mcpSessionID, sessionID, "click", target, args, timeoutConfig, responseConfig)
+		if errResult != nil {
+			return errResult, nil
 		}
-
-		page := sess.ActivePage()
-		if page == nil {
-			slog.Error("no active page in session", "tool", "click", "sessionID", sessionID)
-			return mcp.NewToolResultError("no active page in session"), nil
-		}
-
-		locator := page.Locator(selector)
+		locator, rec := act.locator, act.rec
 		opts := buildClickOptions(args)
 
 		// Propagate context deadline to Playwright if no explicit timeout was set
@@ -88,15 +86,15 @@ func ClickHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfi
 		}
 
 		if err := locator.Click(opts); err != nil {
-			if ctxErr := HandleContextError(ctx, fmt.Sprintf("click on %s", selector)); ctxErr != nil {
-				slog.Error("click context error", "tool", "click", "sessionID", sessionID, "selector", selector, "error", ctxErr)
-				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
+			if ctxErr := HandleContextError(ctx, fmt.Sprintf("click on %s", label)); ctxErr != nil {
+				slog.Error("click context error", "tool", "click", "sessionID", sessionID, "target", label, "error", ctxErr)
+				return errorResult(ctxErr), nil
 			}
-			return handleInteractionError(err, "click", selector), nil
+			return handleInteractionError(err, "click", label, locator), nil
 		}
 
-		slog.Debug("element clicked", "tool", "click", "sessionID", sessionID, "selector", selector)
-		return mcp.NewToolResultText(fmt.Sprintf("Clicked element: %s", selector)), nil
+		slog.Debug("element clicked", "tool", "click", "sessionID", sessionID, "target", label)
+		return rec.finish(ctx, fmt.Sprintf("Clicked element: %s", label)), nil
 	}
 }
 
@@ -104,14 +102,16 @@ func ClickHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfi
 // Type simulates typing text into an element with keystroke events.
 func TypeTool() mcp.Tool {
 	return mcp.NewTool("type",
-		mcp.WithDescription("Type text into an element with keystroke events"),
+		mcp.WithDescription("Type text into an element with keystroke events. Target it with exactly one of selector or ref; a ref comes from get_accessibility_tree and fails at once with 'Stale element ref' once the page has changed"),
 		mcp.WithString("sessionId",
 			mcp.Required(),
 			mcp.Description("Browser session ID"),
 		),
 		mcp.WithString("selector",
-			mcp.Required(),
-			mcp.Description("CSS selector for input element"),
+			mcp.Description("CSS selector for input element. Provide exactly one of selector or ref"),
+		),
+		mcp.WithString("ref",
+			mcp.Description(refParamDescription),
 		),
 		mcp.WithString("text",
 			mcp.Required(),
@@ -123,11 +123,14 @@ func TypeTool() mcp.Tool {
 		mcp.WithNumber("timeout",
 			mcp.Description("Maximum time to wait for element in milliseconds"),
 		),
+		mcp.WithBoolean("includeSnapshot",
+			mcp.Description(includeSnapshotDescription),
+		),
 	)
 }
 
 // TypeHandler returns the handler function for type.
-func TypeHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
+func TypeHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig, responseConfig *ResponseConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		slog.Debug("tool handler called", "tool", "type")
 
@@ -141,48 +144,40 @@ func TypeHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig
 		sessionID := req.GetString("sessionId", "")
 		if sessionID == "" {
 			slog.Error("missing required sessionId", "tool", "type")
-			return mcp.NewToolResultError("sessionId is required"), nil
+			return requiredParamResult("sessionId"), nil
 		}
 
-		selector := req.GetString("selector", "")
-		if selector == "" {
-			slog.Error("missing required selector", "tool", "type", "sessionID", sessionID)
-			return mcp.NewToolResultError("selector is required"), nil
+		target, errResult := targetFromArgs(args, false, "type", sessionID)
+		if errResult != nil {
+			return errResult, nil
 		}
+		label := target.Label
 
 		text := req.GetString("text", "")
 		if text == "" {
 			slog.Error("missing required text", "tool", "type", "sessionID", sessionID)
-			return mcp.NewToolResultError("text is required"), nil
+			return requiredParamResult("text"), nil
 		}
 
-		slog.Debug("typing into element", "tool", "type", "sessionID", sessionID, "selector", selector)
+		slog.Debug("typing into element", "tool", "type", "sessionID", sessionID, "target", label)
 
-		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
-		if !ok {
-			slog.Error("session not found", "tool", "type", "sessionID", sessionID)
-			return newInteractionSessionNotFoundError(sessionID), nil
+		act, errResult := beginElementAction(mgr, mcpSessionID, sessionID, "type", target, args, timeoutConfig, responseConfig)
+		if errResult != nil {
+			return errResult, nil
 		}
-
-		page := sess.ActivePage()
-		if page == nil {
-			slog.Error("no active page in session", "tool", "type", "sessionID", sessionID)
-			return mcp.NewToolResultError("no active page in session"), nil
-		}
-
-		locator := page.Locator(selector)
+		locator, rec := act.locator, act.rec
 		opts := buildTypeOptions(args)
 
 		if err := locator.PressSequentially(text, opts); err != nil {
-			if ctxErr := HandleContextError(ctx, fmt.Sprintf("type on %s", selector)); ctxErr != nil {
-				slog.Error("type context error", "tool", "type", "sessionID", sessionID, "selector", selector, "error", ctxErr)
-				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
+			if ctxErr := HandleContextError(ctx, fmt.Sprintf("type on %s", label)); ctxErr != nil {
+				slog.Error("type context error", "tool", "type", "sessionID", sessionID, "target", label, "error", ctxErr)
+				return errorResult(ctxErr), nil
 			}
-			return handleInteractionError(err, "type", selector), nil
+			return handleInteractionError(err, "type", label, locator), nil
 		}
 
-		slog.Debug("typed into element", "tool", "type", "sessionID", sessionID, "selector", selector)
-		return mcp.NewToolResultText(fmt.Sprintf("Typed text into element: %s", selector)), nil
+		slog.Debug("typed into element", "tool", "type", "sessionID", sessionID, "target", label)
+		return rec.finish(ctx, fmt.Sprintf("Typed text into element: %s", label)), nil
 	}
 }
 
@@ -190,14 +185,16 @@ func TypeHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig
 // Fill populates an input field with text without keystroke events.
 func FillTool() mcp.Tool {
 	return mcp.NewTool("fill",
-		mcp.WithDescription("Fill an input field with text (fast, no keystroke events)"),
+		mcp.WithDescription("Fill an input field with text (fast, no keystroke events). Target it with exactly one of selector or ref; a ref comes from get_accessibility_tree and fails at once with 'Stale element ref' once the page has changed"),
 		mcp.WithString("sessionId",
 			mcp.Required(),
 			mcp.Description("Browser session ID"),
 		),
 		mcp.WithString("selector",
-			mcp.Required(),
-			mcp.Description("CSS selector for input element"),
+			mcp.Description("CSS selector for input element. Provide exactly one of selector or ref"),
+		),
+		mcp.WithString("ref",
+			mcp.Description(refParamDescription),
 		),
 		mcp.WithString("value",
 			mcp.Required(),
@@ -206,11 +203,14 @@ func FillTool() mcp.Tool {
 		mcp.WithNumber("timeout",
 			mcp.Description("Maximum time to wait for element in milliseconds"),
 		),
+		mcp.WithBoolean("includeSnapshot",
+			mcp.Description(includeSnapshotDescription),
+		),
 	)
 }
 
 // FillHandler returns the handler function for fill.
-func FillHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
+func FillHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig, responseConfig *ResponseConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		slog.Debug("tool handler called", "tool", "fill")
 
@@ -224,45 +224,37 @@ func FillHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig
 		sessionID := req.GetString("sessionId", "")
 		if sessionID == "" {
 			slog.Error("missing required sessionId", "tool", "fill")
-			return mcp.NewToolResultError("sessionId is required"), nil
+			return requiredParamResult("sessionId"), nil
 		}
 
-		selector := req.GetString("selector", "")
-		if selector == "" {
-			slog.Error("missing required selector", "tool", "fill", "sessionID", sessionID)
-			return mcp.NewToolResultError("selector is required"), nil
+		target, errResult := targetFromArgs(args, false, "fill", sessionID)
+		if errResult != nil {
+			return errResult, nil
 		}
+		label := target.Label
 
 		value := req.GetString("value", "")
 		// Note: Allow empty value since user may want to clear input
 
-		slog.Debug("filling element", "tool", "fill", "sessionID", sessionID, "selector", selector)
+		slog.Debug("filling element", "tool", "fill", "sessionID", sessionID, "target", label)
 
-		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
-		if !ok {
-			slog.Error("session not found", "tool", "fill", "sessionID", sessionID)
-			return newInteractionSessionNotFoundError(sessionID), nil
+		act, errResult := beginElementAction(mgr, mcpSessionID, sessionID, "fill", target, args, timeoutConfig, responseConfig)
+		if errResult != nil {
+			return errResult, nil
 		}
-
-		page := sess.ActivePage()
-		if page == nil {
-			slog.Error("no active page in session", "tool", "fill", "sessionID", sessionID)
-			return mcp.NewToolResultError("no active page in session"), nil
-		}
-
-		locator := page.Locator(selector)
+		locator, rec := act.locator, act.rec
 		opts := buildFillOptions(args)
 
 		if err := locator.Fill(value, opts); err != nil {
-			if ctxErr := HandleContextError(ctx, fmt.Sprintf("fill on %s", selector)); ctxErr != nil {
-				slog.Error("fill context error", "tool", "fill", "sessionID", sessionID, "selector", selector, "error", ctxErr)
-				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
+			if ctxErr := HandleContextError(ctx, fmt.Sprintf("fill on %s", label)); ctxErr != nil {
+				slog.Error("fill context error", "tool", "fill", "sessionID", sessionID, "target", label, "error", ctxErr)
+				return errorResult(ctxErr), nil
 			}
-			return handleInteractionError(err, "fill", selector), nil
+			return handleInteractionError(err, "fill", label, locator), nil
 		}
 
-		slog.Debug("element filled", "tool", "fill", "sessionID", sessionID, "selector", selector)
-		return mcp.NewToolResultText(fmt.Sprintf("Filled element: %s", selector)), nil
+		slog.Debug("element filled", "tool", "fill", "sessionID", sessionID, "target", label)
+		return rec.finish(ctx, fmt.Sprintf("Filled element: %s", label)), nil
 	}
 }
 
@@ -270,14 +262,16 @@ func FillHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig
 // SelectOption selects an option from a dropdown/select element.
 func SelectOptionTool() mcp.Tool {
 	return mcp.NewTool("select_option",
-		mcp.WithDescription("Select an option from a dropdown/select element"),
+		mcp.WithDescription("Select an option from a dropdown/select element. Target it with exactly one of selector or ref; a ref comes from get_accessibility_tree and fails at once with 'Stale element ref' once the page has changed"),
 		mcp.WithString("sessionId",
 			mcp.Required(),
 			mcp.Description("Browser session ID"),
 		),
 		mcp.WithString("selector",
-			mcp.Required(),
-			mcp.Description("CSS selector for select element"),
+			mcp.Description("CSS selector for select element. Provide exactly one of selector or ref"),
+		),
+		mcp.WithString("ref",
+			mcp.Description(refParamDescription),
 		),
 		mcp.WithString("value",
 			mcp.Required(),
@@ -290,11 +284,14 @@ func SelectOptionTool() mcp.Tool {
 		mcp.WithNumber("timeout",
 			mcp.Description("Maximum time to wait for element in milliseconds"),
 		),
+		mcp.WithBoolean("includeSnapshot",
+			mcp.Description(includeSnapshotDescription),
+		),
 	)
 }
 
 // SelectOptionHandler returns the handler function for select_option.
-func SelectOptionHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
+func SelectOptionHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig, responseConfig *ResponseConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		slog.Debug("tool handler called", "tool", "select_option")
 
@@ -308,38 +305,30 @@ func SelectOptionHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeo
 		sessionID := req.GetString("sessionId", "")
 		if sessionID == "" {
 			slog.Error("missing required sessionId", "tool", "select_option")
-			return mcp.NewToolResultError("sessionId is required"), nil
+			return requiredParamResult("sessionId"), nil
 		}
 
-		selector := req.GetString("selector", "")
-		if selector == "" {
-			slog.Error("missing required selector", "tool", "select_option", "sessionID", sessionID)
-			return mcp.NewToolResultError("selector is required"), nil
+		target, errResult := targetFromArgs(args, false, "select_option", sessionID)
+		if errResult != nil {
+			return errResult, nil
 		}
+		label := target.Label
 
 		value := req.GetString("value", "")
 		if value == "" {
 			slog.Error("missing required value", "tool", "select_option", "sessionID", sessionID)
-			return mcp.NewToolResultError("value is required"), nil
+			return requiredParamResult("value"), nil
 		}
 
 		selectBy := req.GetString("selectBy", "value")
 
-		slog.Debug("selecting option", "tool", "select_option", "sessionID", sessionID, "selector", selector, "selectBy", selectBy)
+		slog.Debug("selecting option", "tool", "select_option", "sessionID", sessionID, "target", label, "selectBy", selectBy)
 
-		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
-		if !ok {
-			slog.Error("session not found", "tool", "select_option", "sessionID", sessionID)
-			return newInteractionSessionNotFoundError(sessionID), nil
+		act, errResult := beginElementAction(mgr, mcpSessionID, sessionID, "select_option", target, args, timeoutConfig, responseConfig)
+		if errResult != nil {
+			return errResult, nil
 		}
-
-		page := sess.ActivePage()
-		if page == nil {
-			slog.Error("no active page in session", "tool", "select_option", "sessionID", sessionID)
-			return mcp.NewToolResultError("no active page in session"), nil
-		}
-
-		locator := page.Locator(selector)
+		locator, rec := act.locator, act.rec
 		opts := buildSelectOptionOptions(args)
 
 		var selectedValues []string
@@ -353,7 +342,7 @@ func SelectOptionHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeo
 		case "index":
 			idx, parseErr := strconv.Atoi(value)
 			if parseErr != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("Invalid index value: %s", value)), nil
+				return paramErrorResult("value", fmt.Sprintf("Invalid index value: %s", value)), nil
 			}
 			selectedValues, err = locator.SelectOption(playwright.SelectOptionValues{
 				Indexes: &[]int{idx},
@@ -365,16 +354,16 @@ func SelectOptionHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeo
 		}
 
 		if err != nil {
-			if ctxErr := HandleContextError(ctx, fmt.Sprintf("select_option on %s", selector)); ctxErr != nil {
-				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
+			if ctxErr := HandleContextError(ctx, fmt.Sprintf("select_option on %s", label)); ctxErr != nil {
+				return errorResult(ctxErr), nil
 			}
-			return handleInteractionError(err, "select_option", selector), nil
+			return handleInteractionError(err, "select_option", label, locator), nil
 		}
 
 		if len(selectedValues) == 0 {
-			return mcp.NewToolResultText(fmt.Sprintf("Selected option by %s in: %s (no value returned)", selectBy, selector)), nil
+			return rec.finish(ctx, fmt.Sprintf("Selected option by %s in: %s (no value returned)", selectBy, label)), nil
 		}
-		return mcp.NewToolResultText(fmt.Sprintf("Selected option '%s' by %s in: %s", selectedValues[0], selectBy, selector)), nil
+		return rec.finish(ctx, fmt.Sprintf("Selected option '%s' by %s in: %s", selectedValues[0], selectBy, label)), nil
 	}
 }
 
@@ -382,23 +371,28 @@ func SelectOptionHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeo
 // Hover simulates a mouse hover over an element.
 func HoverTool() mcp.Tool {
 	return mcp.NewTool("hover",
-		mcp.WithDescription("Hover over an element"),
+		mcp.WithDescription("Hover over an element. Target it with exactly one of selector or ref; a ref comes from get_accessibility_tree and fails at once with 'Stale element ref' once the page has changed"),
 		mcp.WithString("sessionId",
 			mcp.Required(),
 			mcp.Description("Browser session ID"),
 		),
 		mcp.WithString("selector",
-			mcp.Required(),
-			mcp.Description("CSS selector for element to hover over"),
+			mcp.Description("CSS selector for element to hover over. Provide exactly one of selector or ref"),
+		),
+		mcp.WithString("ref",
+			mcp.Description(refParamDescription),
 		),
 		mcp.WithNumber("timeout",
 			mcp.Description("Maximum time to wait for element in milliseconds"),
+		),
+		mcp.WithBoolean("includeSnapshot",
+			mcp.Description(includeSnapshotDescription),
 		),
 	)
 }
 
 // HoverHandler returns the handler function for hover.
-func HoverHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
+func HoverHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig, responseConfig *ResponseConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		slog.Debug("tool handler called", "tool", "hover")
 
@@ -412,42 +406,34 @@ func HoverHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfi
 		sessionID := req.GetString("sessionId", "")
 		if sessionID == "" {
 			slog.Error("missing required sessionId", "tool", "hover")
-			return mcp.NewToolResultError("sessionId is required"), nil
+			return requiredParamResult("sessionId"), nil
 		}
 
-		selector := req.GetString("selector", "")
-		if selector == "" {
-			slog.Error("missing required selector", "tool", "hover", "sessionID", sessionID)
-			return mcp.NewToolResultError("selector is required"), nil
+		target, errResult := targetFromArgs(args, false, "hover", sessionID)
+		if errResult != nil {
+			return errResult, nil
 		}
+		label := target.Label
 
-		slog.Debug("hovering over element", "tool", "hover", "sessionID", sessionID, "selector", selector)
+		slog.Debug("hovering over element", "tool", "hover", "sessionID", sessionID, "target", label)
 
-		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
-		if !ok {
-			slog.Error("session not found", "tool", "hover", "sessionID", sessionID)
-			return newInteractionSessionNotFoundError(sessionID), nil
+		act, errResult := beginElementAction(mgr, mcpSessionID, sessionID, "hover", target, args, timeoutConfig, responseConfig)
+		if errResult != nil {
+			return errResult, nil
 		}
-
-		page := sess.ActivePage()
-		if page == nil {
-			slog.Error("no active page in session", "tool", "hover", "sessionID", sessionID)
-			return mcp.NewToolResultError("no active page in session"), nil
-		}
-
-		locator := page.Locator(selector)
+		locator, rec := act.locator, act.rec
 		opts := buildHoverOptions(args)
 
 		if err := locator.Hover(opts); err != nil {
-			if ctxErr := HandleContextError(ctx, fmt.Sprintf("hover on %s", selector)); ctxErr != nil {
-				slog.Error("hover context error", "tool", "hover", "sessionID", sessionID, "selector", selector, "error", ctxErr)
-				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
+			if ctxErr := HandleContextError(ctx, fmt.Sprintf("hover on %s", label)); ctxErr != nil {
+				slog.Error("hover context error", "tool", "hover", "sessionID", sessionID, "target", label, "error", ctxErr)
+				return errorResult(ctxErr), nil
 			}
-			return handleInteractionError(err, "hover", selector), nil
+			return handleInteractionError(err, "hover", label, locator), nil
 		}
 
-		slog.Debug("hovered over element", "tool", "hover", "sessionID", sessionID, "selector", selector)
-		return mcp.NewToolResultText(fmt.Sprintf("Hovered over element: %s", selector)), nil
+		slog.Debug("hovered over element", "tool", "hover", "sessionID", sessionID, "target", label)
+		return rec.finish(ctx, fmt.Sprintf("Hovered over element: %s", label)), nil
 	}
 }
 
@@ -465,7 +451,10 @@ func PressKeyTool() mcp.Tool {
 			mcp.Description("Key to press (e.g., 'Enter', 'Tab', 'a')"),
 		),
 		mcp.WithString("selector",
-			mcp.Description("Optional CSS selector to focus before pressing key"),
+			mcp.Description("Optional CSS selector to focus before pressing key. Give at most one of selector or ref; with neither, the key goes to the page"),
+		),
+		mcp.WithString("ref",
+			mcp.Description("Optional element ref from get_accessibility_tree to focus before pressing key, such as e3 or f1e2"),
 		),
 		mcp.WithArray("modifiers",
 			mcp.Description("Modifier keys to hold during press"),
@@ -477,11 +466,14 @@ func PressKeyTool() mcp.Tool {
 		mcp.WithNumber("timeout",
 			mcp.Description("Maximum time to wait for element in milliseconds"),
 		),
+		mcp.WithBoolean("includeSnapshot",
+			mcp.Description(includeSnapshotDescription),
+		),
 	)
 }
 
 // PressKeyHandler returns the handler function for press_key.
-func PressKeyHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
+func PressKeyHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig, responseConfig *ResponseConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		slog.Debug("tool handler called", "tool", "press_key")
 
@@ -495,62 +487,59 @@ func PressKeyHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 		sessionID := req.GetString("sessionId", "")
 		if sessionID == "" {
 			slog.Error("missing required sessionId", "tool", "press_key")
-			return mcp.NewToolResultError("sessionId is required"), nil
+			return requiredParamResult("sessionId"), nil
 		}
 
 		key := req.GetString("key", "")
 		if key == "" {
 			slog.Error("missing required key", "tool", "press_key", "sessionID", sessionID)
-			return mcp.NewToolResultError("key is required"), nil
+			return requiredParamResult("key"), nil
 		}
 
-		selector := req.GetString("selector", "")
+		target, errResult := targetFromArgs(args, true, "press_key", sessionID)
+		if errResult != nil {
+			return errResult, nil
+		}
+		label := target.Label
 
 		// Build key string with modifiers if provided
 		keyWithModifiers := buildKeyWithModifiers(key, args)
 
-		slog.Debug("pressing key", "tool", "press_key", "sessionID", sessionID, "key", keyWithModifiers, "selector", selector)
+		slog.Debug("pressing key", "tool", "press_key", "sessionID", sessionID, "key", keyWithModifiers, "target", label)
 
-		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
-		if !ok {
-			slog.Error("session not found", "tool", "press_key", "sessionID", sessionID)
-			return newInteractionSessionNotFoundError(sessionID), nil
+		act, errResult := beginElementAction(mgr, mcpSessionID, sessionID, "press_key", target, args, timeoutConfig, responseConfig)
+		if errResult != nil {
+			return errResult, nil
 		}
+		rec := act.rec
 
-		page := sess.ActivePage()
-		if page == nil {
-			slog.Error("no active page in session", "tool", "press_key", "sessionID", sessionID)
-			return mcp.NewToolResultError("no active page in session"), nil
-		}
-
-		// If selector is provided, use locator.Press, otherwise use page.Keyboard.Press
-		if selector != "" {
-			locator := page.Locator(selector)
+		// If a target is provided, use locator.Press, otherwise use page.Keyboard.Press
+		if locator := act.locator; locator != nil {
 			opts := buildPressOptions(args)
 
 			if err := locator.Press(keyWithModifiers, opts); err != nil {
-				if ctxErr := HandleContextError(ctx, fmt.Sprintf("press_key on %s", selector)); ctxErr != nil {
+				if ctxErr := HandleContextError(ctx, fmt.Sprintf("press_key on %s", label)); ctxErr != nil {
 					slog.Error("press_key context error", "tool", "press_key", "sessionID", sessionID, "key", keyWithModifiers, "error", ctxErr)
-					return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
+					return errorResult(ctxErr), nil
 				}
-				return handleInteractionError(err, "press_key", selector), nil
+				return handleInteractionError(err, "press_key", label, locator), nil
 			}
 
-			slog.Debug("key pressed on element", "tool", "press_key", "sessionID", sessionID, "key", keyWithModifiers, "selector", selector)
-			return mcp.NewToolResultText(fmt.Sprintf("Pressed key '%s' on element: %s", keyWithModifiers, selector)), nil
+			slog.Debug("key pressed on element", "tool", "press_key", "sessionID", sessionID, "key", keyWithModifiers, "target", label)
+			return rec.finish(ctx, fmt.Sprintf("Pressed key '%s' on element: %s", keyWithModifiers, label)), nil
 		}
 
 		// Press key without focusing specific element
-		if err := page.Keyboard().Press(keyWithModifiers); err != nil {
+		if err := act.page.Keyboard().Press(keyWithModifiers); err != nil {
 			if ctxErr := HandleContextError(ctx, "press_key"); ctxErr != nil {
 				slog.Error("press_key context error", "tool", "press_key", "sessionID", sessionID, "key", keyWithModifiers, "error", ctxErr)
-				return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
+				return errorResult(ctxErr), nil
 			}
-			return handleInteractionError(err, "press_key", "page"), nil
+			return handleInteractionError(err, "press_key", "page", nil), nil
 		}
 
 		slog.Debug("key pressed on page", "tool", "press_key", "sessionID", sessionID, "key", keyWithModifiers)
-		return mcp.NewToolResultText(fmt.Sprintf("Pressed key '%s'", keyWithModifiers)), nil
+		return rec.finish(ctx, fmt.Sprintf("Pressed key '%s'", keyWithModifiers)), nil
 	}
 }
 
@@ -671,14 +660,22 @@ func newInteractionSessionNotFoundError(sessionID string) *mcp.CallToolResult {
 }
 
 // handleInteractionError classifies interaction errors and returns appropriate error results.
-// Element not found errors get code -32002, timeout errors get code -32003,
-// unclassified interaction errors get code -32005.
-func handleInteractionError(err error, operation, selector string) *mcp.CallToolResult {
+// Element not found errors get code -32002, with their own message when the selector
+// matched several elements; timeout errors get code -32003; unclassified interaction
+// errors get code -32005. tool is the tool's name and target the label of its element
+// target; locator is the target's locator, or nil for page-level actions.
+func handleInteractionError(err error, tool, target string, locator playwright.Locator) *mcp.CallToolResult {
 	errMsg := strings.ToLower(err.Error())
 
+	// A selector that matched several elements gets its own -32002 message,
+	// describing the first matches so the caller can narrow the selector.
+	if strings.Contains(errMsg, "strict mode violation") {
+		slog.Error("selector matched several elements", "tool", tool, "target", target, "error", err)
+		return errorResult(multipleMatchError(locator, target, strictModeCount(err, locator), err))
+	}
+
 	// Check for element not found or not actionable errors
-	if strings.Contains(errMsg, "strict mode violation") ||
-		strings.Contains(errMsg, "resolved to") ||
+	if strings.Contains(errMsg, "resolved to") ||
 		strings.Contains(errMsg, "no element matches") ||
 		strings.Contains(errMsg, "element is not attached") ||
 		strings.Contains(errMsg, "element is not visible") ||
@@ -686,19 +683,38 @@ func handleInteractionError(err error, operation, selector string) *mcp.CallTool
 		strings.Contains(errMsg, "element is not stable") ||
 		strings.Contains(errMsg, "element is not editable") ||
 		strings.Contains(errMsg, "element is disabled") {
-		slog.Error("element not found or not actionable", "operation", operation, "selector", selector, "error", err)
+		slog.Error("element not found or not actionable", "tool", tool, "target", target, "error", err)
 		return mcp.NewToolResultError(errors.FormatErrorForTool(
-			errors.WrapElementNotFoundError(selector, 0, err)))
+			errors.WrapElementNotFoundError(target, 0, err)))
 	}
 
 	// Check for timeout errors
 	if strings.Contains(errMsg, "timeout") || strings.Contains(errMsg, "exceeded") {
-		slog.Error("interaction timeout", "operation", operation, "selector", selector, "error", err)
+		slog.Error("interaction timeout", "tool", tool, "target", target, "error", err)
 		return mcp.NewToolResultError(errors.FormatErrorForTool(
-			errors.WrapTimeoutError(fmt.Sprintf("%s on %s", operation, selector), 0, err)))
+			errors.WrapTimeoutError(fmt.Sprintf("%s on %s", tool, target), 0, err)))
 	}
 
-	// Return generic interaction error for unclassified errors (code -32005 has no error type)
-	slog.Error("interaction failed", "operation", operation, "selector", selector, "error", err)
-	return mcp.NewToolResultError(fmt.Sprintf("[%d] %s failed: %s - %v", errors.CodeInteractionFailed, operation, selector, err))
+	// Return generic interaction error for unclassified errors
+	slog.Error("interaction failed", "tool", tool, "target", target, "error", err)
+	return errorResult(errors.WrapInteractionError(tool, target, err))
+}
+
+// strictModeCountRe reads the match count from a Playwright strict mode violation.
+var strictModeCountRe = regexp.MustCompile(`resolved to (\d+) elements`)
+
+// strictModeCount returns how many elements a selector matched in a strict mode
+// violation, from the error message or, failing that, by counting the locator.
+func strictModeCount(err error, locator playwright.Locator) int {
+	if m := strictModeCountRe.FindStringSubmatch(err.Error()); m != nil {
+		if n, convErr := strconv.Atoi(m[1]); convErr == nil {
+			return n
+		}
+	}
+	if locator != nil {
+		if n, countErr := locator.Count(); countErr == nil {
+			return n
+		}
+	}
+	return 0
 }

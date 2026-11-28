@@ -49,6 +49,7 @@ type ConsoleLogBuffer struct {
 	maxSize int
 	head    int // Index where next entry will be written
 	count   int // Current number of entries in buffer
+	total   int // Entries ever appended; only increases, Clear included
 }
 
 // NewConsoleLogBuffer creates a new ConsoleLogBuffer with the specified capacity.
@@ -76,6 +77,34 @@ func (b *ConsoleLogBuffer) Add(entry ConsoleLogEntry) {
 	if b.count < b.maxSize {
 		b.count++
 	}
+	b.total++
+}
+
+// Total returns the number of entries ever appended to the buffer. It only
+// increases: eviction and Clear do not lower it, so it marks a point in the
+// stream that Since can read from.
+func (b *ConsoleLogBuffer) Total() int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.total
+}
+
+// Since returns, in chronological order, the entries appended after the buffer's
+// Total was mark and still held. Entries evicted since then are not returned.
+func (b *ConsoleLogBuffer) Since(mark int) []ConsoleLogEntry {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	n := min(b.total-mark, b.count)
+	if n <= 0 {
+		return []ConsoleLogEntry{}
+	}
+	result := make([]ConsoleLogEntry, n)
+	start := (b.head - n + b.maxSize) % b.maxSize
+	for i := range n {
+		result[i] = b.entries[(start+i)%b.maxSize]
+	}
+	return result
 }
 
 // Get returns console log entries in chronological order.
@@ -113,7 +142,7 @@ func (b *ConsoleLogBuffer) Get(limit int, level ConsoleLogLevel) []ConsoleLogEnt
 	return result
 }
 
-// Clear removes all entries from the buffer.
+// Clear removes all entries from the buffer. Total is unchanged.
 func (b *ConsoleLogBuffer) Clear() {
 	b.mu.Lock()
 	defer b.mu.Unlock()

@@ -80,7 +80,7 @@ func SessionCreateHandler(mgr session.BrowserSessionManager, timeoutConfig *Time
 				opts.BrowserType = browser.BrowserWebKit
 			default:
 				slog.Error("invalid browser type", "tool", "session_create", "browserType", browserType)
-				return mcp.NewToolResultError(fmt.Sprintf("Invalid browserType: %s. Must be chromium, firefox, or webkit", browserType)), nil
+				return paramErrorResult("browserType", fmt.Sprintf("Invalid browserType: %s. Must be chromium, firefox, or webkit", browserType)), nil
 			}
 		}
 
@@ -106,7 +106,7 @@ func SessionCreateHandler(mgr session.BrowserSessionManager, timeoutConfig *Time
 		sess, err := mgr.CreateSession(ctx, mcpSessionID, opts)
 		if err != nil {
 			slog.Error("failed to create session", "tool", "session_create", "mcpSessionID", mcpSessionID, "error", err)
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to create session: %v", err)), nil
+			return internalErrorResult("Failed to create session: %v", err), nil
 		}
 
 		slog.Info("session created via tool", "tool", "session_create", "sessionID", sess.ID, "mcpSessionID", mcpSessionID)
@@ -143,7 +143,7 @@ func SessionListHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeou
 		response, err := formatSessionList(sessions)
 		if err != nil {
 			slog.Error("failed to format session list", "tool", "session_list", "error", err)
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to format session list: %v", err)), nil
+			return internalErrorResult("Failed to format session list: %v", err), nil
 		}
 
 		return mcp.NewToolResultText(response), nil
@@ -178,7 +178,7 @@ func SessionCloseHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeo
 		sessionID := req.GetString("sessionId", "")
 		if sessionID == "" {
 			slog.Error("missing required sessionId", "tool", "session_close")
-			return mcp.NewToolResultError("sessionId is required"), nil
+			return requiredParamResult("sessionId"), nil
 		}
 
 		slog.Debug("closing session via tool", "tool", "session_close", "sessionID", sessionID, "mcpSessionID", mcpSessionID)
@@ -186,7 +186,7 @@ func SessionCloseHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeo
 		// Close the session (manager handles ownership validation and cleanup)
 		if err := mgr.CloseSession(ctx, mcpSessionID, sessionID); err != nil {
 			slog.Error("failed to close session", "tool", "session_close", "sessionID", sessionID, "error", err)
-			return mcp.NewToolResultError(errors.FormatErrorForTool(errors.NewSessionNotFoundError(sessionID))), nil
+			return errorResult(errors.NewSessionNotFoundError(sessionID)), nil
 		}
 
 		slog.Info("session closed via tool", "tool", "session_close", "sessionID", sessionID)

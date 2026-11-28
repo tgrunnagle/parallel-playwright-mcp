@@ -1379,3 +1379,41 @@ func TestSetupNetworkLogging(t *testing.T) {
 		}
 	})
 }
+
+// TestNetworkBufferSince checks that Since finds entries appended after a mark.
+func TestNetworkBufferSince(t *testing.T) {
+	buf := NewNetworkLogBuffer(DefaultNetworkLogBufferSize)
+	for i := range DefaultNetworkLogBufferSize {
+		buf.Add(NetworkLogEntry{URL: "http://h/old", Status: 200 + i%2})
+	}
+	mark := buf.Total()
+	buf.Add(NetworkLogEntry{URL: "http://h/new", Status: 500})
+	buf.Add(NetworkLogEntry{URL: "http://h/newer", Status: 0})
+
+	got := buf.Since(mark)
+	if len(got) != 2 || got[0].URL != "http://h/new" || got[1].URL != "http://h/newer" {
+		t.Fatalf("Since() = %+v, want the two new entries", got)
+	}
+	if buf.Total() != 102 || buf.Len() != 100 {
+		t.Errorf("Total() = %d, Len() = %d, want 102 and 100", buf.Total(), buf.Len())
+	}
+	if got := buf.Since(buf.Total()); len(got) != 0 {
+		t.Errorf("Since(Total()) = %+v, want empty", got)
+	}
+	buf.Clear()
+	if buf.Total() != 102 {
+		t.Errorf("Total() after Clear = %d, want 102", buf.Total())
+	}
+
+	t.Run("more new entries than capacity returns what is held", func(t *testing.T) {
+		buf := NewNetworkLogBuffer(3)
+		mark := buf.Total()
+		for _, u := range []string{"a", "b", "c", "d", "e"} {
+			buf.Add(NetworkLogEntry{URL: "http://h/" + u, Status: 500})
+		}
+		got := buf.Since(mark)
+		if len(got) != 3 || got[0].URL != "http://h/c" || got[2].URL != "http://h/e" {
+			t.Errorf("Since() = %+v, want c, d, e", got)
+		}
+	})
+}

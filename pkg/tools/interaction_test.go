@@ -2,7 +2,9 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -21,6 +23,10 @@ type mockLocator struct {
 	hoverFunc             func(opts playwright.LocatorHoverOptions) error
 	pressFunc             func(key string, opts playwright.LocatorPressOptions) error
 	selectOptionFunc      func(values playwright.SelectOptionValues, opts playwright.LocatorSelectOptionOptions) ([]string, error)
+	countFunc             func() (int, error)
+	evaluateFunc          func(expression string, arg any) (any, error)
+	evaluateAllFunc       func(expression string, arg ...any) (any, error)
+	ariaSnapshotFunc      func(opts playwright.LocatorAriaSnapshotOptions) (string, error)
 }
 
 func (m *mockLocator) Click(opts ...playwright.LocatorClickOptions) error {
@@ -95,15 +101,27 @@ func (m *mockLocator) AllInnerTexts() ([]string, error)                  { retur
 func (m *mockLocator) AllTextContents() ([]string, error)                { return nil, nil }
 func (m *mockLocator) And(locator playwright.Locator) playwright.Locator { return m }
 func (m *mockLocator) AriaSnapshot(options ...playwright.LocatorAriaSnapshotOptions) (string, error) {
+	if m.ariaSnapshotFunc != nil {
+		opt := playwright.LocatorAriaSnapshotOptions{}
+		if len(options) > 0 {
+			opt = options[0]
+		}
+		return m.ariaSnapshotFunc(opt)
+	}
 	return "", nil
 }
 func (m *mockLocator) Blur(options ...playwright.LocatorBlurOptions) error { return nil }
 func (m *mockLocator) BoundingBox(options ...playwright.LocatorBoundingBoxOptions) (*playwright.Rect, error) {
 	return nil, nil
 }
-func (m *mockLocator) Check(options ...playwright.LocatorCheckOptions) error       { return nil }
-func (m *mockLocator) Clear(options ...playwright.LocatorClearOptions) error       { return nil }
-func (m *mockLocator) Count() (int, error)                                         { return 0, nil }
+func (m *mockLocator) Check(options ...playwright.LocatorCheckOptions) error { return nil }
+func (m *mockLocator) Clear(options ...playwright.LocatorClearOptions) error { return nil }
+func (m *mockLocator) Count() (int, error) {
+	if m.countFunc != nil {
+		return m.countFunc()
+	}
+	return 0, nil
+}
 func (m *mockLocator) Dblclick(options ...playwright.LocatorDblclickOptions) error { return nil }
 func (m *mockLocator) Describe(description string) playwright.Locator              { return m }
 func (m *mockLocator) Description() (string, error)                                { return "", nil }
@@ -122,9 +140,15 @@ func (m *mockLocator) ElementHandle(options ...playwright.LocatorElementHandleOp
 func (m *mockLocator) ElementHandles() ([]playwright.ElementHandle, error) { return nil, nil }
 func (m *mockLocator) ContentFrame() playwright.FrameLocator               { return nil }
 func (m *mockLocator) Evaluate(expression string, arg interface{}, options ...playwright.LocatorEvaluateOptions) (interface{}, error) {
+	if m.evaluateFunc != nil {
+		return m.evaluateFunc(expression, arg)
+	}
 	return nil, nil
 }
 func (m *mockLocator) EvaluateAll(expression string, arg ...interface{}) (interface{}, error) {
+	if m.evaluateAllFunc != nil {
+		return m.evaluateAllFunc(expression, arg...)
+	}
 	return nil, nil
 }
 func (m *mockLocator) EvaluateHandle(expression string, arg interface{}, options ...playwright.LocatorEvaluateHandleOptions) (playwright.JSHandle, error) {
@@ -223,6 +247,49 @@ type mockInteractionPage struct {
 	playwright.Page
 	locatorFunc  func(selector string, opts ...playwright.PageLocatorOptions) playwright.Locator
 	keyboardFunc func() playwright.Keyboard
+	urlFunc      func() string
+	titleFunc    func() (string, error)
+	snapshotFunc func(opts playwright.PageAriaSnapshotOptions) (string, error)
+	waitFunc     func(opts playwright.PageWaitForLoadStateOptions) error
+}
+
+func (m *mockInteractionPage) AriaSnapshot(opts ...playwright.PageAriaSnapshotOptions) (string, error) {
+	if m.snapshotFunc != nil {
+		opt := playwright.PageAriaSnapshotOptions{}
+		if len(opts) > 0 {
+			opt = opts[0]
+		}
+		return m.snapshotFunc(opt)
+	}
+	return `- button "Go" [ref=e2]`, nil
+}
+
+// Frames returns no frames, so no password values are read for a snapshot.
+func (m *mockInteractionPage) Frames() []playwright.Frame { return nil }
+
+func (m *mockInteractionPage) URL() string {
+	if m.urlFunc != nil {
+		return m.urlFunc()
+	}
+	return "https://example.com/"
+}
+
+func (m *mockInteractionPage) Title() (string, error) {
+	if m.titleFunc != nil {
+		return m.titleFunc()
+	}
+	return "Example", nil
+}
+
+func (m *mockInteractionPage) WaitForLoadState(opts ...playwright.PageWaitForLoadStateOptions) error {
+	if m.waitFunc != nil {
+		opt := playwright.PageWaitForLoadStateOptions{}
+		if len(opts) > 0 {
+			opt = opts[0]
+		}
+		return m.waitFunc(opt)
+	}
+	return nil
 }
 
 func (m *mockInteractionPage) Locator(selector string, opts ...playwright.PageLocatorOptions) playwright.Locator {
@@ -320,8 +387,12 @@ func TestClickTool(t *testing.T) {
 	if !foundSessionId {
 		t.Error("Expected 'sessionId' to be in required properties")
 	}
-	if !foundSelector {
-		t.Error("Expected 'selector' to be in required properties")
+	// selector and ref are mutually exclusive, so neither is required by the schema
+	if foundSelector {
+		t.Error("Expected 'selector' to be optional now that 'ref' can replace it")
+	}
+	if _, ok := props["ref"]; !ok {
+		t.Error("Expected 'ref' property in input schema")
 	}
 }
 
@@ -379,8 +450,12 @@ func TestTypeTool(t *testing.T) {
 	if !foundSessionId {
 		t.Error("Expected 'sessionId' to be in required properties")
 	}
-	if !foundSelector {
-		t.Error("Expected 'selector' to be in required properties")
+	// selector and ref are mutually exclusive, so neither is required by the schema
+	if foundSelector {
+		t.Error("Expected 'selector' to be optional now that 'ref' can replace it")
+	}
+	if _, ok := props["ref"]; !ok {
+		t.Error("Expected 'ref' property in input schema")
 	}
 	if !foundText {
 		t.Error("Expected 'text' to be in required properties")
@@ -438,8 +513,12 @@ func TestFillTool(t *testing.T) {
 	if !foundSessionId {
 		t.Error("Expected 'sessionId' to be in required properties")
 	}
-	if !foundSelector {
-		t.Error("Expected 'selector' to be in required properties")
+	// selector and ref are mutually exclusive, so neither is required by the schema
+	if foundSelector {
+		t.Error("Expected 'selector' to be optional now that 'ref' can replace it")
+	}
+	if _, ok := props["ref"]; !ok {
+		t.Error("Expected 'ref' property in input schema")
 	}
 	if !foundValue {
 		t.Error("Expected 'value' to be in required properties")
@@ -500,8 +579,12 @@ func TestSelectOptionTool(t *testing.T) {
 	if !foundSessionId {
 		t.Error("Expected 'sessionId' to be in required properties")
 	}
-	if !foundSelector {
-		t.Error("Expected 'selector' to be in required properties")
+	// selector and ref are mutually exclusive, so neither is required by the schema
+	if foundSelector {
+		t.Error("Expected 'selector' to be optional now that 'ref' can replace it")
+	}
+	if _, ok := props["ref"]; !ok {
+		t.Error("Expected 'ref' property in input schema")
 	}
 	if !foundValue {
 		t.Error("Expected 'value' to be in required properties")
@@ -553,8 +636,12 @@ func TestHoverTool(t *testing.T) {
 	if !foundSessionId {
 		t.Error("Expected 'sessionId' to be in required properties")
 	}
-	if !foundSelector {
-		t.Error("Expected 'selector' to be in required properties")
+	// selector and ref are mutually exclusive, so neither is required by the schema
+	if foundSelector {
+		t.Error("Expected 'selector' to be optional now that 'ref' can replace it")
+	}
+	if _, ok := props["ref"]; !ok {
+		t.Error("Expected 'ref' property in input schema")
 	}
 }
 
@@ -646,7 +733,7 @@ func TestClickHandler(t *testing.T) {
 				"sessionId": "sess-123",
 			},
 			expectError:    true,
-			expectedResult: "selector is required",
+			expectedResult: "[-32602] Invalid parameters (parameter: selector, ref)",
 		},
 		{
 			name: "empty selector",
@@ -655,7 +742,27 @@ func TestClickHandler(t *testing.T) {
 				"selector":  "",
 			},
 			expectError:    true,
-			expectedResult: "selector is required",
+			expectedResult: "[-32602] Invalid parameters (parameter: selector, ref)",
+		},
+		{
+			name: "both selector and ref",
+			arguments: map[string]any{
+				"sessionId": "sess-123",
+				"selector":  "#button",
+				"ref":       "e3",
+			},
+			expectError:    true,
+			expectedResult: "[-32602] Invalid parameters (parameter: selector, ref) (reason: provide exactly one of selector or ref, not both)",
+		},
+		{
+			name: "neither selector nor ref",
+			arguments: map[string]any{
+				"sessionId": "sess-123",
+				"selector":  "",
+				"ref":       "",
+			},
+			expectError:    true,
+			expectedResult: "[-32602] Invalid parameters (parameter: selector, ref) (reason: exactly one of selector or ref is required)",
 		},
 		{
 			name: "session not found",
@@ -789,7 +896,7 @@ func TestClickHandler(t *testing.T) {
 				getSessionFunc: tt.getSessionFunc,
 			}
 
-			handler := ClickHandler(mgr, DefaultTimeoutConfig())
+			handler := ClickHandler(mgr, DefaultTimeoutConfig(), nil)
 			req := mcp.CallToolRequest{}
 			req.Params.Name = "click"
 			req.Params.Arguments = tt.arguments
@@ -817,6 +924,125 @@ func TestClickHandler(t *testing.T) {
 			}
 		})
 	}
+
+	// clickResult runs a successful click on #button with extra arguments.
+	clickResult := func(t *testing.T, extra map[string]any) *mcp.CallToolResult {
+		t.Helper()
+		page := &mockInteractionPage{
+			locatorFunc: func(string, ...playwright.PageLocatorOptions) playwright.Locator {
+				return &mockLocator{clickFunc: func(playwright.LocatorClickOptions) error { return nil }}
+			},
+		}
+		sess := createInteractionSessionWithMockPage(page)
+		sess.ConsoleLogs = session.NewConsoleLogBuffer(0)
+		mgr := &mockSessionManager{getSessionFunc: func(string, string) (*session.BrowserSession, bool) { return sess, true }}
+		args := map[string]any{"sessionId": "sess-123", "selector": "#button"}
+		for k, v := range extra {
+			args[k] = v
+		}
+		result, err := ClickHandler(mgr, DefaultTimeoutConfig(), nil)(context.Background(), mcp.CallToolRequest{
+			Params: mcp.CallToolParams{Name: "click", Arguments: args},
+		})
+		if err != nil || result.IsError {
+			t.Fatalf("click failed: %v %s", err, extractTextContent(result.Content))
+		}
+		return result
+	}
+
+	t.Run("text begins with the action line and carries the summary", func(t *testing.T) {
+		text := extractTextContent(clickResult(t, nil).Content)
+		line, summaryJSON, ok := strings.Cut(text, "\n")
+		if !ok || line != "Clicked element: #button" {
+			t.Fatalf("Expected 'Clicked element: #button' then a newline, got %q", text)
+		}
+		var summary stateSummary
+		if err := json.Unmarshal([]byte(summaryJSON), &summary); err != nil {
+			t.Fatalf("Expected summary JSON after the line: %v\n%s", err, summaryJSON)
+		}
+		if summary.Action != "click" || summary.Target != "#button" || summary.URL != "https://example.com/" {
+			t.Errorf("Unexpected summary: %+v", summary)
+		}
+	})
+
+	t.Run("without includeSnapshot there is one content block", func(t *testing.T) {
+		result := clickResult(t, nil)
+		if len(result.Content) != 1 {
+			t.Errorf("Expected 1 content block, got %d", len(result.Content))
+		}
+		result = clickResult(t, map[string]any{"includeSnapshot": false})
+		if len(result.Content) != 1 {
+			t.Errorf("Expected 1 content block with includeSnapshot false, got %d", len(result.Content))
+		}
+	})
+
+	t.Run("includeSnapshot appends the snapshot as a second block", func(t *testing.T) {
+		result := clickResult(t, map[string]any{"includeSnapshot": true})
+		if len(result.Content) != 2 {
+			t.Fatalf("Expected 2 content blocks, got %d", len(result.Content))
+		}
+		snapshot, _ := mcp.AsTextContent(result.Content[1])
+		if snapshot.Text != `- button "Go" [ref=e2]` {
+			t.Errorf("Second block = %q, want the snapshot", snapshot.Text)
+		}
+		if first := extractTextContent(result.Content); !strings.HasPrefix(first, "Clicked element: #button\n{") {
+			t.Errorf("First block should stay the line and summary, got %q", first)
+		}
+	})
+
+	// snapshotClick clicks #button on a page whose snapshot is canned.
+	snapshotClick := func(t *testing.T, rc *ResponseConfig, snapshotFunc func(playwright.PageAriaSnapshotOptions) (string, error)) *mcp.CallToolResult {
+		t.Helper()
+		page := &mockInteractionPage{
+			locatorFunc: func(string, ...playwright.PageLocatorOptions) playwright.Locator {
+				return &mockLocator{clickFunc: func(playwright.LocatorClickOptions) error { return nil }}
+			},
+			snapshotFunc: snapshotFunc,
+		}
+		mgr := &mockSessionManager{getSessionFunc: func(string, string) (*session.BrowserSession, bool) {
+			return createInteractionSessionWithMockPage(page), true
+		}}
+		result, err := ClickHandler(mgr, DefaultTimeoutConfig(), rc)(context.Background(), mcp.CallToolRequest{
+			Params: mcp.CallToolParams{Name: "click", Arguments: map[string]any{
+				"sessionId": "sess-123", "selector": "#button", "includeSnapshot": true,
+			}},
+		})
+		if err != nil || result.IsError {
+			t.Fatalf("click failed: %v %s", err, extractTextContent(result.Content))
+		}
+		return result
+	}
+
+	t.Run("includeSnapshot over budget is cut with a notice", func(t *testing.T) {
+		long := strings.Repeat(`- listitem "Item" [ref=e1]`+"\n", 50)
+		result := snapshotClick(t, &ResponseConfig{MaxResponseChars: 100}, func(playwright.PageAriaSnapshotOptions) (string, error) {
+			return long, nil
+		})
+		if len(result.Content) != 3 {
+			t.Fatalf("Expected summary, snapshot, and notice blocks, got %d", len(result.Content))
+		}
+		snapshot, _ := mcp.AsTextContent(result.Content[1])
+		notice, _ := mcp.AsTextContent(result.Content[2])
+		if snapshot.Text != long[:100] {
+			t.Errorf("Snapshot block = %q, want the first 100 characters", snapshot.Text)
+		}
+		want := "[truncated: " + strconv.Itoa(len(long)-100) + " more characters; call get_accessibility_tree with offset=100]"
+		if notice.Text != want {
+			t.Errorf("Notice = %q, want %q", notice.Text, want)
+		}
+	})
+
+	t.Run("includeSnapshot failure keeps the action's success", func(t *testing.T) {
+		result := snapshotClick(t, nil, func(playwright.PageAriaSnapshotOptions) (string, error) {
+			return "", errors.New("target closed")
+		})
+		if len(result.Content) != 2 {
+			t.Fatalf("Expected 2 content blocks, got %d", len(result.Content))
+		}
+		block, _ := mcp.AsTextContent(result.Content[1])
+		if !strings.HasPrefix(block.Text, "[snapshot unavailable: [-32603]") {
+			t.Errorf("Second block = %q", block.Text)
+		}
+	})
 }
 
 // TestTypeHandler tests the type handler.
@@ -844,7 +1070,7 @@ func TestTypeHandler(t *testing.T) {
 				"text":      "hello",
 			},
 			expectError:    true,
-			expectedResult: "selector is required",
+			expectedResult: "[-32602] Invalid parameters (parameter: selector, ref)",
 		},
 		{
 			name: "missing text",
@@ -942,7 +1168,7 @@ func TestTypeHandler(t *testing.T) {
 				getSessionFunc: tt.getSessionFunc,
 			}
 
-			handler := TypeHandler(mgr, DefaultTimeoutConfig())
+			handler := TypeHandler(mgr, DefaultTimeoutConfig(), nil)
 			req := mcp.CallToolRequest{}
 			req.Params.Name = "type"
 			req.Params.Arguments = tt.arguments
@@ -997,7 +1223,7 @@ func TestFillHandler(t *testing.T) {
 				"value":     "test value",
 			},
 			expectError:    true,
-			expectedResult: "selector is required",
+			expectedResult: "[-32602] Invalid parameters (parameter: selector, ref)",
 		},
 		{
 			name: "session not found",
@@ -1085,7 +1311,7 @@ func TestFillHandler(t *testing.T) {
 				getSessionFunc: tt.getSessionFunc,
 			}
 
-			handler := FillHandler(mgr, DefaultTimeoutConfig())
+			handler := FillHandler(mgr, DefaultTimeoutConfig(), nil)
 			req := mcp.CallToolRequest{}
 			req.Params.Name = "fill"
 			req.Params.Arguments = tt.arguments
@@ -1140,7 +1366,7 @@ func TestSelectOptionHandler(t *testing.T) {
 				"value":     "option1",
 			},
 			expectError:    true,
-			expectedResult: "selector is required",
+			expectedResult: "[-32602] Invalid parameters (parameter: selector, ref)",
 		},
 		{
 			name: "missing value",
@@ -1285,7 +1511,7 @@ func TestSelectOptionHandler(t *testing.T) {
 				getSessionFunc: tt.getSessionFunc,
 			}
 
-			handler := SelectOptionHandler(mgr, DefaultTimeoutConfig())
+			handler := SelectOptionHandler(mgr, DefaultTimeoutConfig(), nil)
 			req := mcp.CallToolRequest{}
 			req.Params.Name = "select_option"
 			req.Params.Arguments = tt.arguments
@@ -1338,7 +1564,7 @@ func TestHoverHandler(t *testing.T) {
 				"sessionId": "sess-123",
 			},
 			expectError:    true,
-			expectedResult: "selector is required",
+			expectedResult: "[-32602] Invalid parameters (parameter: selector, ref)",
 		},
 		{
 			name: "session not found",
@@ -1420,7 +1646,7 @@ func TestHoverHandler(t *testing.T) {
 				getSessionFunc: tt.getSessionFunc,
 			}
 
-			handler := HoverHandler(mgr, DefaultTimeoutConfig())
+			handler := HoverHandler(mgr, DefaultTimeoutConfig(), nil)
 			req := mcp.CallToolRequest{}
 			req.Params.Name = "hover"
 			req.Params.Arguments = tt.arguments
@@ -1637,7 +1863,7 @@ func TestPressKeyHandler(t *testing.T) {
 				getSessionFunc: tt.getSessionFunc,
 			}
 
-			handler := PressKeyHandler(mgr, DefaultTimeoutConfig())
+			handler := PressKeyHandler(mgr, DefaultTimeoutConfig(), nil)
 			req := mcp.CallToolRequest{}
 			req.Params.Name = "press_key"
 			req.Params.Arguments = tt.arguments
@@ -1722,7 +1948,7 @@ func TestHandleInteractionError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := handleInteractionError(tt.err, tt.operation, tt.selector)
+			result := handleInteractionError(tt.err, tt.operation, tt.selector, nil)
 			text := extractTextContent(result.Content)
 			if !strings.Contains(text, tt.expectedCode) {
 				t.Errorf("Expected error code %s in result, got: %s", tt.expectedCode, text)
@@ -1900,4 +2126,45 @@ func TestBuildKeyWithModifiers(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestHandleInteractionErrorMultipleMatch checks a strict mode violation becomes
+// the multi-match error describing the first matches.
+func TestHandleInteractionErrorMultipleMatch(t *testing.T) {
+	strictErr := errors.New("playwright: Error: strict mode violation: locator('button') resolved to 4 elements:\n    1) <button>A</button>")
+	loc := &mockLocator{evaluateAllFunc: func(_ string, arg ...any) (any, error) {
+		if len(arg) != 1 || arg[0] != maxDescribedMatches {
+			t.Errorf("EvaluateAll arg = %v, want %d", arg, maxDescribedMatches)
+		}
+		return []any{
+			map[string]any{"tag": "button", "text": "Alpha"},
+			map[string]any{"tag": "button", "text": strings.Repeat("b", 100)},
+			map[string]any{"tag": "a", "text": ""},
+		}, nil
+	}}
+
+	text := extractTextContent(handleInteractionError(strictErr, "click", "button", loc).Content)
+	for _, part := range []string{
+		"[-32002] Selector matched 4 elements (selector: button)",
+		`<button> "Alpha"; <button> "` + strings.Repeat("b", 79) + `…"; <a> ""`,
+		"target the element by ref",
+	} {
+		if !strings.Contains(text, part) {
+			t.Errorf("error = %q, want it to contain %q", text, part)
+		}
+	}
+	if strings.Contains(text, "strict mode violation") {
+		t.Errorf("described matches should replace the raw Playwright cause: %q", text)
+	}
+
+	t.Run("count from the locator when the message has none", func(t *testing.T) {
+		loc := &mockLocator{countFunc: func() (int, error) { return 3, nil }}
+		text := extractTextContent(handleInteractionError(errors.New("strict mode violation"), "hover", ".x", loc).Content)
+		if !strings.HasPrefix(text, "[-32002] Selector matched 3 elements (selector: .x)") {
+			t.Errorf("error = %q", text)
+		}
+		if !strings.Contains(text, "strict mode violation") {
+			t.Errorf("without descriptions the cause should stay: %q", text)
+		}
+	})
 }
