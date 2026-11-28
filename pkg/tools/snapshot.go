@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/mxschmitt/playwright-go"
@@ -17,13 +18,15 @@ import (
 // redactedValue replaces a password field's value in a snapshot.
 const redactedValue = "•••"
 
+// passwordPredicateJS is true when the element e is a password input. The ref
+// check and the value scrub share it, so they always agree on what a password is.
+const passwordPredicateJS = `String(e.type || '').toLowerCase() === 'password'`
+
 // isPasswordJS reports whether an element is a password input.
-const isPasswordJS = `e => String(e.type || '').toLowerCase() === 'password'`
+const isPasswordJS = `e => ` + passwordPredicateJS
 
 // passwordValuesJS returns the non-empty values of the password inputs among els.
-const passwordValuesJS = `els => els
-	.filter(e => String(e.type || '').toLowerCase() === 'password' && e.value)
-	.map(e => e.value)`
+const passwordValuesJS = `els => els.filter(e => ` + passwordPredicateJS + ` && e.value).map(e => e.value)`
 
 // describeMatchesJS describes the first matches of a locator as tag and text.
 const describeMatchesJS = `(els, n) => els.slice(0, n).map(e => ({
@@ -49,8 +52,12 @@ func takeSnapshot(page playwright.Page, selector string, depth int, timeout *flo
 	}
 
 	// Password values are read before and after the snapshot, so a value typed
-	// while it is taken is still scrubbed.
-	before, err := passwordValues(page)
+	// while it is taken is still scrubbed. The reads share the snapshot's timeout.
+	var deadline time.Time
+	if timeout != nil {
+		deadline = time.Now().Add(time.Duration(*timeout * float64(time.Millisecond)))
+	}
+	before, err := passwordValues(page, deadline)
 	if err != nil {
 		return "", err
 	}
@@ -86,7 +93,7 @@ func takeSnapshot(page playwright.Page, selector string, depth int, timeout *flo
 		}
 		return "", fmt.Errorf("failed to take accessibility snapshot: %w", err)
 	}
-	after, err := passwordValues(page)
+	after, err := passwordValues(page, deadline)
 	if err != nil {
 		return "", err
 	}
@@ -120,11 +127,16 @@ const passwordCheckTimeout = 1000
 func redactPasswords(page playwright.Page, snapshot string, passwords []string) string {
 	lines := strings.Split(snapshot, "\n")
 	for i := 0; i < len(lines); i++ {
-		tb, ok := parseTextboxLine(lines[i])
-		if !ok {
+		tb, status := parseTextboxLine(lines[i])
+		switch status {
+		case textboxValue:
+		case textboxUnparsed:
+			var ok bool
 			if tb, ok = unparsedTextboxLine(lines[i]); !ok {
 				continue
 			}
+		default:
+			continue
 		}
 		var children []int
 		if tb.valueStart < 0 {
@@ -151,16 +163,33 @@ func redactPasswords(page playwright.Page, snapshot string, passwords []string) 
 	return strings.Join(lines, "\n")
 }
 
+// passwordReadAttempts is how many times passwordValues reads a frame whose
+// document is replaced while it is read.
+const passwordReadAttempts = 3
+
 // passwordValues returns the non-empty values of the password inputs in every
 // frame of the page, open shadow roots included. A value made only of whitespace
 // is left out: scrubbing it would blank the snapshot's indentation, and a textbox
 // holding it is still redacted through its ref. A frame that detached while it
-// was read is skipped. Any other failure is returned, so no snapshot is served
-// whose password values are unknown.
-func passwordValues(page playwright.Page) ([]string, error) {
+// was read is skipped, and a frame that navigated while it was read is read
+// again, up to passwordReadAttempts times. Any other failure, or a deadline
+// (when not zero) passed before every frame was read, is returned, so no
+// snapshot is served whose password values are unknown.
+func passwordValues(page playwright.Page, deadline time.Time) ([]string, error) {
 	var values []string
 	for _, frame := range page.Frames() {
-		result, err := frame.Locator("input").EvaluateAll(passwordValuesJS)
+		var result any
+		var err error
+		for attempt := 1; ; attempt++ {
+			if !deadline.IsZero() && time.Now().After(deadline) {
+				return nil, errors.NewTimeoutError("reading password fields for the accessibility snapshot", 0)
+			}
+			result, err = frame.Locator("input").EvaluateAll(passwordValuesJS)
+			if err == nil || frame.IsDetached() || attempt == passwordReadAttempts || !isNavigationRace(err) {
+				break
+			}
+			slog.Debug("frame navigated while its password fields were read; reading again", "attempt", attempt, "error", err)
+		}
 		if err != nil {
 			if frame.IsDetached() {
 				continue
@@ -175,6 +204,13 @@ func passwordValues(page playwright.Page) ([]string, error) {
 		}
 	}
 	return values, nil
+}
+
+// isNavigationRace reports whether err is Playwright's error for a script whose
+// document was replaced while it ran.
+func isNavigationRace(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "execution context was destroyed") || strings.Contains(msg, "because of a navigation")
 }
 
 // refToken matches the ref attribute of a snapshot line.
@@ -215,7 +251,7 @@ func scrubValues(lines []string, passwords []string) {
 }
 
 // passwordForms returns each password as the renderer can print it: as typed and
-// with whitespace collapsed (as in accessible names), each raw, escaped as a
+// with whitespace normalized (see normalizeWhiteSpace), each raw, escaped as a
 // double-quoted YAML value or a JSON name, and with single quotes doubled as in a
 // quoted key. The forms are distinct and longest first, so a longer form wins
 // over a shorter one at the same position.
@@ -229,7 +265,7 @@ func passwordForms(passwords []string) []string {
 		}
 	}
 	for _, p := range passwords {
-		for _, v := range []string{p, strings.Join(strings.Fields(p), " ")} {
+		for _, v := range []string{p, normalizeWhiteSpace(p)} {
 			for _, f := range []string{v, yamlEscapeValue(v), jsonEscapeName(v)} {
 				add(f)
 				add(strings.ReplaceAll(f, "'", "''"))
@@ -238,6 +274,29 @@ func passwordForms(passwords []string) []string {
 	}
 	sort.SliceStable(forms, func(i, j int) bool { return len(forms[i]) > len(forms[j]) })
 	return forms
+}
+
+// normalizeWhiteSpace normalizes s as the renderer does input values and names
+// (normalizeWhiteSpace in Playwright's stringUtils): zero-width spaces and soft
+// hyphens are removed, then JavaScript whitespace is trimmed and each run of it
+// collapsed to one space.
+func normalizeWhiteSpace(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if r == '\u200b' || r == '\u00ad' {
+			return -1
+		}
+		return r
+	}, s)
+	return strings.Join(strings.FieldsFunc(s, isJSSpace), " ")
+}
+
+// isJSSpace reports whether r matches \s in a JavaScript regular expression.
+func isJSSpace(r rune) bool {
+	switch r {
+	case '\t', '\n', '\v', '\f', '\r', ' ', '\u00a0', '\u1680', '\u2028', '\u2029', '\u202f', '\u205f', '\u3000', '\ufeff':
+		return true
+	}
+	return r >= '\u2000' && r <= '\u200a'
 }
 
 // yamlEscapeValue escapes s as the renderer does inside a double-quoted value:
@@ -281,10 +340,12 @@ func jsonEscapeName(s string) string {
 	return quoted[1 : len(quoted)-1]
 }
 
-// unparsedTextboxLine handles a line whose key starts with the textbox role but
-// that parseTextboxLine cannot read. It fails closed: what follows the line's
-// last ref attribute, or else its first ": ", is treated as the value of a
-// textbox without a ref, which redactPasswords always replaces.
+// unparsedTextboxLine handles a line that parseTextboxLine reports as
+// textboxUnparsed. It fails closed: what follows the line's last ref attribute,
+// or, when the line has no ref, its first ": ", is treated as the value of a
+// textbox without a ref, which redactPasswords always replaces. ok is false when
+// the line has no value: nothing follows its last ref, or it has no ": " and
+// does not end with ":".
 func unparsedTextboxLine(line string) (textboxLine, bool) {
 	indent := lineIndent(line)
 	rest, found := strings.CutPrefix(line[indent:], "- ")
@@ -292,14 +353,13 @@ func unparsedTextboxLine(line string) (textboxLine, bool) {
 		return textboxLine{}, false
 	}
 	base := indent + 2
-	if !strings.HasPrefix(strings.TrimPrefix(rest, "'"), "textbox") {
-		return textboxLine{}, false
-	}
 	if ms := refToken.FindAllStringIndex(rest, -1); len(ms) > 0 {
 		after := ms[len(ms)-1][1]
 		tail := strings.TrimPrefix(rest[after:], "'")
 		tailStart := base + len(rest) - len(tail)
 		switch {
+		case tail == "":
+			return textboxLine{}, false
 		case tail == ":":
 			return textboxLine{indent: indent, valueStart: -1}, true
 		case strings.HasPrefix(tail, ": "):
@@ -313,29 +373,6 @@ func unparsedTextboxLine(line string) (textboxLine, bool) {
 		return textboxLine{indent: indent, valueStart: -1}, true
 	}
 	return textboxLine{}, false
-}
-
-// regexNameEnd returns the offset just past an unquoted /.../ name at the start
-// of rest (` /name/ [attr]: value`): the first closing "/" that is followed by
-// attributes and then the end of the key.
-func regexNameEnd(rest string) (int, bool) {
-	for j := 3; j < len(rest); j++ {
-		if rest[j] != '/' {
-			continue
-		}
-		k := j + 1
-		for strings.HasPrefix(rest[k:], " [") {
-			end := strings.IndexByte(rest[k:], ']')
-			if end < 0 {
-				break
-			}
-			k += end + 1
-		}
-		if t := rest[k:]; t == "" || t == ":" || strings.HasPrefix(t, ": ") || strings.HasPrefix(t, "'") {
-			return j + 1, true
-		}
-	}
-	return 0, false
 }
 
 // isPasswordRef reports whether the element ref resolves to a password input.
@@ -357,6 +394,27 @@ func isPasswordRef(page playwright.Page, ref string) bool {
 	return !ok || isPassword
 }
 
+// textboxStatus classifies a snapshot line for redactPasswords.
+type textboxStatus int
+
+const (
+	// notTextbox is a line for another role, or not a node line.
+	notTextbox textboxStatus = iota
+	// textboxEmpty is a textbox key with no value.
+	textboxEmpty
+	// textboxValue is a textbox with an inline or block value.
+	textboxValue
+	// textboxUnparsed is a line whose key starts with the textbox role but
+	// cannot be read.
+	textboxUnparsed
+)
+
+// hasTextboxRole reports whether key starts with the textbox role.
+func hasTextboxRole(key string) bool {
+	rest, found := strings.CutPrefix(key, "textbox")
+	return found && (rest == "" || strings.ContainsAny(rest[:1], " :'"))
+}
+
 // textboxLine is a parsed snapshot line for a textbox that has a value.
 type textboxLine struct {
 	// ref is the element ref from the line's attributes, empty when it has none.
@@ -374,13 +432,13 @@ func lineIndent(line string) int {
 }
 
 // parseTextboxLine parses one snapshot line for a textbox with a value, in either
-// shape redactPasswords describes, with the key plain or single-quoted. ok is false
-// for other roles, for textboxes without a value, and for lines it cannot parse.
-func parseTextboxLine(line string) (textboxLine, bool) {
+// shape redactPasswords describes, with the key plain or single-quoted. The line
+// is returned only with textboxValue; the status tells the other cases apart.
+func parseTextboxLine(line string) (textboxLine, textboxStatus) {
 	indent := lineIndent(line)
 	rest, found := strings.CutPrefix(line[indent:], "- ")
-	if !found {
-		return textboxLine{}, false
+	if !found || !hasTextboxRole(strings.TrimPrefix(rest, "'")) {
+		return textboxLine{}, notTextbox
 	}
 	base := indent + 2
 
@@ -401,29 +459,31 @@ func parseTextboxLine(line string) (textboxLine, bool) {
 			break
 		}
 		if end < 0 {
-			return textboxLine{}, false
+			return textboxLine{}, textboxUnparsed
 		}
 		key := strings.ReplaceAll(rest[1:end], "''", "'")
 		r, keyEnd, ok := textboxKeyRef(key)
 		if !ok || keyEnd != len(key) {
-			return textboxLine{}, false
+			return textboxLine{}, textboxUnparsed
 		}
 		ref, after, afterStart = r, rest[end+1:], base+end+1
 	} else {
 		r, keyEnd, ok := textboxKeyRef(rest)
 		if !ok {
-			return textboxLine{}, false
+			return textboxLine{}, textboxUnparsed
 		}
 		ref, after, afterStart = r, rest[keyEnd:], base+keyEnd
 	}
 
 	switch {
 	case strings.HasPrefix(after, ": "):
-		return textboxLine{ref: ref, indent: indent, valueStart: afterStart + 2}, true
+		return textboxLine{ref: ref, indent: indent, valueStart: afterStart + 2}, textboxValue
 	case after == ":":
-		return textboxLine{ref: ref, indent: indent, valueStart: -1}, true
+		return textboxLine{ref: ref, indent: indent, valueStart: -1}, textboxValue
+	case after == "":
+		return textboxLine{}, textboxEmpty
 	default:
-		return textboxLine{}, false
+		return textboxLine{}, textboxUnparsed
 	}
 }
 
@@ -481,6 +541,29 @@ func textboxKeyRef(key string) (string, int, bool) {
 		i += end + 1
 	}
 	return ref, len(role) + i, true
+}
+
+// regexNameEnd returns the offset just past an unquoted /.../ name at the start
+// of rest (` /name/ [attr]: value`): the first closing "/" that is followed by
+// attributes and then the end of the key.
+func regexNameEnd(rest string) (int, bool) {
+	for j := 3; j < len(rest); j++ {
+		if rest[j] != '/' {
+			continue
+		}
+		k := j + 1
+		for strings.HasPrefix(rest[k:], " [") {
+			end := strings.IndexByte(rest[k:], ']')
+			if end < 0 {
+				break
+			}
+			k += end + 1
+		}
+		if t := rest[k:]; t == "" || t == ":" || strings.HasPrefix(t, ": ") || strings.HasPrefix(t, "'") {
+			return j + 1, true
+		}
+	}
+	return 0, false
 }
 
 // multipleMatchError builds the -32002 error for a selector that matched count

@@ -97,7 +97,8 @@ func startTestHTTPServer(t *testing.T) *httptest.Server {
 				<input id="pass-searchbox" type="password" role="searchbox" aria-label="Search key" />
 				<input id="pass-combobox" type="password" role="combobox" aria-label="Combo key" />
 				<input id="pass-regex" type="password" aria-label="/pw/" />
-				<iframe srcdoc="<input id='pass-frame' type='password' aria-label='Frame key' value='frame-secret'>"></iframe>
+				<input id="pass-empty" type="password" aria-label="Password: 8+ chars" />
+				<iframe srcdoc="<input id='pass-frame' type='password' role='searchbox' aria-label='Frame key' value='frame-secret'>"></iframe>
 			</form>
 		</body></html>`)
 	})
@@ -3711,6 +3712,17 @@ func TestAccessibilityTreeSemanticRolesIntegration(t *testing.T) {
 		}
 		if !strings.Contains(text, "/placeholder: Enter your PIN") || !strings.Contains(text, "- text: •••") {
 			t.Errorf("Expected the block-form password value as •••:\n%s", text)
+		}
+		// Only the value scrub hides these: their role is not textbox, or the
+		// input is in an iframe with a role override.
+		for _, key := range []string{`searchbox "Search key"`, `combobox "Combo key"`, `searchbox "Frame key"`, `textbox /pw/`} {
+			if !regexp.MustCompile(regexp.QuoteMeta(key) + snapshotAttrsRe + `: •••`).MatchString(text) {
+				t.Errorf("Expected %s with its value as •••:\n%s", key, text)
+			}
+		}
+		// An empty field whose name holds ": " keeps its ref and its whole name.
+		if !regexp.MustCompile(`- 'textbox "Password: 8\+ chars"` + snapshotAttrsRe + `'\n`).MatchString(text) {
+			t.Errorf("Expected the empty textbox line to keep its ref:\n%s", text)
 		}
 		for _, part := range []string{secret, "hunter2", "correct horse", "placeholder-secret", "quoted: secret", "covered-secret", "tiny-secret", "searchbox-secret", "combobox-secret", "regex-secret", "frame-secret"} {
 			if strings.Contains(text, part) {

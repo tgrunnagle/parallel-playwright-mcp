@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mxschmitt/playwright-go"
@@ -26,20 +27,35 @@ type mockSnapshotPage struct {
 
 func (m *mockSnapshotPage) Frames() []playwright.Frame { return m.frames }
 
-// mockFrame is a frame whose password inputs hold values, or whose read fails.
+// frameRead is the result of one read of a frame's password values.
+type frameRead struct {
+	values []any
+	err    error
+}
+
+// mockFrame is a frame whose password reads return reads in turn, the last one
+// repeating.
 type mockFrame struct {
 	playwright.Frame
-	values   []any
-	err      error
+	reads    []frameRead
+	calls    int
 	detached bool
 }
+
+// valuesFrame is a frame whose password inputs hold values.
+func valuesFrame(values ...any) *mockFrame { return &mockFrame{reads: []frameRead{{values: values}}} }
+
+// failingFrame is a frame whose password reads fail with err.
+func failingFrame(err error) *mockFrame { return &mockFrame{reads: []frameRead{{err: err}}} }
 
 func (f *mockFrame) Locator(string, ...playwright.FrameLocatorOptions) playwright.Locator {
 	return &mockLocator{evaluateAllFunc: func(expression string, _ ...any) (any, error) {
 		if expression != passwordValuesJS {
 			return nil, errors.New("unexpected expression")
 		}
-		return f.values, f.err
+		read := f.reads[min(f.calls, len(f.reads)-1)]
+		f.calls++
+		return read.values, read.err
 	}}
 }
 
@@ -73,41 +89,46 @@ func zero() (int, error) { return 0, nil }
 
 func TestParseTextboxLine(t *testing.T) {
 	tests := []struct {
-		line      string
-		wantRef   string
-		wantValue string // "" with wantOK means the value is in child lines
-		wantOK    bool
+		line       string
+		wantStatus textboxStatus
+		wantRef    string
+		wantValue  string // "" with textboxValue means the value is in child lines
 	}{
-		{`  - textbox "Email" [ref=e5]: a@b.c`, "e5", "a@b.c", true},
-		{`- textbox [ref=f1e2]: plain`, "f1e2", "plain", true},
-		{`    - textbox "Password" [ref=e4]: "s3cret: pass"`, "e4", `"s3cret: pass"`, true},
-		{`- textbox "Bio" [active] [ref=e10]: "line1 line2"`, "e10", `"line1 line2"`, true},
-		{`- textbox "Name \"x\" [ref=e9]: fake" [ref=e3]: real`, "e3", "real", true},
-		{`  - textbox "Password" [ref=e2]:`, "e2", "", true},
-		{`  - 'textbox "Password: 8+ chars" [ref=e3]': "s3cret: x"`, "e3", `"s3cret: x"`, true},
-		{`  - 'textbox "Pin {x}" [ref=e4]':`, "e4", "", true},
-		{`  - 'textbox "It''s: secret" [ref=e7]': v`, "e7", "v", true},
-		{`- textbox "Empty" [ref=e6]`, "", "", false},
-		{`- button "Go" [ref=e8]: Go`, "", "", false},
-		{`- 'button "a: b" [ref=e8]': Go`, "", "", false},
-		{`- textboxy "x" [ref=e1]: v`, "", "", false},
-		{`- textbox "unterminated [ref=e1]: v`, "", "", false},
-		{`- 'textbox "unterminated [ref=e1]: v`, "", "", false},
-		{`- textbox /unterminated [ref=e1]: v`, "", "", false},
-		{`- textbox "No ref": v`, "", "v", true},
-		{`- textbox /pw/ [ref=e3]: secret`, "e3", "secret", true},
-		{`- textbox /a/b [x]/ [ref=e4]:`, "e4", "", true},
-		{`- 'textbox /pw: x/ [ref=e5]': v`, "e5", "v", true},
-		{`  - textbox "No ref block":`, "", "", true},
-		{`- text: hunter2`, "", "", false},
+		{`  - textbox "Email" [ref=e5]: a@b.c`, textboxValue, "e5", "a@b.c"},
+		{`- textbox [ref=f1e2]: plain`, textboxValue, "f1e2", "plain"},
+		{`    - textbox "Password" [ref=e4]: "s3cret: pass"`, textboxValue, "e4", `"s3cret: pass"`},
+		{`- textbox "Bio" [active] [ref=e10]: "line1 line2"`, textboxValue, "e10", `"line1 line2"`},
+		{`- textbox "Name \"x\" [ref=e9]: fake" [ref=e3]: real`, textboxValue, "e3", "real"},
+		{`  - textbox "Password" [ref=e2]:`, textboxValue, "e2", ""},
+		{`  - 'textbox "Password: 8+ chars" [ref=e3]': "s3cret: x"`, textboxValue, "e3", `"s3cret: x"`},
+		{`  - 'textbox "Pin {x}" [ref=e4]':`, textboxValue, "e4", ""},
+		{`  - 'textbox "It''s: secret" [ref=e7]': v`, textboxValue, "e7", "v"},
+		{`- textbox "No ref": v`, textboxValue, "", "v"},
+		{`- textbox /pw/ [ref=e3]: secret`, textboxValue, "e3", "secret"},
+		{`- textbox /a/b [x]/ [ref=e4]:`, textboxValue, "e4", ""},
+		{`- 'textbox /pw: x/ [ref=e5]': v`, textboxValue, "e5", "v"},
+		{`  - textbox "No ref block":`, textboxValue, "", ""},
+		{`- textbox "Empty" [ref=e6]`, textboxEmpty, "", ""},
+		{`  - 'textbox "Password: 8+ chars" [ref=e19]'`, textboxEmpty, "", ""},
+		{`- 'textbox "Search: x"'`, textboxEmpty, "", ""},
+		{`- textbox`, textboxEmpty, "", ""},
+		{`- button "Go" [ref=e8]: Go`, notTextbox, "", ""},
+		{`- 'button "a: b" [ref=e8]': Go`, notTextbox, "", ""},
+		{`- textboxy "x" [ref=e1]: v`, notTextbox, "", ""},
+		{`- text: hunter2`, notTextbox, "", ""},
+		{`textbox "Not a node" [ref=e1]: v`, notTextbox, "", ""},
+		{`- textbox "unterminated [ref=e1]: v`, textboxUnparsed, "", ""},
+		{`- 'textbox "unterminated [ref=e1]: v`, textboxUnparsed, "", ""},
+		{`- textbox /unterminated [ref=e1]: v`, textboxUnparsed, "", ""},
+		{`- 'textbox "x" [ref=e1]' junk`, textboxUnparsed, "", ""},
 	}
 	for _, tt := range tests {
-		tb, ok := parseTextboxLine(tt.line)
-		if ok != tt.wantOK || tb.ref != tt.wantRef {
-			t.Errorf("parseTextboxLine(%q) = (%+v, %v), want ref %q, ok %v", tt.line, tb, ok, tt.wantRef, tt.wantOK)
+		tb, status := parseTextboxLine(tt.line)
+		if status != tt.wantStatus || tb.ref != tt.wantRef {
+			t.Errorf("parseTextboxLine(%q) = (%+v, %v), want ref %q, status %v", tt.line, tb, status, tt.wantRef, tt.wantStatus)
 			continue
 		}
-		if !ok {
+		if status != textboxValue {
 			continue
 		}
 		if tt.wantValue == "" {
@@ -120,6 +141,44 @@ func TestParseTextboxLine(t *testing.T) {
 		if tb.indent != lineIndent(tt.line) {
 			t.Errorf("parseTextboxLine(%q) indent = %d", tt.line, tb.indent)
 		}
+	}
+}
+
+func TestUnparsedTextboxLine(t *testing.T) {
+	tests := []struct {
+		name      string
+		line      string
+		wantOK    bool
+		wantValue string // "" with wantOK means the value is in child lines
+	}{
+		{"value after the last ref", `  - textbox "unterminated [ref=e1]: v`, true, "v"},
+		{"block after the last ref", `  - 'textbox "unterminated: x [ref=e1]':`, true, ""},
+		{"nothing after the last ref", `  - 'textbox "unterminated: x [ref=e1]'`, false, ""},
+		{"no ref, first colon", `- textbox "unterminated: a: b`, true, "a: b"},
+		{"no ref, trailing colon", `- textbox "unterminated:`, true, ""},
+		{"no ref, no value", `- textbox "unterminated`, false, ""},
+		{"not a node line", `textbox "x: y`, false, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tb, ok := unparsedTextboxLine(tt.line)
+			if ok != tt.wantOK {
+				t.Fatalf("unparsedTextboxLine(%q) ok = %v, want %v", tt.line, ok, tt.wantOK)
+			}
+			if !ok {
+				return
+			}
+			if tb.ref != "" || tb.indent != lineIndent(tt.line) {
+				t.Errorf("unparsedTextboxLine(%q) = %+v, want no ref and indent %d", tt.line, tb, lineIndent(tt.line))
+			}
+			if tt.wantValue == "" {
+				if tb.valueStart != -1 {
+					t.Errorf("valueStart = %d, want -1 for a block value", tb.valueStart)
+				}
+			} else if tb.valueStart < 0 || tt.line[tb.valueStart:] != tt.wantValue {
+				t.Errorf("value at %d, want %q", tb.valueStart, tt.wantValue)
+			}
+		})
 	}
 }
 
@@ -157,6 +216,9 @@ func TestRedactPasswords(t *testing.T) {
 		`  - textbox "unterminated [ref=e17]: unparsed-secret`,
 		`  - 'textbox "unterminated: x [ref=e18]':`,
 		`    - text: unparsed-block-secret`,
+		// Empty textboxes whose names hold ": " keep their refs and names.
+		`  - 'textbox "Password: 8+ chars" [ref=e19]'`,
+		`  - 'textbox "Search: from"'`,
 	}, "\n")
 	page := &mockSnapshotPage{locators: map[string]*mockLocator{
 		"aria-ref=e3":  passwordLocator(false),
@@ -206,6 +268,8 @@ func TestRedactPasswords(t *testing.T) {
 		`  - textbox "unterminated [ref=e17]: •••`,
 		`  - 'textbox "unterminated: x [ref=e18]':`,
 		`    - text: •••`,
+		`  - 'textbox "Password: 8+ chars" [ref=e19]'`,
+		`  - 'textbox "Search: from"'`,
 	}, "\n")
 	if got != want {
 		t.Errorf("redactPasswords() =\n%s\nwant\n%s", got, want)
@@ -216,10 +280,10 @@ func TestRedactPasswords(t *testing.T) {
 			t.Errorf("password value %q leaked into the snapshot", secret)
 		}
 	}
-	// A block textbox with only property lines has no value and is not resolved,
-	// and a ref in another driver's format is never looked up.
+	// A block textbox with only property lines and an empty textbox have no value
+	// and are not resolved, and a ref in another driver's format is never looked up.
 	for _, sel := range page.located {
-		if sel == "aria-ref=e12" || sel == "aria-ref=s1e3" {
+		if sel == "aria-ref=e12" || sel == "aria-ref=s1e3" || sel == "aria-ref=e19" {
 			t.Errorf("resolved %s", sel)
 		}
 	}
@@ -243,6 +307,14 @@ func TestScrubValues(t *testing.T) {
 		{"quoted key", []string{"it's: x"}, `- 'button "it''s: x" [ref=e4]'`, `- 'button "•••" [ref=e4]'`},
 		{"short password keeps ref and marker", []string{"e"}, `  - generic "e-mail" [ref=e3]: e`, `  - g•••n•••ric "•••-mail" [ref=e3]: •••`},
 		{"longest form first", []string{"ab", "abc"}, `- text: abcd`, `- text: •••d`},
+		{"backslash raw", []string{`a\b`}, `- searchbox [ref=e3]: a\b`, `- searchbox [ref=e3]: •••`},
+		{"backslash escaped", []string{`a\b`}, `- searchbox [ref=e3]: "a\\b: c"`, `- searchbox [ref=e3]: "•••: c"`},
+		{"newline and tab escaped", []string{"a\nb\tc"}, `- textbox [ref=e3]: "a\nb\tc"`, `- textbox [ref=e3]: "•••"`},
+		{"control character in a name", []string{"a\x01b"}, `- button "x a\u0001b" [ref=e4]`, `- button "x •••" [ref=e4]`},
+		{"password next to the ref attribute", []string{"ref"}, `- generic "ref" [ref=e3]: ref`, `- generic "•••" [ref=e3]: •••`},
+		{"zero-width space", []string{"hunter\u200b2"}, `- searchbox [ref=e3]: hunter2`, `- searchbox [ref=e3]: •••`},
+		{"soft hyphen", []string{"pass\u00adword"}, `- searchbox [ref=e3]: password`, `- searchbox [ref=e3]: •••`},
+		{"JavaScript whitespace", []string{"\ufeffpw\u00a0 1\u3000"}, `- searchbox [ref=e3]: pw 1`, `- searchbox [ref=e3]: •••`},
 		{"no passwords", nil, `- searchbox [ref=e3]: hunter2`, `- searchbox [ref=e3]: hunter2`},
 	}
 	for _, tt := range tests {
@@ -257,22 +329,66 @@ func TestScrubValues(t *testing.T) {
 }
 
 func TestPasswordValues(t *testing.T) {
+	destroyed := errors.New("Execution context was destroyed, most likely because of a navigation")
+
 	t.Run("reads every frame and skips blank values", func(t *testing.T) {
 		page := &mockSnapshotPage{frames: []playwright.Frame{
-			&mockFrame{values: []any{"main-secret", "   "}},
-			&mockFrame{values: []any{"frame-secret"}},
-			&mockFrame{err: errors.New("frame was detached"), detached: true},
+			valuesFrame("main-secret", "   "),
+			valuesFrame("frame-secret"),
+			&mockFrame{reads: []frameRead{{err: errors.New("frame was detached")}}, detached: true},
 		}}
-		got, err := passwordValues(page)
+		got, err := passwordValues(page, time.Time{})
 		if err != nil || strings.Join(got, ",") != "main-secret,frame-secret" {
 			t.Errorf("passwordValues() = %q, %v", got, err)
+		}
+	})
+
+	t.Run("a frame that navigated is read again", func(t *testing.T) {
+		frame := &mockFrame{reads: []frameRead{{err: destroyed}, {err: destroyed}, {values: []any{"hunter2"}}}}
+		got, err := passwordValues(&mockSnapshotPage{frames: []playwright.Frame{frame}}, time.Time{})
+		if err != nil || strings.Join(got, ",") != "hunter2" || frame.calls != 3 {
+			t.Errorf("passwordValues() = %q, %v after %d reads", got, err, frame.calls)
+		}
+	})
+
+	t.Run("a frame that keeps navigating fails the read", func(t *testing.T) {
+		frame := failingFrame(destroyed)
+		got, err := passwordValues(&mockSnapshotPage{frames: []playwright.Frame{frame}}, time.Time{})
+		if err == nil || got != nil || frame.calls != passwordReadAttempts {
+			t.Errorf("passwordValues() = %q, %v after %d reads, want an error after %d", got, err, frame.calls, passwordReadAttempts)
+		}
+	})
+
+	t.Run("other errors are not retried", func(t *testing.T) {
+		frame := failingFrame(errors.New("target closed"))
+		if _, err := passwordValues(&mockSnapshotPage{frames: []playwright.Frame{frame}}, time.Time{}); err == nil || frame.calls != 1 {
+			t.Errorf("passwordValues() error = %v after %d reads, want an error after 1", err, frame.calls)
+		}
+	})
+
+	t.Run("a passed deadline fails the read", func(t *testing.T) {
+		frame := valuesFrame("hunter2")
+		_, err := passwordValues(&mockSnapshotPage{frames: []playwright.Frame{frame}}, time.Now().Add(-time.Second))
+		if err == nil || frame.calls != 0 {
+			t.Errorf("passwordValues() error = %v after %d reads, want a timeout before reading", err, frame.calls)
 		}
 	})
 
 	t.Run("a failed read withholds the snapshot", func(t *testing.T) {
 		page := &mockSnapshotPage{
 			snapshot: `- searchbox [ref=e3]: hunter2`,
-			frames:   []playwright.Frame{&mockFrame{err: errors.New("execution context was destroyed")}},
+			frames:   []playwright.Frame{failingFrame(errors.New("target closed"))},
+		}
+		got, err := takeSnapshot(page, "", 0, nil)
+		if err == nil || got != "" {
+			t.Errorf("takeSnapshot() = %q, %v, want an error", got, err)
+		}
+	})
+
+	t.Run("a failed read after the snapshot withholds it", func(t *testing.T) {
+		page := &mockSnapshotPage{
+			snapshot: `- searchbox [ref=e3]: hunter2`,
+			frames:   []playwright.Frame{&mockFrame{reads: []frameRead{{}, {err: errors.New("target closed")}}}},
 		}
 		got, err := takeSnapshot(page, "", 0, nil)
 		if err == nil || got != "" {
@@ -283,7 +399,18 @@ func TestPasswordValues(t *testing.T) {
 	t.Run("takeSnapshot scrubs a role-overridden password", func(t *testing.T) {
 		page := &mockSnapshotPage{
 			snapshot: `- searchbox "Pw" [ref=e3]: hunter2`,
-			frames:   []playwright.Frame{&mockFrame{values: []any{"hunter2"}}},
+			frames:   []playwright.Frame{valuesFrame("hunter2")},
+		}
+		got, err := takeSnapshot(page, "", 0, nil)
+		if err != nil || got != `- searchbox "Pw" [ref=e3]: •••` {
+			t.Errorf("takeSnapshot() = %q, %v", got, err)
+		}
+	})
+
+	t.Run("takeSnapshot scrubs a value typed while it is taken", func(t *testing.T) {
+		page := &mockSnapshotPage{
+			snapshot: `- searchbox "Pw" [ref=e3]: hunter2`,
+			frames:   []playwright.Frame{&mockFrame{reads: []frameRead{{}, {values: []any{"hunter2"}}}}},
 		}
 		got, err := takeSnapshot(page, "", 0, nil)
 		if err != nil || got != `- searchbox "Pw" [ref=e3]: •••` {
