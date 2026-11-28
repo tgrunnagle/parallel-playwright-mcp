@@ -435,7 +435,7 @@ With `includeSnapshot: true`, the result appends a second content block holding 
   - button "Go" [ref=e8]
 ```
 
-- AI mode prints input values in clear text, passwords included. Each `textbox` line with a value is resolved through its ref, and the value is replaced with `•••` when the element's `type` is `password`, or when its type cannot be read.
+- AI mode prints input values in clear text, passwords included. Each `textbox` line with a value is resolved through its ref, and the value is replaced with `•••` when the element's `type` is `password`, or when its type cannot be read. AI mode leaves refs off elements that are covered or zero-size but still prints their values, so a textbox without a ref always has its value replaced. Values on the inline form and on `- text:` child lines (used when a placeholder differs from the name) are both covered.
 - Content hidden with `display:none` or `visibility:hidden` is left out. Content that is on screen but `aria-hidden` is kept, since an agent may need to act on it; this is how AI mode differs from the default ARIA snapshot.
 - `selector` snapshots one element instead of the page. A selector matching nothing returns `[-32002]` at once instead of waiting for the timeout; one matching several returns the multi-match error (§6.1). `depth` limits the tree depth.
 - The snapshot follows the text-tool budget below: `maxChars` and `offset` in characters, with the same truncation notice.

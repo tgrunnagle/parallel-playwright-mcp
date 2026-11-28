@@ -92,6 +92,8 @@ func startTestHTTPServer(t *testing.T) *httptest.Server {
 				<label for="pass-placeholder">PIN</label>
 				<input id="pass-placeholder" type="password" placeholder="Enter your PIN" />
 				<input id="pass-quoted" type="password" aria-label="Passphrase: 8+ chars" />
+				<input id="pass-covered" type="password" aria-label="Covered" style="pointer-events:none" />
+				<input id="pass-tiny" type="password" aria-label="Tiny" style="width:0;height:0;padding:0;border:0" />
 			</form>
 		</body></html>`)
 	})
@@ -3688,6 +3690,13 @@ func TestAccessibilityTreeSemanticRolesIntegration(t *testing.T) {
 		if err := page.Locator("#pass-quoted").Fill("quoted: secret"); err != nil {
 			t.Fatalf("fill failed: %v", err)
 		}
+		// AI mode gives these no ref (not interactable) but still prints their values.
+		if _, err := page.Evaluate(`() => {
+			document.querySelector('#pass-covered').value = 'covered-secret';
+			document.querySelector('#pass-tiny').value = 'tiny-secret';
+		}`); err != nil {
+			t.Fatalf("setting values failed: %v", err)
+		}
 		text := getTree(t)
 
 		if !regexp.MustCompile(`textbox "Password"` + snapshotAttrsRe + `: •••`).MatchString(text) {
@@ -3696,7 +3705,7 @@ func TestAccessibilityTreeSemanticRolesIntegration(t *testing.T) {
 		if !strings.Contains(text, "/placeholder: Enter your PIN") || !strings.Contains(text, "- text: •••") {
 			t.Errorf("Expected the block-form password value as •••:\n%s", text)
 		}
-		for _, part := range []string{secret, "hunter2", "correct horse", "placeholder-secret", "quoted: secret"} {
+		for _, part := range []string{secret, "hunter2", "correct horse", "placeholder-secret", "quoted: secret", "covered-secret", "tiny-secret"} {
 			if strings.Contains(text, part) {
 				t.Errorf("Password value %q leaked into snapshot:\n%s", part, text)
 			}

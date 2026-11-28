@@ -68,7 +68,8 @@ func TestParseTextboxLine(t *testing.T) {
 		{`- textboxy "x" [ref=e1]: v`, "", "", false},
 		{`- textbox "unterminated [ref=e1]: v`, "", "", false},
 		{`- 'textbox "unterminated [ref=e1]: v`, "", "", false},
-		{`- textbox "No ref": v`, "", "", false},
+		{`- textbox "No ref": v`, "", "v", true},
+		{`  - textbox "No ref block":`, "", "", true},
 		{`- text: hunter2`, "", "", false},
 	}
 	for _, tt := range tests {
@@ -115,6 +116,11 @@ func TestRedactPasswords(t *testing.T) {
 		`  - textbox "Search" [ref=e12]:`,
 		`    - /placeholder: Search`,
 		`  - button "Go" [ref=e13]`,
+		// AI mode leaves refs off covered or zero-size elements but prints their values.
+		`  - textbox "Covered": overlay-secret`,
+		`  - textbox "Covered block":`,
+		`    - /placeholder: hidden`,
+		`    - text: zero-size-secret`,
 	}, "\n")
 	page := &mockSnapshotPage{locators: map[string]*mockLocator{
 		"aria-ref=e3":  passwordLocator(false),
@@ -150,11 +156,15 @@ func TestRedactPasswords(t *testing.T) {
 		`  - textbox "Search" [ref=e12]:`,
 		`    - /placeholder: Search`,
 		`  - button "Go" [ref=e13]`,
+		`  - textbox "Covered": •••`,
+		`  - textbox "Covered block":`,
+		`    - /placeholder: hidden`,
+		`    - text: •••`,
 	}, "\n")
 	if got != want {
 		t.Errorf("redactPasswords() =\n%s\nwant\n%s", got, want)
 	}
-	for _, secret := range []string{"s3cret", "maybe-secret", "vanished-secret", "hunter2", "colon: secret", "1234"} {
+	for _, secret := range []string{"s3cret", "maybe-secret", "vanished-secret", "hunter2", "colon: secret", "1234", "overlay-secret", "zero-size-secret"} {
 		if strings.Contains(got, secret) {
 			t.Errorf("password value %q leaked into the snapshot", secret)
 		}

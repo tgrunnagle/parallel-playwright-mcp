@@ -92,6 +92,7 @@ const passwordCheckTimeout = 1000
 // and wraps the key in single quotes when the name needs YAML quoting. Every
 // textbox with a value in either shape is resolved through its ref; when the
 // element is a password input, or its type cannot be read, the value is replaced.
+// A textbox without a ref cannot be resolved, so its value is always replaced.
 // In the block shape every child line except /property lines is replaced.
 func redactPasswords(page playwright.Page, snapshot string) string {
 	lines := strings.Split(snapshot, "\n")
@@ -145,7 +146,7 @@ func isPasswordRef(page playwright.Page, ref string) bool {
 
 // textboxLine is a parsed snapshot line for a textbox that has a value.
 type textboxLine struct {
-	// ref is the element ref from the line's attributes.
+	// ref is the element ref from the line's attributes, empty when it has none.
 	ref string
 	// indent is the number of leading spaces.
 	indent int
@@ -218,6 +219,8 @@ func parseTextboxLine(line string) (textboxLine, bool) {
 //	textbox "Name" [attr] [ref=e3]
 //
 // at the start of key and returns its ref and the byte offset where the key ends.
+// ref is empty when the line has none: AI mode leaves refs off elements that are
+// not visible or do not receive pointer events, but still prints their values.
 // The quoted name is skipped with its escapes, so a name cannot pose as an
 // attribute or a value.
 func textboxKeyRef(key string) (string, int, bool) {
@@ -256,9 +259,6 @@ func textboxKeyRef(key string) (string, int, bool) {
 			ref = r
 		}
 		i += end + 1
-	}
-	if ref == "" {
-		return "", 0, false
 	}
 	return ref, len(role) + i, true
 }
