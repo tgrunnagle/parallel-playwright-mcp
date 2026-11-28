@@ -38,3 +38,72 @@ func TestAllToolNamesMatchesRegistry(t *testing.T) {
 		}
 	}
 }
+
+// TestToolAnnotations checks every tool's four annotation hints against the
+// table in issue #124. mcp.NewTool defaults to destructive and open-world, so
+// every hint, false ones included, must be set explicitly.
+func TestToolAnnotations(t *testing.T) {
+	type hints struct{ readOnly, destructive, idempotent, openWorld bool }
+	var (
+		readOnlyLocal = hints{readOnly: true}
+		readOnlyPage  = hints{readOnly: true, openWorld: true}
+		pageChange    = hints{openWorld: true}
+		pageAction    = hints{destructive: true, openWorld: true}
+	)
+	want := map[string]hints{
+		"get_console_logs":          readOnlyLocal,
+		"get_network_logs":          readOnlyLocal,
+		"session_list":              readOnlyLocal,
+		"screenshot":                readOnlyPage,
+		"extract_text":              readOnlyPage,
+		"get_html":                  readOnlyPage,
+		"query_selector":            readOnlyPage,
+		"get_accessibility_tree":    readOnlyPage,
+		"session_create":            {},
+		"navigate":                  pageChange,
+		"go_back":                   pageChange,
+		"go_forward":                pageChange,
+		"reload":                    pageChange,
+		"navigate_and_extract_text": pageChange,
+		"get_links":                 pageChange,
+		"hover":                     pageChange,
+		"click":                     pageAction,
+		"type":                      pageAction,
+		"fill":                      pageAction,
+		"select_option":             pageAction,
+		"press_key":                 pageAction,
+		"session_close":             {destructive: true, idempotent: true},
+		"evaluate":                  pageAction,
+	}
+
+	tools := Registry(nil, nil, nil)
+	if len(tools) != len(want) {
+		t.Errorf("Registry has %d tools, table has %d", len(tools), len(want))
+	}
+	for _, st := range tools {
+		name := st.Tool.Name
+		t.Run(name, func(t *testing.T) {
+			w, ok := want[name]
+			if !ok {
+				t.Fatalf("tool %q has no row in the annotation table", name)
+			}
+			a := st.Tool.Annotations
+			for _, h := range []struct {
+				hint string
+				got  *bool
+				want bool
+			}{
+				{"readOnlyHint", a.ReadOnlyHint, w.readOnly},
+				{"destructiveHint", a.DestructiveHint, w.destructive},
+				{"idempotentHint", a.IdempotentHint, w.idempotent},
+				{"openWorldHint", a.OpenWorldHint, w.openWorld},
+			} {
+				if h.got == nil {
+					t.Errorf("%s is unset, want %v", h.hint, h.want)
+				} else if *h.got != h.want {
+					t.Errorf("%s = %v, want %v", h.hint, *h.got, h.want)
+				}
+			}
+		})
+	}
+}

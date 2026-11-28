@@ -18,6 +18,7 @@ import (
 // Navigate loads a URL in the browser session with configurable wait conditions.
 func NavigateTool() mcp.Tool {
 	return mcp.NewTool("navigate",
+		pageChangeHints.option(),
 		mcp.WithDescription("Navigate to a URL in the browser session"),
 		mcp.WithString("sessionId",
 			mcp.Required(),
@@ -112,6 +113,7 @@ func NavigateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 // GoBack navigates to the previous page in browser history.
 func GoBackTool() mcp.Tool {
 	return mcp.NewTool("go_back",
+		pageChangeHints.option(),
 		mcp.WithDescription("Go back to the previous page in browser history"),
 		mcp.WithString("sessionId",
 			mcp.Required(),
@@ -199,6 +201,7 @@ func GoBackHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConf
 // GoForward navigates to the next page in browser history.
 func GoForwardTool() mcp.Tool {
 	return mcp.NewTool("go_forward",
+		pageChangeHints.option(),
 		mcp.WithDescription("Go forward to the next page in browser history"),
 		mcp.WithString("sessionId",
 			mcp.Required(),
@@ -286,6 +289,7 @@ func GoForwardHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutC
 // Reload refreshes the current page.
 func ReloadTool() mcp.Tool {
 	return mcp.NewTool("reload",
+		pageChangeHints.option(),
 		mcp.WithDescription("Reload the current page in the browser session"),
 		mcp.WithString("sessionId",
 			mcp.Required(),

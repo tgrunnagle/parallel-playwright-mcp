@@ -29,6 +29,7 @@ type networkLogOutput struct {
 // GetNetworkLogsTool returns the get_network_logs MCP tool definition.
 func GetNetworkLogsTool() mcp.Tool {
 	return mcp.NewTool("get_network_logs",
+		readOnlyLocalHints.option(),
 		mcp.WithDescription("Retrieve captured network request/response logs from a browser session"),
 		mcp.WithString("sessionId",
 			mcp.Required(),

@@ -24,6 +24,7 @@ const (
 // SessionCreateTool returns the session_create MCP tool definition.
 func SessionCreateTool() mcp.Tool {
 	return mcp.NewTool("session_create",
+		toolHints{}.option(),
 		mcp.WithDescription("Create a new isolated browser session"),
 		mcp.WithString("browserType",
 			mcp.Description("Browser engine to use (chromium, firefox, or webkit)"),
@@ -117,6 +118,7 @@ func SessionCreateHandler(mgr session.BrowserSessionManager, timeoutConfig *Time
 // SessionListTool returns the session_list MCP tool definition.
 func SessionListTool() mcp.Tool {
 	return mcp.NewTool("session_list",
+		readOnlyLocalHints.option(),
 		mcp.WithDescription("List all active browser sessions for this connection"),
 	)
 }
@@ -153,6 +155,7 @@ func SessionListHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeou
 // SessionCloseTool returns the session_close MCP tool definition.
 func SessionCloseTool() mcp.Tool {
 	return mcp.NewTool("session_close",
+		toolHints{destructive: true, idempotent: true}.option(),
 		mcp.WithDescription("Close a browser session and release all associated resources"),
 		mcp.WithString("sessionId",
 			mcp.Required(),

@@ -20,6 +20,7 @@ import (
 // Click simulates a mouse click on an element identified by selector.
 func ClickTool() mcp.Tool {
 	return mcp.NewTool("click",
+		pageActionHints.option(),
 		mcp.WithDescription("Click an element on the page. Target it with exactly one of selector or ref; a ref comes from get_accessibility_tree and fails at once with 'Stale element ref' once the page has changed"),
 		mcp.WithString("sessionId",
 			mcp.Required(),
@@ -102,6 +103,7 @@ func ClickHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfi
 // Type simulates typing text into an element with keystroke events.
 func TypeTool() mcp.Tool {
 	return mcp.NewTool("type",
+		pageActionHints.option(),
 		mcp.WithDescription("Type text into an element with keystroke events. Target it with exactly one of selector or ref; a ref comes from get_accessibility_tree and fails at once with 'Stale element ref' once the page has changed"),
 		mcp.WithString("sessionId",
 			mcp.Required(),
@@ -185,6 +187,7 @@ func TypeHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig
 // Fill populates an input field with text without keystroke events.
 func FillTool() mcp.Tool {
 	return mcp.NewTool("fill",
+		pageActionHints.option(),
 		mcp.WithDescription("Fill an input field with text (fast, no keystroke events). Target it with exactly one of selector or ref; a ref comes from get_accessibility_tree and fails at once with 'Stale element ref' once the page has changed"),
 		mcp.WithString("sessionId",
 			mcp.Required(),
@@ -262,6 +265,7 @@ func FillHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig
 // SelectOption selects an option from a dropdown/select element.
 func SelectOptionTool() mcp.Tool {
 	return mcp.NewTool("select_option",
+		pageActionHints.option(),
 		mcp.WithDescription("Select an option from a dropdown/select element. Target it with exactly one of selector or ref; a ref comes from get_accessibility_tree and fails at once with 'Stale element ref' once the page has changed"),
 		mcp.WithString("sessionId",
 			mcp.Required(),
@@ -371,6 +375,7 @@ func SelectOptionHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeo
 // Hover simulates a mouse hover over an element.
 func HoverTool() mcp.Tool {
 	return mcp.NewTool("hover",
+		pageChangeHints.option(),
 		mcp.WithDescription("Hover over an element. Target it with exactly one of selector or ref; a ref comes from get_accessibility_tree and fails at once with 'Stale element ref' once the page has changed"),
 		mcp.WithString("sessionId",
 			mcp.Required(),
@@ -441,6 +446,7 @@ func HoverHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfi
 // PressKey simulates pressing a keyboard key or key combination.
 func PressKeyTool() mcp.Tool {
 	return mcp.NewTool("press_key",
+		pageActionHints.option(),
 		mcp.WithDescription("Press a keyboard key or key combination"),
 		mcp.WithString("sessionId",
 			mcp.Required(),

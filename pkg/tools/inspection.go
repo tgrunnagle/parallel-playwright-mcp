@@ -22,6 +22,7 @@ import (
 // GetConsoleLogsTool returns the get_console_logs MCP tool definition.
 func GetConsoleLogsTool() mcp.Tool {
 	return mcp.NewTool("get_console_logs",
+		readOnlyLocalHints.option(),
 		mcp.WithDescription("Retrieve browser console log messages from a session"),
 		mcp.WithString("sessionId",
 			mcp.Required(),
@@ -105,6 +106,7 @@ func GetConsoleLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *Tim
 // ScreenshotTool returns the screenshot MCP tool definition.
 func ScreenshotTool() mcp.Tool {
 	return mcp.NewTool("screenshot",
+		readOnlyPageHints.option(),
 		mcp.WithDescription("Capture a PNG screenshot of the page or element"),
 		mcp.WithString("sessionId",
 			mcp.Required(),
@@ -292,6 +294,7 @@ func parseClipRegion(vp map[string]any) *playwright.Rect {
 // ExtractTextTool returns the extract_text MCP tool definition.
 func ExtractTextTool() mcp.Tool {
 	return mcp.NewTool("extract_text",
+		readOnlyPageHints.option(),
 		mcp.WithDescription("Extract visible text from page as markdown"),
 		mcp.WithString("sessionId",
 			mcp.Required(),
@@ -728,6 +731,7 @@ const extractTextAsMarkdownJS = `(selector) => {
 // GetHTMLTool returns the get_html MCP tool definition.
 func GetHTMLTool() mcp.Tool {
 	return mcp.NewTool("get_html",
+		readOnlyPageHints.option(),
 		mcp.WithDescription("Get HTML source of page or element"),
 		mcp.WithString("sessionId",
 			mcp.Required(),
@@ -838,6 +842,7 @@ func GetHTMLHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCon
 // EvaluateTool returns the evaluate MCP tool definition.
 func EvaluateTool() mcp.Tool {
 	return mcp.NewTool("evaluate",
+		pageActionHints.option(),
 		mcp.WithDescription("Execute JavaScript expression in page context"),
 		mcp.WithString("sessionId",
 			mcp.Required(),
@@ -969,6 +974,7 @@ type BoundingBox struct {
 // QuerySelectorTool returns the query_selector MCP tool definition.
 func QuerySelectorTool() mcp.Tool {
 	return mcp.NewTool("query_selector",
+		readOnlyPageHints.option(),
 		mcp.WithDescription("Query element info by CSS selector"),
 		mcp.WithString("sessionId",
 			mcp.Required(),
@@ -1159,6 +1165,7 @@ const snapshotRefsDescription = "Each element carries a ref like [ref=e3], or [r
 // GetAccessibilityTreeTool returns the get_accessibility_tree MCP tool definition.
 func GetAccessibilityTreeTool() mcp.Tool {
 	return mcp.NewTool("get_accessibility_tree",
+		readOnlyPageHints.option(),
 		mcp.WithDescription("Get an ARIA snapshot of the page: a compact YAML tree of roles, accessible names, states such as [checked], and form values (password values show as •••). "+
 			snapshotRefsDescription+
 			" Content hidden with display:none or visibility:hidden is left out; content that is on screen but aria-hidden is kept."),
@@ -1251,6 +1258,7 @@ type LinkInfo struct {
 // GetLinksTool returns the get_links MCP tool definition.
 func GetLinksTool() mcp.Tool {
 	return mcp.NewTool("get_links",
+		pageChangeHints.option(),
 		mcp.WithDescription("Get all hyperlinks from the page with their IDs and labels"),
 		mcp.WithString("sessionId",
 			mcp.Required(),
@@ -1362,6 +1370,7 @@ const getLinksJS = `() => {
 // NavigateAndExtractTextTool returns the navigate_and_extract_text MCP tool definition.
 func NavigateAndExtractTextTool() mcp.Tool {
 	return mcp.NewTool("navigate_and_extract_text",
+		pageChangeHints.option(),
 		mcp.WithDescription("Navigate to URL and extract visible text as markdown (creates temporary session)"),
 		mcp.WithString("url",
 			mcp.Required(),
