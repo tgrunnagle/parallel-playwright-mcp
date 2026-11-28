@@ -491,7 +491,7 @@ func TestPageParams(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected error")
 			}
-			text := extractTextContent(invalidParamsResult(err).Content)
+			text := extractTextContent(errorResult(err).Content)
 			if !strings.HasPrefix(text, "[-32602]") || !strings.Contains(text, "(parameter: "+tt.param+")") {
 				t.Errorf("error = %q, want [-32602] naming %s", text, tt.param)
 			}

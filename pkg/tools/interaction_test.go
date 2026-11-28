@@ -250,6 +250,7 @@ type mockInteractionPage struct {
 	urlFunc      func() string
 	titleFunc    func() (string, error)
 	snapshotFunc func(opts playwright.PageAriaSnapshotOptions) (string, error)
+	waitFunc     func(opts playwright.PageWaitForLoadStateOptions) error
 }
 
 func (m *mockInteractionPage) AriaSnapshot(opts ...playwright.PageAriaSnapshotOptions) (string, error) {
@@ -280,7 +281,14 @@ func (m *mockInteractionPage) Title() (string, error) {
 	return "Example", nil
 }
 
-func (m *mockInteractionPage) WaitForLoadState(...playwright.PageWaitForLoadStateOptions) error {
+func (m *mockInteractionPage) WaitForLoadState(opts ...playwright.PageWaitForLoadStateOptions) error {
+	if m.waitFunc != nil {
+		opt := playwright.PageWaitForLoadStateOptions{}
+		if len(opts) > 0 {
+			opt = opts[0]
+		}
+		return m.waitFunc(opt)
+	}
 	return nil
 }
 

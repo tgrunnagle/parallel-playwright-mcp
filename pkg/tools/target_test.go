@@ -159,7 +159,20 @@ func TestElementTargetLocate(t *testing.T) {
 		}
 	})
 
-	t.Run("count failure on a ref is reported as stale with its cause", func(t *testing.T) {
+	t.Run("other count failures on a ref are interaction errors, not stale", func(t *testing.T) {
+		var located []string
+		loc := &mockLocator{countFunc: func() (int, error) {
+			return 0, errors.New("target page, context or browser has been closed")
+		}}
+		target, _ := resolveTarget(map[string]any{"ref": "e9"}, false)
+		_, err := target.locate(pageWith(loc, &located))
+		got := errorResultText(err)
+		if !strings.HasPrefix(got, "[-32005]") || strings.Contains(got, "Stale") || !strings.Contains(got, "has been closed") {
+			t.Errorf("error = %q", got)
+		}
+	})
+
+	t.Run("detached frame on a ref is reported as stale with its cause", func(t *testing.T) {
 		var located []string
 		loc := &mockLocator{countFunc: func() (int, error) { return 0, errors.New("frame was detached") }}
 		target, _ := resolveTarget(map[string]any{"ref": "e9"}, false)

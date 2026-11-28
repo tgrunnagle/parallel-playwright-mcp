@@ -86,7 +86,7 @@ func GetNetworkLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *Tim
 
 		limit, offset, err := listPageParams(args)
 		if err != nil {
-			return invalidParamsResult(err), nil
+			return errorResult(err), nil
 		}
 
 		// Get session with ownership validation

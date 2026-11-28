@@ -65,34 +65,19 @@ func ClickHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfi
 			return requiredParamResult("sessionId"), nil
 		}
 
-		target, targetErr := resolveTarget(args, false)
-		if targetErr != nil {
-			slog.Error("invalid element target", "tool", "click", "sessionID", sessionID, "error", targetErr)
-			return errorResult(targetErr), nil
+		target, errResult := targetFromArgs(args, false, "click", sessionID)
+		if errResult != nil {
+			return errResult, nil
 		}
-		selector := target.Label
+		label := target.Label
 
-		slog.Debug("clicking element", "tool", "click", "sessionID", sessionID, "selector", selector)
+		slog.Debug("clicking element", "tool", "click", "sessionID", sessionID, "target", label)
 
-		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
-		if !ok {
-			slog.Error("session not found", "tool", "click", "sessionID", sessionID)
-			return newInteractionSessionNotFoundError(sessionID), nil
+		act, errResult := beginElementAction(mgr, mcpSessionID, sessionID, "click", target, args, timeoutConfig, responseConfig)
+		if errResult != nil {
+			return errResult, nil
 		}
-
-		page := sess.ActivePage()
-		if page == nil {
-			slog.Error("no active page in session", "tool", "click", "sessionID", sessionID)
-			return noActivePageResult(), nil
-		}
-
-		rec := startAction(sess, page, "click", target.Label, args, timeoutConfig, responseConfig)
-
-		locator, locErr := target.locate(page)
-		if locErr != nil {
-			slog.Error("element target did not resolve", "sessionID", sessionID, "target", selector, "error", locErr)
-			return errorResult(locErr), nil
-		}
+		locator, rec := act.locator, act.rec
 		opts := buildClickOptions(args)
 
 		// Propagate context deadline to Playwright if no explicit timeout was set
@@ -101,15 +86,15 @@ func ClickHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfi
 		}
 
 		if err := locator.Click(opts); err != nil {
-			if ctxErr := HandleContextError(ctx, fmt.Sprintf("click on %s", selector)); ctxErr != nil {
-				slog.Error("click context error", "tool", "click", "sessionID", sessionID, "selector", selector, "error", ctxErr)
+			if ctxErr := HandleContextError(ctx, fmt.Sprintf("click on %s", label)); ctxErr != nil {
+				slog.Error("click context error", "tool", "click", "sessionID", sessionID, "target", label, "error", ctxErr)
 				return errorResult(ctxErr), nil
 			}
-			return handleInteractionError(err, "click", selector, locator), nil
+			return handleInteractionError(err, "click", label, locator), nil
 		}
 
-		slog.Debug("element clicked", "tool", "click", "sessionID", sessionID, "selector", selector)
-		return rec.finish(ctx, fmt.Sprintf("Clicked element: %s", selector)), nil
+		slog.Debug("element clicked", "tool", "click", "sessionID", sessionID, "target", label)
+		return rec.finish(ctx, fmt.Sprintf("Clicked element: %s", label)), nil
 	}
 }
 
@@ -162,12 +147,11 @@ func TypeHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig
 			return requiredParamResult("sessionId"), nil
 		}
 
-		target, targetErr := resolveTarget(args, false)
-		if targetErr != nil {
-			slog.Error("invalid element target", "tool", "type", "sessionID", sessionID, "error", targetErr)
-			return errorResult(targetErr), nil
+		target, errResult := targetFromArgs(args, false, "type", sessionID)
+		if errResult != nil {
+			return errResult, nil
 		}
-		selector := target.Label
+		label := target.Label
 
 		text := req.GetString("text", "")
 		if text == "" {
@@ -175,39 +159,25 @@ func TypeHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig
 			return requiredParamResult("text"), nil
 		}
 
-		slog.Debug("typing into element", "tool", "type", "sessionID", sessionID, "selector", selector)
+		slog.Debug("typing into element", "tool", "type", "sessionID", sessionID, "target", label)
 
-		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
-		if !ok {
-			slog.Error("session not found", "tool", "type", "sessionID", sessionID)
-			return newInteractionSessionNotFoundError(sessionID), nil
+		act, errResult := beginElementAction(mgr, mcpSessionID, sessionID, "type", target, args, timeoutConfig, responseConfig)
+		if errResult != nil {
+			return errResult, nil
 		}
-
-		page := sess.ActivePage()
-		if page == nil {
-			slog.Error("no active page in session", "tool", "type", "sessionID", sessionID)
-			return noActivePageResult(), nil
-		}
-
-		rec := startAction(sess, page, "type", target.Label, args, timeoutConfig, responseConfig)
-
-		locator, locErr := target.locate(page)
-		if locErr != nil {
-			slog.Error("element target did not resolve", "sessionID", sessionID, "target", selector, "error", locErr)
-			return errorResult(locErr), nil
-		}
+		locator, rec := act.locator, act.rec
 		opts := buildTypeOptions(args)
 
 		if err := locator.PressSequentially(text, opts); err != nil {
-			if ctxErr := HandleContextError(ctx, fmt.Sprintf("type on %s", selector)); ctxErr != nil {
-				slog.Error("type context error", "tool", "type", "sessionID", sessionID, "selector", selector, "error", ctxErr)
+			if ctxErr := HandleContextError(ctx, fmt.Sprintf("type on %s", label)); ctxErr != nil {
+				slog.Error("type context error", "tool", "type", "sessionID", sessionID, "target", label, "error", ctxErr)
 				return errorResult(ctxErr), nil
 			}
-			return handleInteractionError(err, "type", selector, locator), nil
+			return handleInteractionError(err, "type", label, locator), nil
 		}
 
-		slog.Debug("typed into element", "tool", "type", "sessionID", sessionID, "selector", selector)
-		return rec.finish(ctx, fmt.Sprintf("Typed text into element: %s", selector)), nil
+		slog.Debug("typed into element", "tool", "type", "sessionID", sessionID, "target", label)
+		return rec.finish(ctx, fmt.Sprintf("Typed text into element: %s", label)), nil
 	}
 }
 
@@ -257,49 +227,34 @@ func FillHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig
 			return requiredParamResult("sessionId"), nil
 		}
 
-		target, targetErr := resolveTarget(args, false)
-		if targetErr != nil {
-			slog.Error("invalid element target", "tool", "fill", "sessionID", sessionID, "error", targetErr)
-			return errorResult(targetErr), nil
+		target, errResult := targetFromArgs(args, false, "fill", sessionID)
+		if errResult != nil {
+			return errResult, nil
 		}
-		selector := target.Label
+		label := target.Label
 
 		value := req.GetString("value", "")
 		// Note: Allow empty value since user may want to clear input
 
-		slog.Debug("filling element", "tool", "fill", "sessionID", sessionID, "selector", selector)
+		slog.Debug("filling element", "tool", "fill", "sessionID", sessionID, "target", label)
 
-		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
-		if !ok {
-			slog.Error("session not found", "tool", "fill", "sessionID", sessionID)
-			return newInteractionSessionNotFoundError(sessionID), nil
+		act, errResult := beginElementAction(mgr, mcpSessionID, sessionID, "fill", target, args, timeoutConfig, responseConfig)
+		if errResult != nil {
+			return errResult, nil
 		}
-
-		page := sess.ActivePage()
-		if page == nil {
-			slog.Error("no active page in session", "tool", "fill", "sessionID", sessionID)
-			return noActivePageResult(), nil
-		}
-
-		rec := startAction(sess, page, "fill", target.Label, args, timeoutConfig, responseConfig)
-
-		locator, locErr := target.locate(page)
-		if locErr != nil {
-			slog.Error("element target did not resolve", "sessionID", sessionID, "target", selector, "error", locErr)
-			return errorResult(locErr), nil
-		}
+		locator, rec := act.locator, act.rec
 		opts := buildFillOptions(args)
 
 		if err := locator.Fill(value, opts); err != nil {
-			if ctxErr := HandleContextError(ctx, fmt.Sprintf("fill on %s", selector)); ctxErr != nil {
-				slog.Error("fill context error", "tool", "fill", "sessionID", sessionID, "selector", selector, "error", ctxErr)
+			if ctxErr := HandleContextError(ctx, fmt.Sprintf("fill on %s", label)); ctxErr != nil {
+				slog.Error("fill context error", "tool", "fill", "sessionID", sessionID, "target", label, "error", ctxErr)
 				return errorResult(ctxErr), nil
 			}
-			return handleInteractionError(err, "fill", selector, locator), nil
+			return handleInteractionError(err, "fill", label, locator), nil
 		}
 
-		slog.Debug("element filled", "tool", "fill", "sessionID", sessionID, "selector", selector)
-		return rec.finish(ctx, fmt.Sprintf("Filled element: %s", selector)), nil
+		slog.Debug("element filled", "tool", "fill", "sessionID", sessionID, "target", label)
+		return rec.finish(ctx, fmt.Sprintf("Filled element: %s", label)), nil
 	}
 }
 
@@ -353,12 +308,11 @@ func SelectOptionHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeo
 			return requiredParamResult("sessionId"), nil
 		}
 
-		target, targetErr := resolveTarget(args, false)
-		if targetErr != nil {
-			slog.Error("invalid element target", "tool", "select_option", "sessionID", sessionID, "error", targetErr)
-			return errorResult(targetErr), nil
+		target, errResult := targetFromArgs(args, false, "select_option", sessionID)
+		if errResult != nil {
+			return errResult, nil
 		}
-		selector := target.Label
+		label := target.Label
 
 		value := req.GetString("value", "")
 		if value == "" {
@@ -368,27 +322,13 @@ func SelectOptionHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeo
 
 		selectBy := req.GetString("selectBy", "value")
 
-		slog.Debug("selecting option", "tool", "select_option", "sessionID", sessionID, "selector", selector, "selectBy", selectBy)
+		slog.Debug("selecting option", "tool", "select_option", "sessionID", sessionID, "target", label, "selectBy", selectBy)
 
-		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
-		if !ok {
-			slog.Error("session not found", "tool", "select_option", "sessionID", sessionID)
-			return newInteractionSessionNotFoundError(sessionID), nil
+		act, errResult := beginElementAction(mgr, mcpSessionID, sessionID, "select_option", target, args, timeoutConfig, responseConfig)
+		if errResult != nil {
+			return errResult, nil
 		}
-
-		page := sess.ActivePage()
-		if page == nil {
-			slog.Error("no active page in session", "tool", "select_option", "sessionID", sessionID)
-			return noActivePageResult(), nil
-		}
-
-		rec := startAction(sess, page, "select_option", target.Label, args, timeoutConfig, responseConfig)
-
-		locator, locErr := target.locate(page)
-		if locErr != nil {
-			slog.Error("element target did not resolve", "sessionID", sessionID, "target", selector, "error", locErr)
-			return errorResult(locErr), nil
-		}
+		locator, rec := act.locator, act.rec
 		opts := buildSelectOptionOptions(args)
 
 		var selectedValues []string
@@ -414,16 +354,16 @@ func SelectOptionHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeo
 		}
 
 		if err != nil {
-			if ctxErr := HandleContextError(ctx, fmt.Sprintf("select_option on %s", selector)); ctxErr != nil {
+			if ctxErr := HandleContextError(ctx, fmt.Sprintf("select_option on %s", label)); ctxErr != nil {
 				return errorResult(ctxErr), nil
 			}
-			return handleInteractionError(err, "select_option", selector, locator), nil
+			return handleInteractionError(err, "select_option", label, locator), nil
 		}
 
 		if len(selectedValues) == 0 {
-			return rec.finish(ctx, fmt.Sprintf("Selected option by %s in: %s (no value returned)", selectBy, selector)), nil
+			return rec.finish(ctx, fmt.Sprintf("Selected option by %s in: %s (no value returned)", selectBy, label)), nil
 		}
-		return rec.finish(ctx, fmt.Sprintf("Selected option '%s' by %s in: %s", selectedValues[0], selectBy, selector)), nil
+		return rec.finish(ctx, fmt.Sprintf("Selected option '%s' by %s in: %s", selectedValues[0], selectBy, label)), nil
 	}
 }
 
@@ -469,46 +409,31 @@ func HoverHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfi
 			return requiredParamResult("sessionId"), nil
 		}
 
-		target, targetErr := resolveTarget(args, false)
-		if targetErr != nil {
-			slog.Error("invalid element target", "tool", "hover", "sessionID", sessionID, "error", targetErr)
-			return errorResult(targetErr), nil
+		target, errResult := targetFromArgs(args, false, "hover", sessionID)
+		if errResult != nil {
+			return errResult, nil
 		}
-		selector := target.Label
+		label := target.Label
 
-		slog.Debug("hovering over element", "tool", "hover", "sessionID", sessionID, "selector", selector)
+		slog.Debug("hovering over element", "tool", "hover", "sessionID", sessionID, "target", label)
 
-		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
-		if !ok {
-			slog.Error("session not found", "tool", "hover", "sessionID", sessionID)
-			return newInteractionSessionNotFoundError(sessionID), nil
+		act, errResult := beginElementAction(mgr, mcpSessionID, sessionID, "hover", target, args, timeoutConfig, responseConfig)
+		if errResult != nil {
+			return errResult, nil
 		}
-
-		page := sess.ActivePage()
-		if page == nil {
-			slog.Error("no active page in session", "tool", "hover", "sessionID", sessionID)
-			return noActivePageResult(), nil
-		}
-
-		rec := startAction(sess, page, "hover", target.Label, args, timeoutConfig, responseConfig)
-
-		locator, locErr := target.locate(page)
-		if locErr != nil {
-			slog.Error("element target did not resolve", "sessionID", sessionID, "target", selector, "error", locErr)
-			return errorResult(locErr), nil
-		}
+		locator, rec := act.locator, act.rec
 		opts := buildHoverOptions(args)
 
 		if err := locator.Hover(opts); err != nil {
-			if ctxErr := HandleContextError(ctx, fmt.Sprintf("hover on %s", selector)); ctxErr != nil {
-				slog.Error("hover context error", "tool", "hover", "sessionID", sessionID, "selector", selector, "error", ctxErr)
+			if ctxErr := HandleContextError(ctx, fmt.Sprintf("hover on %s", label)); ctxErr != nil {
+				slog.Error("hover context error", "tool", "hover", "sessionID", sessionID, "target", label, "error", ctxErr)
 				return errorResult(ctxErr), nil
 			}
-			return handleInteractionError(err, "hover", selector, locator), nil
+			return handleInteractionError(err, "hover", label, locator), nil
 		}
 
-		slog.Debug("hovered over element", "tool", "hover", "sessionID", sessionID, "selector", selector)
-		return rec.finish(ctx, fmt.Sprintf("Hovered over element: %s", selector)), nil
+		slog.Debug("hovered over element", "tool", "hover", "sessionID", sessionID, "target", label)
+		return rec.finish(ctx, fmt.Sprintf("Hovered over element: %s", label)), nil
 	}
 }
 
@@ -571,54 +496,41 @@ func PressKeyHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 			return requiredParamResult("key"), nil
 		}
 
-		target, targetErr := resolveTarget(args, true)
-		if targetErr != nil {
-			slog.Error("invalid element target", "tool", "press_key", "sessionID", sessionID, "error", targetErr)
-			return errorResult(targetErr), nil
+		target, errResult := targetFromArgs(args, true, "press_key", sessionID)
+		if errResult != nil {
+			return errResult, nil
 		}
-		selector := target.Label
+		label := target.Label
 
 		// Build key string with modifiers if provided
 		keyWithModifiers := buildKeyWithModifiers(key, args)
 
-		slog.Debug("pressing key", "tool", "press_key", "sessionID", sessionID, "key", keyWithModifiers, "selector", selector)
+		slog.Debug("pressing key", "tool", "press_key", "sessionID", sessionID, "key", keyWithModifiers, "target", label)
 
-		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
-		if !ok {
-			slog.Error("session not found", "tool", "press_key", "sessionID", sessionID)
-			return newInteractionSessionNotFoundError(sessionID), nil
+		act, errResult := beginElementAction(mgr, mcpSessionID, sessionID, "press_key", target, args, timeoutConfig, responseConfig)
+		if errResult != nil {
+			return errResult, nil
 		}
-
-		page := sess.ActivePage()
-		if page == nil {
-			slog.Error("no active page in session", "tool", "press_key", "sessionID", sessionID)
-			return noActivePageResult(), nil
-		}
-
-		rec := startAction(sess, page, "press_key", target.Label, args, timeoutConfig, responseConfig)
+		rec := act.rec
 
 		// If a target is provided, use locator.Press, otherwise use page.Keyboard.Press
-		if !target.isZero() {
-			locator, locErr := target.locate(page)
-			if locErr != nil {
-				return errorResult(locErr), nil
-			}
+		if locator := act.locator; locator != nil {
 			opts := buildPressOptions(args)
 
 			if err := locator.Press(keyWithModifiers, opts); err != nil {
-				if ctxErr := HandleContextError(ctx, fmt.Sprintf("press_key on %s", selector)); ctxErr != nil {
+				if ctxErr := HandleContextError(ctx, fmt.Sprintf("press_key on %s", label)); ctxErr != nil {
 					slog.Error("press_key context error", "tool", "press_key", "sessionID", sessionID, "key", keyWithModifiers, "error", ctxErr)
 					return errorResult(ctxErr), nil
 				}
-				return handleInteractionError(err, "press_key", selector, locator), nil
+				return handleInteractionError(err, "press_key", label, locator), nil
 			}
 
-			slog.Debug("key pressed on element", "tool", "press_key", "sessionID", sessionID, "key", keyWithModifiers, "selector", selector)
-			return rec.finish(ctx, fmt.Sprintf("Pressed key '%s' on element: %s", keyWithModifiers, selector)), nil
+			slog.Debug("key pressed on element", "tool", "press_key", "sessionID", sessionID, "key", keyWithModifiers, "target", label)
+			return rec.finish(ctx, fmt.Sprintf("Pressed key '%s' on element: %s", keyWithModifiers, label)), nil
 		}
 
 		// Press key without focusing specific element
-		if err := page.Keyboard().Press(keyWithModifiers); err != nil {
+		if err := act.page.Keyboard().Press(keyWithModifiers); err != nil {
 			if ctxErr := HandleContextError(ctx, "press_key"); ctxErr != nil {
 				slog.Error("press_key context error", "tool", "press_key", "sessionID", sessionID, "key", keyWithModifiers, "error", ctxErr)
 				return errorResult(ctxErr), nil

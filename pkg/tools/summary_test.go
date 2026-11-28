@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mxschmitt/playwright-go"
 	"github.com/tgrunnagle/parallel-playwright-mcp/pkg/session"
@@ -214,4 +215,124 @@ func TestStripQuery(t *testing.T) {
 			t.Errorf("stripQuery(%q) = %q, want %q", in, got, want)
 		}
 	}
+}
+
+// urlSequence returns a urlFunc that yields urls in turn, then repeats the last.
+func urlSequence(urls ...string) func() string {
+	i := 0
+	return func() string {
+		u := urls[min(i, len(urls)-1)]
+		i++
+		return u
+	}
+}
+
+func TestSummarizeWaits(t *testing.T) {
+	// waits records the WaitForLoadState calls of a page.
+	type waits struct {
+		opts []playwright.PageWaitForLoadStateOptions
+	}
+	pageWith := func(w *waits, urls ...string) *mockInteractionPage {
+		return &mockInteractionPage{
+			urlFunc: urlSequence(urls...),
+			waitFunc: func(opts playwright.PageWaitForLoadStateOptions) error {
+				w.opts = append(w.opts, opts)
+				return nil
+			},
+		}
+	}
+
+	t.Run("no URL change does not wait", func(t *testing.T) {
+		var w waits
+		page := pageWith(&w, "https://a/")
+		startAction(summarySession(page), page, "click", "#go", nil, nil, nil).summarize(context.Background())
+		if len(w.opts) != 0 {
+			t.Errorf("waited %d times, want 0", len(w.opts))
+		}
+	})
+
+	t.Run("URL change before the settle window waits once for domcontentloaded", func(t *testing.T) {
+		var w waits
+		page := pageWith(&w, "https://a/", "https://b/")
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		got := startAction(summarySession(page), page, "click", "#go", nil, nil, nil).summarize(ctx)
+		if len(w.opts) != 1 {
+			t.Fatalf("waited %d times, want 1", len(w.opts))
+		}
+		if w.opts[0].State == nil || *w.opts[0].State != *playwright.LoadStateDomcontentloaded {
+			t.Errorf("State = %v, want domcontentloaded", w.opts[0].State)
+		}
+		// The element timeout (default 10 s) is clamped to the request deadline.
+		if w.opts[0].Timeout == nil || *w.opts[0].Timeout <= 0 || *w.opts[0].Timeout > 2000 {
+			t.Errorf("Timeout = %v, want in (0, 2000]", w.opts[0].Timeout)
+		}
+		if !got.Navigated {
+			t.Error("Navigated = false, want true")
+		}
+	})
+
+	t.Run("URL change during the settle window waits after it", func(t *testing.T) {
+		var w waits
+		// startAction and the first check see the old URL; the check after the
+		// settle window sees the new one.
+		page := pageWith(&w, "https://a/", "https://a/", "https://b/")
+		got := startAction(summarySession(page), page, "click", "#go", nil, nil, nil).summarize(context.Background())
+		if len(w.opts) != 1 || !got.Navigated {
+			t.Errorf("waited %d times, Navigated = %v; want 1, true", len(w.opts), got.Navigated)
+		}
+	})
+
+	t.Run("a failed wait still yields the summary", func(t *testing.T) {
+		page := &mockInteractionPage{
+			urlFunc:  urlSequence("https://a/", "https://b/"),
+			waitFunc: func(playwright.PageWaitForLoadStateOptions) error { return errors.New("timeout") },
+		}
+		got := startAction(summarySession(page), page, "click", "#go", nil, nil, nil).summarize(context.Background())
+		if !got.Navigated || got.URL != "https://b/" {
+			t.Errorf("summary = %+v", got)
+		}
+	})
+
+	t.Run("under a millisecond left does not wait without a timeout", func(t *testing.T) {
+		var w waits
+		page := pageWith(&w, "https://a/", "https://b/")
+		rec := startAction(summarySession(page), page, "click", "#go", nil, nil, nil)
+		ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(500*time.Microsecond))
+		defer cancel()
+		rec.waitForDOMContentLoaded(ctx)
+		if len(w.opts) != 0 {
+			t.Errorf("waited with Timeout = %v, want no wait", *w.opts[0].Timeout)
+		}
+	})
+}
+
+// setSettleDelay sets the settle window for one test.
+func setSettleDelay(t *testing.T, d time.Duration) {
+	t.Helper()
+	old := settleDelay
+	settleDelay = d
+	t.Cleanup(func() { settleDelay = old })
+}
+
+func TestSettle(t *testing.T) {
+	t.Run("waits the settle window", func(t *testing.T) {
+		setSettleDelay(t, 30*time.Millisecond)
+		start := time.Now()
+		(&actionRecorder{}).settle(context.Background())
+		if elapsed := time.Since(start); elapsed < 30*time.Millisecond {
+			t.Errorf("settle returned after %v, want at least 30ms", elapsed)
+		}
+	})
+
+	t.Run("returns when the request is cancelled", func(t *testing.T) {
+		setSettleDelay(t, time.Minute)
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		start := time.Now()
+		(&actionRecorder{}).settle(ctx)
+		if elapsed := time.Since(start); elapsed > 5*time.Second {
+			t.Errorf("settle returned after %v, want at once", elapsed)
+		}
+	})
 }

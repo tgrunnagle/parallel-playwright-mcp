@@ -112,11 +112,6 @@ func listPageParams(args map[string]any) (limit, offset int, err error) {
 	return limit, offset, nil
 }
 
-// invalidParamsResult renders a parameter validation error as a tool error result.
-func invalidParamsResult(err error) *mcp.CallToolResult {
-	return mcp.NewToolResultError(errors.FormatErrorForTool(err))
-}
-
 // runePrefixEnd returns the byte index just past the first n runes of s.
 func runePrefixEnd(s string, n int) int {
 	i := 0

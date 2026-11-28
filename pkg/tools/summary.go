@@ -151,12 +151,19 @@ func (r *actionRecorder) snapshotBlocks(ctx context.Context) []mcp.Content {
 	}
 }
 
-// summarize waits for the page to settle and builds the state summary.
+// summarize waits for the page to settle and builds the state summary. A URL
+// change seen before or after the settle window waits for the new document, so a
+// navigation that commits during the window is not summarized half-loaded.
 func (r *actionRecorder) summarize(ctx context.Context) stateSummary {
+	waited := false
 	if r.page.URL() != r.urlBefore {
 		r.waitForDOMContentLoaded(ctx)
+		waited = true
 	}
 	r.settle(ctx)
+	if !waited && r.page.URL() != r.urlBefore {
+		r.waitForDOMContentLoaded(ctx)
+	}
 	return buildStateSummary(r)
 }
 
@@ -168,7 +175,8 @@ func (r *actionRecorder) waitForDOMContentLoaded(ctx context.Context) {
 	if deadline, ok := ctx.Deadline(); ok {
 		timeout = min(timeout, time.Until(deadline))
 	}
-	if timeout <= 0 {
+	// Under a millisecond would truncate to a Playwright timeout of 0: no timeout.
+	if timeout < time.Millisecond {
 		return
 	}
 	err := r.page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{

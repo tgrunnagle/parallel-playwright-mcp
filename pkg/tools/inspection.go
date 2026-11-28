@@ -62,7 +62,7 @@ func GetConsoleLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *Tim
 
 		limit, offset, err := listPageParams(args)
 		if err != nil {
-			return invalidParamsResult(err), nil
+			return errorResult(err), nil
 		}
 
 		// Get session with ownership validation
@@ -331,7 +331,7 @@ func ExtractTextHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeou
 
 		maxChars, offset, err := textPageParams(args, responseConfig.budget())
 		if err != nil {
-			return invalidParamsResult(err), nil
+			return errorResult(err), nil
 		}
 
 		// Get session with ownership validation
@@ -770,7 +770,7 @@ func GetHTMLHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCon
 
 		maxChars, offset, err := textPageParams(args, responseConfig.budget())
 		if err != nil {
-			return invalidParamsResult(err), nil
+			return errorResult(err), nil
 		}
 
 		// Get session with ownership validation
@@ -882,7 +882,7 @@ func EvaluateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 
 		maxChars, err := maxCharsParam(args, responseConfig.budget())
 		if err != nil {
-			return invalidParamsResult(err), nil
+			return errorResult(err), nil
 		}
 
 		slog.Debug("evaluating expression", "tool", "evaluate", "sessionID", sessionID)
@@ -1019,7 +1019,7 @@ func QuerySelectorHandler(mgr session.BrowserSessionManager, timeoutConfig *Time
 
 		limit, offset, err := listPageParams(args)
 		if err != nil {
-			return invalidParamsResult(err), nil
+			return errorResult(err), nil
 		}
 
 		slog.Debug("querying selector", "tool", "query_selector", "sessionID", sessionID, "selector", selector)
@@ -1167,7 +1167,7 @@ func GetAccessibilityTreeTool() mcp.Tool {
 			mcp.Description("Browser session ID"),
 		),
 		mcp.WithString("selector",
-			mcp.Description("CSS selector of one element to snapshot instead of the whole page"),
+			mcp.Description("Playwright selector (CSS, XPath, or text) matching exactly one element to snapshot instead of the whole page"),
 		),
 		mcp.WithNumber("depth",
 			mcp.Description("Maximum depth of the tree (default: unlimited)"),
@@ -1203,11 +1203,11 @@ func GetAccessibilityTreeHandler(mgr session.BrowserSessionManager, timeoutConfi
 
 		maxChars, offset, err := textPageParams(args, responseConfig.budget())
 		if err != nil {
-			return invalidParamsResult(err), nil
+			return errorResult(err), nil
 		}
 		depth, err := intParam(args, "depth", 0, 1)
 		if err != nil {
-			return invalidParamsResult(err), nil
+			return errorResult(err), nil
 		}
 
 		// Get session with ownership validation
@@ -1297,7 +1297,7 @@ func GetLinksHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 
 		limit, offset, err := listPageParams(args)
 		if err != nil {
-			return invalidParamsResult(err), nil
+			return errorResult(err), nil
 		}
 
 		// Get session with ownership validation
@@ -1409,7 +1409,7 @@ func NavigateAndExtractTextHandler(mgr session.BrowserSessionManager, timeoutCon
 
 		maxChars, offset, err := textPageParams(args, responseConfig.budget())
 		if err != nil {
-			return invalidParamsResult(err), nil
+			return errorResult(err), nil
 		}
 
 		// Parse browserType with default

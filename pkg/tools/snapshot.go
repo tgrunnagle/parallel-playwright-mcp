@@ -522,7 +522,10 @@ func cutRunes(s string, n int) string {
 }
 
 // refPattern is the form of an element ref in an AI-mode snapshot: e<n>, or
-// f<k>e<n> for an element in an iframe or a later document.
+// f<k>e<n> for an element in an iframe or a later document. This is the format of
+// the Playwright driver that go.mod pins through playwright-go (1.62.1). Older
+// drivers emitted refs such as s1e3, which this rejects, and redactPasswords then
+// treats every textbox as ref-less, so check the format when upgrading.
 var refPattern = regexp.MustCompile(`^(f[0-9]+)?e[0-9]+$`)
 
 // refSelector is the Playwright selector that resolves an element ref.
