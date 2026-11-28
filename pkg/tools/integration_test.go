@@ -1580,6 +1580,39 @@ func TestExtractTextToolIntegration(t *testing.T) {
 			t.Errorf("Expected element not found error code, got: %s", text)
 		}
 	})
+
+	t.Run("role selector", func(t *testing.T) {
+		navigateHandler(ctx, mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "navigate",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"url":       "data:text/html,<html><body><nav>Site menu</nav><main><h1>Main heading</h1><p>Main body</p></main><footer>Site footer</footer></body></html>",
+				},
+			},
+		})
+
+		result, err := extractTextHandler(ctx, mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name:      "extract_text",
+				Arguments: map[string]any{"sessionId": sessionID, "selector": "role=main"},
+			},
+		})
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+
+		text := extractTextContent(result.Content)
+		if !strings.Contains(text, "# Main heading") || !strings.Contains(text, "Main body") {
+			t.Errorf("Expected the main landmark's text, got: %s", text)
+		}
+		if strings.Contains(text, "Site menu") || strings.Contains(text, "Site footer") {
+			t.Errorf("Expected only the main landmark, got: %s", text)
+		}
+	})
 }
 
 // TestGetHTMLToolIntegration tests the get_html tool with real browser instances.
@@ -1697,6 +1730,30 @@ func TestGetHTMLToolIntegration(t *testing.T) {
 		text := extractTextContent(result.Content)
 		if !strings.Contains(text, "id=\"content\"") {
 			t.Errorf("Expected 'id=\"content\"' in outerHTML, got: %s", text)
+		}
+	})
+
+	t.Run("text selector", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "get_html",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"selector":  "text=Test paragraph",
+					"outer":     true,
+				},
+			},
+		}
+
+		result, err := getHTMLHandler(ctx, req)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+		if result.IsError {
+			t.Fatalf("Expected success, got error: %s", extractTextContent(result.Content))
+		}
+		if text := extractTextContent(result.Content); text != "<p>Test paragraph</p>" {
+			t.Errorf("got %q, want the paragraph's outerHTML", text)
 		}
 	})
 }

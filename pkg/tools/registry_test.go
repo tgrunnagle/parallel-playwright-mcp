@@ -109,6 +109,25 @@ func TestToolAnnotations(t *testing.T) {
 	}
 }
 
+// TestToolDescriptions checks that every description is at least two sentences
+// and that every selector parameter documents the shared selector syntax.
+func TestToolDescriptions(t *testing.T) {
+	for _, st := range Registry(nil, nil, nil) {
+		t.Run(st.Tool.Name, func(t *testing.T) {
+			if n := strings.Count(st.Tool.Description, ". "); n < 1 || !strings.HasSuffix(st.Tool.Description, ".") {
+				t.Errorf("description is not at least two sentences: %q", st.Tool.Description)
+			}
+			prop, ok := st.Tool.InputSchema.Properties["selector"].(map[string]any)
+			if !ok {
+				return
+			}
+			if desc, _ := prop["description"].(string); !strings.HasSuffix(desc, selectorSyntaxDescription) {
+				t.Errorf("selector description %q does not end with the shared selector syntax", desc)
+			}
+		})
+	}
+}
+
 // TestToolsDeclareTimeout checks that every tool declares the timeout number
 // parameter. Every handler calls ApplyTimeout, which reads timeout from the
 // arguments, so a tool added without it accepts an argument it does not declare.

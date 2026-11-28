@@ -31,7 +31,9 @@ func GetNetworkLogsTool() mcp.Tool {
 	return mcp.NewTool("get_network_logs",
 		readOnlyLocalHints.option(),
 		timeoutParam(TimeoutDefault),
-		mcp.WithDescription("Retrieve captured network request/response logs from a browser session"),
+		mcp.WithDescription("Return the session's captured network requests and responses as a JSON array with method, URL, status, and resource type, optionally filtered by URL or status. "+
+			"Use it to debug failed or unexpected requests; get_console_logs covers script errors and log output. "+
+			"Only the most recent 100 requests are kept."),
 		mcp.WithString("sessionId",
 			mcp.Required(),
 			mcp.Description("Browser session ID to retrieve logs from"),

@@ -18,6 +18,16 @@ const targetParams = "selector, ref"
 // refParamDescription describes the ref argument of the interaction tools.
 const refParamDescription = "Element ref from get_accessibility_tree (or an action's includeSnapshot), such as e3 or f1e2. Use instead of selector"
 
+// targetDescription ends the description of each interaction tool that needs a
+// target element.
+const targetDescription = "Target the element with exactly one of selector or ref; a ref comes from get_accessibility_tree " +
+	"and fails at once with 'Stale element ref' once the page has changed."
+
+// selectorSyntaxDescription documents the selector syntax. Every selector
+// parameter goes through page.Locator, so they all share it.
+const selectorSyntaxDescription = `Playwright selector syntax: role=button[name="Save"] (recommended: matches by ARIA role and accessible name), ` +
+	`text=Sign in (visible text), CSS such as #email or .item, or XPath such as //h1`
+
 // elementTarget is the element an interaction tool acts on: a selector, or an
 // element ref from a snapshot.
 type elementTarget struct {
@@ -84,6 +94,27 @@ func (t elementTarget) locate(page playwright.Page) (playwright.Locator, error) 
 		return nil, errors.NewStaleRefError(t.Ref)
 	}
 	return loc, nil
+}
+
+// firstMatch returns a handle to the first element selector matches, using the
+// same selector syntax as the interaction tools. A selector that matches nothing
+// fails at once with [-32002], instead of waiting out timeout as a locator would;
+// timeout bounds only the wait for an element that disappears after it is
+// counted. The caller disposes of the handle.
+func firstMatch(page playwright.Page, selector string, timeout *float64) (playwright.ElementHandle, error) {
+	loc := page.Locator(selector)
+	count, err := loc.Count()
+	if err != nil {
+		return nil, errors.WrapElementNotFoundError("", 0, err)
+	}
+	if count == 0 {
+		return nil, errors.NewElementNotFoundError(selector, 0)
+	}
+	element, err := loc.First().ElementHandle(playwright.LocatorElementHandleOptions{Timeout: timeout})
+	if err != nil {
+		return nil, errors.WrapElementNotFoundError(selector, 0, err)
+	}
+	return element, nil
 }
 
 // targetFromArgs reads the target of an interaction tool call, as resolveTarget

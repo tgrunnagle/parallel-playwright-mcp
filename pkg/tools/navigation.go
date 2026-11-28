@@ -20,7 +20,9 @@ func NavigateTool() mcp.Tool {
 	return mcp.NewTool("navigate",
 		pageChangeHints.option(),
 		timeoutParam(TimeoutNavigation),
-		mcp.WithDescription("Navigate to a URL in the browser session"),
+		mcp.WithDescription("Load a URL in the session's active page and return a state summary of the page after it loads, including the HTTP status. "+
+			"Use go_back, go_forward, or reload to move through history instead, or navigate_and_extract_text for a one-off read with no session. "+
+			"Set includeSnapshot to get element refs for the next action without another call."),
 		mcp.WithString("sessionId",
 			mcp.Required(),
 			mcp.Description("Browser session ID"),
@@ -113,7 +115,9 @@ func GoBackTool() mcp.Tool {
 	return mcp.NewTool("go_back",
 		pageChangeHints.option(),
 		timeoutParam(TimeoutNavigation),
-		mcp.WithDescription("Go back to the previous page in browser history"),
+		mcp.WithDescription("Go back one page in the session's history and return a state summary of the page reached. "+
+			"Use navigate to load a specific URL instead, and go_forward to undo. "+
+			"With no previous page it reports 'No previous page in history' and leaves the page as it is."),
 		mcp.WithString("sessionId",
 			mcp.Required(),
 			mcp.Description("Browser session ID"),
@@ -199,7 +203,9 @@ func GoForwardTool() mcp.Tool {
 	return mcp.NewTool("go_forward",
 		pageChangeHints.option(),
 		timeoutParam(TimeoutNavigation),
-		mcp.WithDescription("Go forward to the next page in browser history"),
+		mcp.WithDescription("Go forward one page in the session's history and return a state summary of the page reached. "+
+			"Use go_back to undo, or navigate to load a specific URL. "+
+			"With no next page it reports 'No forward page in history' and leaves the page as it is."),
 		mcp.WithString("sessionId",
 			mcp.Required(),
 			mcp.Description("Browser session ID"),
@@ -285,7 +291,9 @@ func ReloadTool() mcp.Tool {
 	return mcp.NewTool("reload",
 		pageChangeHints.option(),
 		timeoutParam(TimeoutNavigation),
-		mcp.WithDescription("Reload the current page in the browser session"),
+		mcp.WithDescription("Reload the session's current page and return a state summary after it loads. "+
+			"Use it to pick up content that changed on the server; use navigate to load a different URL. "+
+			"Unsaved form input on the page is lost."),
 		mcp.WithString("sessionId",
 			mcp.Required(),
 			mcp.Description("Browser session ID"),

@@ -27,6 +27,8 @@ type mockLocator struct {
 	evaluateFunc          func(expression string, arg any) (any, error)
 	evaluateAllFunc       func(expression string, arg ...any) (any, error)
 	ariaSnapshotFunc      func(opts playwright.LocatorAriaSnapshotOptions) (string, error)
+	elementHandleFunc     func() (playwright.ElementHandle, error)
+	elementHandlesFunc    func() ([]playwright.ElementHandle, error)
 }
 
 func (m *mockLocator) Click(opts ...playwright.LocatorClickOptions) error {
@@ -135,10 +137,18 @@ func (m *mockLocator) DragTo(target playwright.Locator, options ...playwright.Lo
 	return nil
 }
 func (m *mockLocator) ElementHandle(options ...playwright.LocatorElementHandleOptions) (playwright.ElementHandle, error) {
+	if m.elementHandleFunc != nil {
+		return m.elementHandleFunc()
+	}
 	return nil, nil
 }
-func (m *mockLocator) ElementHandles() ([]playwright.ElementHandle, error) { return nil, nil }
-func (m *mockLocator) ContentFrame() playwright.FrameLocator               { return nil }
+func (m *mockLocator) ElementHandles() ([]playwright.ElementHandle, error) {
+	if m.elementHandlesFunc != nil {
+		return m.elementHandlesFunc()
+	}
+	return nil, nil
+}
+func (m *mockLocator) ContentFrame() playwright.FrameLocator { return nil }
 func (m *mockLocator) Evaluate(expression string, arg interface{}, options ...playwright.LocatorEvaluateOptions) (interface{}, error) {
 	if m.evaluateFunc != nil {
 		return m.evaluateFunc(expression, arg)

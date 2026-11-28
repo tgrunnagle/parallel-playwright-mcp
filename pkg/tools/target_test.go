@@ -265,3 +265,47 @@ func TestInteractionHandlersAcceptRef(t *testing.T) {
 		}
 	}
 }
+
+func TestFirstMatch(t *testing.T) {
+	pageWith := func(loc *mockLocator) playwright.Page {
+		return &mockInteractionPage{locatorFunc: func(string, ...playwright.PageLocatorOptions) playwright.Locator { return loc }}
+	}
+	errText := func(err error) string { return extractTextContent(errorResult(err).Content) }
+
+	t.Run("no match fails at once without waiting for an element", func(t *testing.T) {
+		waited := false
+		page := pageWith(&mockLocator{
+			countFunc: func() (int, error) { return 0, nil },
+			elementHandleFunc: func() (playwright.ElementHandle, error) {
+				waited = true
+				return nil, nil
+			},
+		})
+		_, err := firstMatch(page, "role=main", nil)
+		if err == nil || !strings.HasPrefix(errText(err), "[-32002]") {
+			t.Fatalf("err = %v, want [-32002]", err)
+		}
+		if waited {
+			t.Error("firstMatch waited for an element after a zero count")
+		}
+	})
+
+	t.Run("count failure is element not found", func(t *testing.T) {
+		page := pageWith(&mockLocator{countFunc: func() (int, error) { return 0, errors.New("bad selector") }})
+		if _, err := firstMatch(page, "!!", nil); err == nil || !strings.HasPrefix(errText(err), "[-32002]") {
+			t.Fatalf("err = %v, want [-32002]", err)
+		}
+	})
+
+	t.Run("match returns the first element", func(t *testing.T) {
+		want := &mockElementHandle{}
+		page := pageWith(&mockLocator{
+			countFunc:         func() (int, error) { return 2, nil },
+			elementHandleFunc: func() (playwright.ElementHandle, error) { return want, nil },
+		})
+		got, err := firstMatch(page, "text=Save", nil)
+		if err != nil || got != want {
+			t.Fatalf("firstMatch = %v, %v; want the first element", got, err)
+		}
+	})
+}
