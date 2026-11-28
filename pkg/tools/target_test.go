@@ -297,6 +297,19 @@ func TestFirstMatch(t *testing.T) {
 		}
 	})
 
+	t.Run("element gone before its handle times out", func(t *testing.T) {
+		page := pageWith(&mockLocator{
+			countFunc: func() (int, error) { return 1, nil },
+			elementHandleFunc: func() (playwright.ElementHandle, error) {
+				return nil, errors.New("Timeout 5000ms exceeded")
+			},
+		})
+		timeout := float64(5000)
+		if _, err := firstMatch(page, "text=Save", &timeout); err == nil || !strings.HasPrefix(errText(err), "[-32003]") {
+			t.Fatalf("err = %v, want [-32003]", err)
+		}
+	})
+
 	t.Run("match returns the first element", func(t *testing.T) {
 		want := &mockElementHandle{}
 		page := pageWith(&mockLocator{

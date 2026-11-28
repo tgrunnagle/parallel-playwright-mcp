@@ -100,7 +100,8 @@ func (t elementTarget) locate(page playwright.Page) (playwright.Locator, error) 
 // same selector syntax as the interaction tools. A selector that matches nothing
 // fails at once with [-32002], instead of waiting out timeout as a locator would;
 // timeout bounds only the wait for an element that disappears after it is
-// counted. The caller disposes of the handle.
+// counted, and running out of it returns [-32003]. The caller disposes of the
+// handle.
 func firstMatch(page playwright.Page, selector string, timeout *float64) (playwright.ElementHandle, error) {
 	loc := page.Locator(selector)
 	count, err := loc.Count()
@@ -112,6 +113,13 @@ func firstMatch(page playwright.Page, selector string, timeout *float64) (playwr
 	}
 	element, err := loc.First().ElementHandle(playwright.LocatorElementHandleOptions{Timeout: timeout})
 	if err != nil {
+		if isTimeoutError(err) {
+			ms := 0
+			if timeout != nil {
+				ms = int(*timeout)
+			}
+			return nil, errors.WrapTimeoutError("waiting for "+selector, ms, err)
+		}
 		return nil, errors.WrapElementNotFoundError(selector, 0, err)
 	}
 	return element, nil
