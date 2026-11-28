@@ -82,6 +82,8 @@ func ClickHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfi
 			return noActivePageResult(), nil
 		}
 
+		rec := startAction(sess, page, "click", target.Label, timeoutConfig)
+
 		locator, locErr := target.locate(page)
 		if locErr != nil {
 			slog.Error("element target did not resolve", "sessionID", sessionID, "target", selector, "error", locErr)
@@ -103,7 +105,7 @@ func ClickHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfi
 		}
 
 		slog.Debug("element clicked", "tool", "click", "sessionID", sessionID, "selector", selector)
-		return mcp.NewToolResultText(fmt.Sprintf("Clicked element: %s", selector)), nil
+		return rec.finish(ctx, fmt.Sprintf("Clicked element: %s", selector)), nil
 	}
 }
 
@@ -180,6 +182,8 @@ func TypeHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig
 			return noActivePageResult(), nil
 		}
 
+		rec := startAction(sess, page, "type", target.Label, timeoutConfig)
+
 		locator, locErr := target.locate(page)
 		if locErr != nil {
 			slog.Error("element target did not resolve", "sessionID", sessionID, "target", selector, "error", locErr)
@@ -196,7 +200,7 @@ func TypeHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig
 		}
 
 		slog.Debug("typed into element", "tool", "type", "sessionID", sessionID, "selector", selector)
-		return mcp.NewToolResultText(fmt.Sprintf("Typed text into element: %s", selector)), nil
+		return rec.finish(ctx, fmt.Sprintf("Typed text into element: %s", selector)), nil
 	}
 }
 
@@ -267,6 +271,8 @@ func FillHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig
 			return noActivePageResult(), nil
 		}
 
+		rec := startAction(sess, page, "fill", target.Label, timeoutConfig)
+
 		locator, locErr := target.locate(page)
 		if locErr != nil {
 			slog.Error("element target did not resolve", "sessionID", sessionID, "target", selector, "error", locErr)
@@ -283,7 +289,7 @@ func FillHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig
 		}
 
 		slog.Debug("element filled", "tool", "fill", "sessionID", sessionID, "selector", selector)
-		return mcp.NewToolResultText(fmt.Sprintf("Filled element: %s", selector)), nil
+		return rec.finish(ctx, fmt.Sprintf("Filled element: %s", selector)), nil
 	}
 }
 
@@ -363,6 +369,8 @@ func SelectOptionHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeo
 			return noActivePageResult(), nil
 		}
 
+		rec := startAction(sess, page, "select_option", target.Label, timeoutConfig)
+
 		locator, locErr := target.locate(page)
 		if locErr != nil {
 			slog.Error("element target did not resolve", "sessionID", sessionID, "target", selector, "error", locErr)
@@ -400,9 +408,9 @@ func SelectOptionHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeo
 		}
 
 		if len(selectedValues) == 0 {
-			return mcp.NewToolResultText(fmt.Sprintf("Selected option by %s in: %s (no value returned)", selectBy, selector)), nil
+			return rec.finish(ctx, fmt.Sprintf("Selected option by %s in: %s (no value returned)", selectBy, selector)), nil
 		}
-		return mcp.NewToolResultText(fmt.Sprintf("Selected option '%s' by %s in: %s", selectedValues[0], selectBy, selector)), nil
+		return rec.finish(ctx, fmt.Sprintf("Selected option '%s' by %s in: %s", selectedValues[0], selectBy, selector)), nil
 	}
 }
 
@@ -466,6 +474,8 @@ func HoverHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfi
 			return noActivePageResult(), nil
 		}
 
+		rec := startAction(sess, page, "hover", target.Label, timeoutConfig)
+
 		locator, locErr := target.locate(page)
 		if locErr != nil {
 			slog.Error("element target did not resolve", "sessionID", sessionID, "target", selector, "error", locErr)
@@ -482,7 +492,7 @@ func HoverHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfi
 		}
 
 		slog.Debug("hovered over element", "tool", "hover", "sessionID", sessionID, "selector", selector)
-		return mcp.NewToolResultText(fmt.Sprintf("Hovered over element: %s", selector)), nil
+		return rec.finish(ctx, fmt.Sprintf("Hovered over element: %s", selector)), nil
 	}
 }
 
@@ -566,6 +576,8 @@ func PressKeyHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 			return noActivePageResult(), nil
 		}
 
+		rec := startAction(sess, page, "press_key", target.Label, timeoutConfig)
+
 		// If a target is provided, use locator.Press, otherwise use page.Keyboard.Press
 		if !target.isZero() {
 			locator, locErr := target.locate(page)
@@ -583,7 +595,7 @@ func PressKeyHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 			}
 
 			slog.Debug("key pressed on element", "tool", "press_key", "sessionID", sessionID, "key", keyWithModifiers, "selector", selector)
-			return mcp.NewToolResultText(fmt.Sprintf("Pressed key '%s' on element: %s", keyWithModifiers, selector)), nil
+			return rec.finish(ctx, fmt.Sprintf("Pressed key '%s' on element: %s", keyWithModifiers, selector)), nil
 		}
 
 		// Press key without focusing specific element
@@ -596,7 +608,7 @@ func PressKeyHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 		}
 
 		slog.Debug("key pressed on page", "tool", "press_key", "sessionID", sessionID, "key", keyWithModifiers)
-		return mcp.NewToolResultText(fmt.Sprintf("Pressed key '%s'", keyWithModifiers)), nil
+		return rec.finish(ctx, fmt.Sprintf("Pressed key '%s'", keyWithModifiers)), nil
 	}
 }
 

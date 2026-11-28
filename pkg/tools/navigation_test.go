@@ -19,6 +19,18 @@ type mockPage struct {
 	goForwardFunc func(opts playwright.PageGoForwardOptions) (playwright.Response, error)
 	reloadFunc    func(opts playwright.PageReloadOptions) (playwright.Response, error)
 	urlFunc       func() string
+	titleFunc     func() (string, error)
+}
+
+func (m *mockPage) Title() (string, error) {
+	if m.titleFunc != nil {
+		return m.titleFunc()
+	}
+	return "Example", nil
+}
+
+func (m *mockPage) WaitForLoadState(...playwright.PageWaitForLoadStateOptions) error {
+	return nil
 }
 
 func (m *mockPage) Goto(url string, opts ...playwright.PageGotoOptions) (playwright.Response, error) {
@@ -75,7 +87,15 @@ func (m *mockPage) URL() string {
 // mockResponse is a mock implementation of playwright.Response for testing.
 type mockResponse struct {
 	playwright.Response
-	urlFunc func() string
+	urlFunc    func() string
+	statusFunc func() int
+}
+
+func (m *mockResponse) Status() int {
+	if m.statusFunc != nil {
+		return m.statusFunc()
+	}
+	return 200
 }
 
 func (m *mockResponse) URL() string {

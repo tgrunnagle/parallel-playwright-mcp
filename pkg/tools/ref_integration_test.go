@@ -4,10 +4,12 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -37,8 +39,8 @@ func refTestPages(t *testing.T) *httptest.Server {
 	page("/three", "Three", `<button>Alpha</button><button>Beta</button><button>Gamma</button>`)
 	page("/page1", "Page One", `<a href="/page2">Next</a>`)
 	page("/page2", "Page Two", `<h1>Second page</h1>`)
-	page("/errors", "Errors", `<button onclick="console.error('boom from click'); fetch('/fail').catch(() => {});">Break</button>
-		<button onclick="this.textContent='Calm clicked'">Calm</button>`)
+	// Break misbehaves on its first click only, so a second click has nothing new.
+	page("/errors", "Errors", `<button onclick="if (!this.dataset.done) { this.dataset.done = '1'; console.error('boom from click'); fetch('/fail?token=secret').catch(() => {}); }">Break</button>`)
 	mux.HandleFunc("/fail", func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "nope", http.StatusInternalServerError)
 	})
@@ -225,4 +227,79 @@ func TestStaleRefIntegration(t *testing.T) {
 	if elapsed > time.Second {
 		t.Errorf("Expected the stale ref to fail within 1s, took %v", elapsed)
 	}
+}
+
+// summaryOf parses the state summary from an action result's text: the line after
+// the action line.
+func summaryOf(t *testing.T, result *mcp.CallToolResult) stateSummary {
+	t.Helper()
+	text := extractTextContent(result.Content)
+	_, rest, ok := strings.Cut(text, "\n")
+	if !ok {
+		t.Fatalf("Expected a state summary after the action line, got %q", text)
+	}
+	var summary stateSummary
+	if err := json.Unmarshal([]byte(rest), &summary); err != nil {
+		t.Fatalf("State summary is not JSON: %v\n%s", err, rest)
+	}
+	return summary
+}
+
+func TestActionStateSummaryIntegration(t *testing.T) {
+	h := newRefHarness(t)
+	ts := refTestPages(t)
+
+	t.Run("link click", func(t *testing.T) {
+		h.mustCall("navigate", map[string]any{"url": ts.URL + "/page1"})
+		result := h.mustCall("click", map[string]any{"selector": "a"})
+
+		summary := summaryOf(t, result)
+		if !summary.Navigated {
+			t.Errorf("Expected navigated: true, got %+v", summary)
+		}
+		if summary.URL != ts.URL+"/page2" {
+			t.Errorf("URL = %q, want %q", summary.URL, ts.URL+"/page2")
+		}
+		if summary.Title == nil || *summary.Title != "Page Two" {
+			t.Errorf("Title = %v, want Page Two", summary.Title)
+		}
+		if summary.HTTPStatus != nil {
+			t.Errorf("Expected no httpStatus on click, got %d", *summary.HTTPStatus)
+		}
+	})
+
+	t.Run("redirecting handler", func(t *testing.T) {
+		result := h.mustCall("navigate", map[string]any{"url": ts.URL + "/redirect"})
+
+		summary := summaryOf(t, result)
+		if want := ts.URL + "/page2?from=redirect"; summary.URL != want {
+			t.Errorf("URL = %q, want the final URL %q", summary.URL, want)
+		}
+		if summary.HTTPStatus == nil || *summary.HTTPStatus != 200 {
+			t.Errorf("httpStatus = %v, want 200", summary.HTTPStatus)
+		}
+		if !summary.Navigated || summary.Action != "navigate" {
+			t.Errorf("Unexpected summary: %+v", summary)
+		}
+	})
+
+	t.Run("error-emitting button clicked twice", func(t *testing.T) {
+		h.mustCall("navigate", map[string]any{"url": ts.URL + "/errors"})
+
+		first := summaryOf(t, h.mustCall("click", map[string]any{"selector": "button"}))
+		// Chromium also logs its own "Failed to load resource" error for the 500.
+		if !slices.ContainsFunc(first.NewConsoleErrors, func(e string) bool { return strings.Contains(e, "boom from click") }) {
+			t.Errorf("Expected the page's console error, got %v", first.NewConsoleErrors)
+		}
+		wantFailed := "GET " + ts.URL + "/fail 500"
+		if len(first.FailedRequests) != 1 || first.FailedRequests[0] != wantFailed {
+			t.Errorf("Expected failed request %q, got %v", wantFailed, first.FailedRequests)
+		}
+
+		second := summaryOf(t, h.mustCall("click", map[string]any{"selector": "button"}))
+		if len(second.NewConsoleErrors) != 0 || len(second.FailedRequests) != 0 {
+			t.Errorf("Expected nothing new on the second click, got errors %v and requests %v",
+				second.NewConsoleErrors, second.FailedRequests)
+		}
+	})
 }

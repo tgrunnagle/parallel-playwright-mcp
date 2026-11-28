@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -245,6 +246,26 @@ type mockInteractionPage struct {
 	playwright.Page
 	locatorFunc  func(selector string, opts ...playwright.PageLocatorOptions) playwright.Locator
 	keyboardFunc func() playwright.Keyboard
+	urlFunc      func() string
+	titleFunc    func() (string, error)
+}
+
+func (m *mockInteractionPage) URL() string {
+	if m.urlFunc != nil {
+		return m.urlFunc()
+	}
+	return "https://example.com/"
+}
+
+func (m *mockInteractionPage) Title() (string, error) {
+	if m.titleFunc != nil {
+		return m.titleFunc()
+	}
+	return "Example", nil
+}
+
+func (m *mockInteractionPage) WaitForLoadState(...playwright.PageWaitForLoadStateOptions) error {
+	return nil
 }
 
 func (m *mockInteractionPage) Locator(selector string, opts ...playwright.PageLocatorOptions) playwright.Locator {
@@ -879,6 +900,45 @@ func TestClickHandler(t *testing.T) {
 			}
 		})
 	}
+
+	// clickResult runs a successful click on #button with extra arguments.
+	clickResult := func(t *testing.T, extra map[string]any) *mcp.CallToolResult {
+		t.Helper()
+		page := &mockInteractionPage{
+			locatorFunc: func(string, ...playwright.PageLocatorOptions) playwright.Locator {
+				return &mockLocator{clickFunc: func(playwright.LocatorClickOptions) error { return nil }}
+			},
+		}
+		sess := createInteractionSessionWithMockPage(page)
+		sess.ConsoleLogs = session.NewConsoleLogBuffer(0)
+		mgr := &mockSessionManager{getSessionFunc: func(string, string) (*session.BrowserSession, bool) { return sess, true }}
+		args := map[string]any{"sessionId": "sess-123", "selector": "#button"}
+		for k, v := range extra {
+			args[k] = v
+		}
+		result, err := ClickHandler(mgr, DefaultTimeoutConfig())(context.Background(), mcp.CallToolRequest{
+			Params: mcp.CallToolParams{Name: "click", Arguments: args},
+		})
+		if err != nil || result.IsError {
+			t.Fatalf("click failed: %v %s", err, extractTextContent(result.Content))
+		}
+		return result
+	}
+
+	t.Run("text begins with the action line and carries the summary", func(t *testing.T) {
+		text := extractTextContent(clickResult(t, nil).Content)
+		line, summaryJSON, ok := strings.Cut(text, "\n")
+		if !ok || line != "Clicked element: #button" {
+			t.Fatalf("Expected 'Clicked element: #button' then a newline, got %q", text)
+		}
+		var summary stateSummary
+		if err := json.Unmarshal([]byte(summaryJSON), &summary); err != nil {
+			t.Fatalf("Expected summary JSON after the line: %v\n%s", err, summaryJSON)
+		}
+		if summary.Action != "click" || summary.Target != "#button" || summary.URL != "https://example.com/" {
+			t.Errorf("Unexpected summary: %+v", summary)
+		}
+	})
 }
 
 // TestTypeHandler tests the type handler.
