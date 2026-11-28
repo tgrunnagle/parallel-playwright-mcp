@@ -94,6 +94,10 @@ func startTestHTTPServer(t *testing.T) *httptest.Server {
 				<input id="pass-quoted" type="password" aria-label="Passphrase: 8+ chars" />
 				<input id="pass-covered" type="password" aria-label="Covered" style="pointer-events:none" />
 				<input id="pass-tiny" type="password" aria-label="Tiny" style="width:0;height:0;padding:0;border:0" />
+				<input id="pass-searchbox" type="password" role="searchbox" aria-label="Search key" />
+				<input id="pass-combobox" type="password" role="combobox" aria-label="Combo key" />
+				<input id="pass-regex" type="password" aria-label="/pw/" />
+				<iframe srcdoc="<input id='pass-frame' type='password' aria-label='Frame key' value='frame-secret'>"></iframe>
 			</form>
 		</body></html>`)
 	})
@@ -3694,6 +3698,9 @@ func TestAccessibilityTreeSemanticRolesIntegration(t *testing.T) {
 		if _, err := page.Evaluate(`() => {
 			document.querySelector('#pass-covered').value = 'covered-secret';
 			document.querySelector('#pass-tiny').value = 'tiny-secret';
+			document.querySelector('#pass-searchbox').value = 'searchbox-secret';
+			document.querySelector('#pass-combobox').value = 'combobox-secret';
+			document.querySelector('#pass-regex').value = 'regex-secret';
 		}`); err != nil {
 			t.Fatalf("setting values failed: %v", err)
 		}
@@ -3705,7 +3712,7 @@ func TestAccessibilityTreeSemanticRolesIntegration(t *testing.T) {
 		if !strings.Contains(text, "/placeholder: Enter your PIN") || !strings.Contains(text, "- text: •••") {
 			t.Errorf("Expected the block-form password value as •••:\n%s", text)
 		}
-		for _, part := range []string{secret, "hunter2", "correct horse", "placeholder-secret", "quoted: secret", "covered-secret", "tiny-secret"} {
+		for _, part := range []string{secret, "hunter2", "correct horse", "placeholder-secret", "quoted: secret", "covered-secret", "tiny-secret", "searchbox-secret", "combobox-secret", "regex-secret", "frame-secret"} {
 			if strings.Contains(text, part) {
 				t.Errorf("Password value %q leaked into snapshot:\n%s", part, text)
 			}

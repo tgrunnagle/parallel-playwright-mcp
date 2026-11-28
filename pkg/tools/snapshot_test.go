@@ -21,7 +21,29 @@ type mockSnapshotPage struct {
 	lastOpts    playwright.PageAriaSnapshotOptions
 	locators    map[string]*mockLocator
 	located     []string
+	frames      []playwright.Frame
 }
+
+func (m *mockSnapshotPage) Frames() []playwright.Frame { return m.frames }
+
+// mockFrame is a frame whose password inputs hold values, or whose read fails.
+type mockFrame struct {
+	playwright.Frame
+	values   []any
+	err      error
+	detached bool
+}
+
+func (f *mockFrame) Locator(string, ...playwright.FrameLocatorOptions) playwright.Locator {
+	return &mockLocator{evaluateAllFunc: func(expression string, _ ...any) (any, error) {
+		if expression != passwordValuesJS {
+			return nil, errors.New("unexpected expression")
+		}
+		return f.values, f.err
+	}}
+}
+
+func (f *mockFrame) IsDetached() bool { return f.detached }
 
 func (m *mockSnapshotPage) AriaSnapshot(opts ...playwright.PageAriaSnapshotOptions) (string, error) {
 	if len(opts) > 0 {
@@ -46,6 +68,9 @@ func passwordLocator(isPassword bool) *mockLocator {
 // one is a countFunc for a locator that matches one element.
 func one() (int, error) { return 1, nil }
 
+// zero is a countFunc for a locator that matches nothing.
+func zero() (int, error) { return 0, nil }
+
 func TestParseTextboxLine(t *testing.T) {
 	tests := []struct {
 		line      string
@@ -68,7 +93,11 @@ func TestParseTextboxLine(t *testing.T) {
 		{`- textboxy "x" [ref=e1]: v`, "", "", false},
 		{`- textbox "unterminated [ref=e1]: v`, "", "", false},
 		{`- 'textbox "unterminated [ref=e1]: v`, "", "", false},
+		{`- textbox /unterminated [ref=e1]: v`, "", "", false},
 		{`- textbox "No ref": v`, "", "v", true},
+		{`- textbox /pw/ [ref=e3]: secret`, "e3", "secret", true},
+		{`- textbox /a/b [x]/ [ref=e4]:`, "e4", "", true},
+		{`- 'textbox /pw: x/ [ref=e5]': v`, "e5", "v", true},
 		{`  - textbox "No ref block":`, "", "", true},
 		{`- text: hunter2`, "", "", false},
 	}
@@ -121,6 +150,13 @@ func TestRedactPasswords(t *testing.T) {
 		`  - textbox "Covered block":`,
 		`    - /placeholder: hidden`,
 		`    - text: zero-size-secret`,
+		`  - textbox "Count fails" [ref=e14]: count-secret`,
+		`  - textbox "Not bool" [ref=e15]: not-bool-secret`,
+		`  - textbox "Old ref" [ref=s1e3]: old-ref-secret`,
+		`  - textbox /pw/ [ref=e16]: regex-secret`,
+		`  - textbox "unterminated [ref=e17]: unparsed-secret`,
+		`  - 'textbox "unterminated: x [ref=e18]':`,
+		`    - text: unparsed-block-secret`,
 	}, "\n")
 	page := &mockSnapshotPage{locators: map[string]*mockLocator{
 		"aria-ref=e3":  passwordLocator(false),
@@ -130,11 +166,14 @@ func TestRedactPasswords(t *testing.T) {
 		"aria-ref=e8":  passwordLocator(true),
 		"aria-ref=e9":  passwordLocator(true),
 		"aria-ref=e10": passwordLocator(false),
-		// e11 is absent: the locator counts 0 matches.
+		"aria-ref=e11": {countFunc: zero},
 		"aria-ref=e12": passwordLocator(true),
+		"aria-ref=e14": {countFunc: func() (int, error) { return 0, errors.New("target closed") }},
+		"aria-ref=e15": {countFunc: one, evaluateFunc: func(string, any) (any, error) { return "password", nil }},
+		"aria-ref=e16": passwordLocator(true),
 	}}
 
-	got := redactPasswords(page, snapshot)
+	got := redactPasswords(page, snapshot, nil)
 
 	want := strings.Join([]string{
 		`- generic [ref=e1]:`,
@@ -160,21 +199,97 @@ func TestRedactPasswords(t *testing.T) {
 		`  - textbox "Covered block":`,
 		`    - /placeholder: hidden`,
 		`    - text: •••`,
+		`  - textbox "Count fails" [ref=e14]: •••`,
+		`  - textbox "Not bool" [ref=e15]: •••`,
+		`  - textbox "Old ref" [ref=s1e3]: •••`,
+		`  - textbox /pw/ [ref=e16]: •••`,
+		`  - textbox "unterminated [ref=e17]: •••`,
+		`  - 'textbox "unterminated: x [ref=e18]':`,
+		`    - text: •••`,
 	}, "\n")
 	if got != want {
 		t.Errorf("redactPasswords() =\n%s\nwant\n%s", got, want)
 	}
-	for _, secret := range []string{"s3cret", "maybe-secret", "vanished-secret", "hunter2", "colon: secret", "1234", "overlay-secret", "zero-size-secret"} {
+	for _, secret := range []string{"s3cret", "maybe-secret", "vanished-secret", "hunter2", "colon: secret", "1234", "overlay-secret", "zero-size-secret",
+		"count-secret", "not-bool-secret", "old-ref-secret", "regex-secret", "unparsed-secret", "unparsed-block-secret"} {
 		if strings.Contains(got, secret) {
 			t.Errorf("password value %q leaked into the snapshot", secret)
 		}
 	}
-	// A block textbox with only property lines has no value and is not resolved.
+	// A block textbox with only property lines has no value and is not resolved,
+	// and a ref in another driver's format is never looked up.
 	for _, sel := range page.located {
-		if sel == "aria-ref=e12" {
-			t.Error("resolved a textbox without a value")
+		if sel == "aria-ref=e12" || sel == "aria-ref=s1e3" {
+			t.Errorf("resolved %s", sel)
 		}
 	}
+}
+
+func TestScrubValues(t *testing.T) {
+	tests := []struct {
+		name      string
+		passwords []string
+		line      string
+		want      string
+	}{
+		{"explicit role", []string{"hunter2"}, `  - searchbox "Pw" [ref=e3]: hunter2`, `  - searchbox "Pw" [ref=e3]: •••`},
+		{"combobox", []string{"hunter2"}, `- combobox "Pw" [ref=e3]: hunter2`, `- combobox "Pw" [ref=e3]: •••`},
+		{"block text", []string{"hunter2"}, `    - text: hunter2`, `    - text: •••`},
+		{"merged into text", []string{"hunter2"}, `- paragraph [ref=e2]: Key hunter2 end`, `- paragraph [ref=e2]: Key ••• end`},
+		{"in a name", []string{"hunter 2"}, `- button "Show hunter 2" [ref=e4]`, `- button "Show •••" [ref=e4]`},
+		{"collapsed whitespace", []string{"a  b\tc"}, `- button "x a b c" [ref=e4]`, `- button "x •••" [ref=e4]`},
+		{"quoted value", []string{`say "hi": now`}, `- searchbox [ref=e3]: "say \"hi\": now"`, `- searchbox [ref=e3]: "•••"`},
+		{"control character", []string{"a\x01b"}, `- searchbox [ref=e3]: "a\x01b"`, `- searchbox [ref=e3]: "•••"`},
+		{"quoted key", []string{"it's: x"}, `- 'button "it''s: x" [ref=e4]'`, `- 'button "•••" [ref=e4]'`},
+		{"short password keeps ref and marker", []string{"e"}, `  - generic "e-mail" [ref=e3]: e`, `  - g•••n•••ric "•••-mail" [ref=e3]: •••`},
+		{"longest form first", []string{"ab", "abc"}, `- text: abcd`, `- text: •••d`},
+		{"no passwords", nil, `- searchbox [ref=e3]: hunter2`, `- searchbox [ref=e3]: hunter2`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lines := []string{tt.line}
+			scrubValues(lines, tt.passwords)
+			if lines[0] != tt.want {
+				t.Errorf("scrubValues(%q) = %q, want %q", tt.line, lines[0], tt.want)
+			}
+		})
+	}
+}
+
+func TestPasswordValues(t *testing.T) {
+	t.Run("reads every frame and skips blank values", func(t *testing.T) {
+		page := &mockSnapshotPage{frames: []playwright.Frame{
+			&mockFrame{values: []any{"main-secret", "   "}},
+			&mockFrame{values: []any{"frame-secret"}},
+			&mockFrame{err: errors.New("frame was detached"), detached: true},
+		}}
+		got, err := passwordValues(page)
+		if err != nil || strings.Join(got, ",") != "main-secret,frame-secret" {
+			t.Errorf("passwordValues() = %q, %v", got, err)
+		}
+	})
+
+	t.Run("a failed read withholds the snapshot", func(t *testing.T) {
+		page := &mockSnapshotPage{
+			snapshot: `- searchbox [ref=e3]: hunter2`,
+			frames:   []playwright.Frame{&mockFrame{err: errors.New("execution context was destroyed")}},
+		}
+		got, err := takeSnapshot(page, "", 0, nil)
+		if err == nil || got != "" {
+			t.Errorf("takeSnapshot() = %q, %v, want an error", got, err)
+		}
+	})
+
+	t.Run("takeSnapshot scrubs a role-overridden password", func(t *testing.T) {
+		page := &mockSnapshotPage{
+			snapshot: `- searchbox "Pw" [ref=e3]: hunter2`,
+			frames:   []playwright.Frame{&mockFrame{values: []any{"hunter2"}}},
+		}
+		got, err := takeSnapshot(page, "", 0, nil)
+		if err != nil || got != `- searchbox "Pw" [ref=e3]: •••` {
+			t.Errorf("takeSnapshot() = %q, %v", got, err)
+		}
+	})
 }
 
 func TestTakeSnapshotScopedSelector(t *testing.T) {

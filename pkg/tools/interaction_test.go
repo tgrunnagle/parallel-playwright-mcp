@@ -263,6 +263,9 @@ func (m *mockInteractionPage) AriaSnapshot(opts ...playwright.PageAriaSnapshotOp
 	return `- button "Go" [ref=e2]`, nil
 }
 
+// Frames returns no frames, so no password values are read for a snapshot.
+func (m *mockInteractionPage) Frames() []playwright.Frame { return nil }
+
 func (m *mockInteractionPage) URL() string {
 	if m.urlFunc != nil {
 		return m.urlFunc()
