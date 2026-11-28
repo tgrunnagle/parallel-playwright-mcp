@@ -3,7 +3,10 @@
 // codes for session, element, timeout, and navigation failures.
 package errors
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Standard JSON-RPC 2.0 error codes (for reference).
 const (
@@ -86,18 +89,39 @@ func WrapSessionNotFoundError(sessionID string, err error) *SessionNotFoundError
 	return &SessionNotFoundError{SessionID: sessionID, Err: err}
 }
 
-// ElementNotFoundError indicates a selector did not match any elements.
+// ElementNotFoundError indicates a selector or element ref did not resolve to exactly
+// one element: it matched none, the ref is stale, or the selector matched several.
 type ElementNotFoundError struct {
 	// Selector is the CSS selector, XPath, or other selector that failed to match.
 	Selector string
 	// Timeout is the timeout in milliseconds that was used when waiting for the element.
 	Timeout int
+	// Message overrides the default "Element not found" message when set,
+	// for example "Stale element ref" or "Selector matched 3 elements".
+	Message string
+	// Reason describes why the target did not resolve, when known.
+	Reason string
+	// Suggestion overrides the default suggestion when set.
+	Suggestion string
 	// Err is the optional underlying error for error wrapping.
 	Err error
 }
 
 // Error implements the error interface.
 func (e *ElementNotFoundError) Error() string {
+	if e.Message != "" {
+		msg := strings.ToLower(e.Message[:1]) + e.Message[1:]
+		if e.Selector != "" {
+			msg += fmt.Sprintf(": selector %q", e.Selector)
+		}
+		if e.Reason != "" {
+			msg += ": " + e.Reason
+		}
+		if e.Err != nil {
+			msg += fmt.Sprintf(": %v", e.Err)
+		}
+		return msg
+	}
 	if e.Selector == "" {
 		if e.Err != nil {
 			return fmt.Sprintf("element not found: %v", e.Err)
@@ -124,10 +148,13 @@ func (e *ElementNotFoundError) ErrorCode() int {
 // ErrorData returns additional context for the error response.
 func (e *ElementNotFoundError) ErrorData() map[string]any {
 	data := map[string]any{
-		"suggestion": SuggestElementNotFound,
+		"suggestion": e.suggestion(),
 	}
 	if e.Selector != "" {
 		data["selector"] = e.Selector
+	}
+	if e.Reason != "" {
+		data["reason"] = e.Reason
 	}
 	if e.Timeout > 0 {
 		data["timeout"] = e.Timeout
@@ -138,6 +165,39 @@ func (e *ElementNotFoundError) ErrorData() map[string]any {
 // Unwrap returns the underlying error for error chain traversal.
 func (e *ElementNotFoundError) Unwrap() error {
 	return e.Err
+}
+
+// suggestion returns the override suggestion, or the default one.
+func (e *ElementNotFoundError) suggestion() string {
+	if e.Suggestion != "" {
+		return e.Suggestion
+	}
+	return SuggestElementNotFound
+}
+
+// NewStaleRefError creates the ElementNotFoundError returned when an element ref
+// from an earlier snapshot resolves to no element on the current page.
+func NewStaleRefError(ref string) *ElementNotFoundError {
+	return &ElementNotFoundError{
+		Message:    MsgStaleRef,
+		Reason:     fmt.Sprintf("ref %s is not on the current page", ref),
+		Suggestion: SuggestStaleRef,
+	}
+}
+
+// NewMultipleMatchError creates the ElementNotFoundError returned when a selector
+// matches more than one element. described lists the first matches, already formatted.
+func NewMultipleMatchError(selector string, count int, described []string, err error) *ElementNotFoundError {
+	e := &ElementNotFoundError{
+		Selector:   selector,
+		Message:    fmt.Sprintf("Selector matched %d elements", count),
+		Suggestion: SuggestMultipleMatch,
+		Err:        err,
+	}
+	if len(described) > 0 {
+		e.Reason = "first matches: " + strings.Join(described, "; ")
+	}
+	return e
 }
 
 // NewElementNotFoundError creates a new ElementNotFoundError with the given selector and timeout.
@@ -290,6 +350,61 @@ func WrapNavigationError(url, reason string, err error) *NavigationError {
 	return &NavigationError{URL: url, Reason: reason, Err: err}
 }
 
+// InteractionError indicates an element interaction failed for a reason other
+// than a missing element or a timeout.
+type InteractionError struct {
+	// Operation is the tool operation that failed (click, fill, ...).
+	Operation string
+	// Target is the selector or ref the operation acted on.
+	Target string
+	// Err is the optional underlying error for error wrapping.
+	Err error
+}
+
+// Error implements the error interface.
+func (e *InteractionError) Error() string {
+	msg := "interaction failed"
+	if e.Operation != "" {
+		msg = e.Operation + " failed"
+	}
+	if e.Target != "" {
+		msg += " on " + e.Target
+	}
+	if e.Err != nil {
+		msg += fmt.Sprintf(": %v", e.Err)
+	}
+	return msg
+}
+
+// ErrorCode returns the JSON-RPC error code for interaction errors.
+func (e *InteractionError) ErrorCode() int {
+	return CodeInteractionFailed
+}
+
+// ErrorData returns additional context for the error response.
+func (e *InteractionError) ErrorData() map[string]any {
+	data := map[string]any{
+		"suggestion": SuggestInteractionFailed,
+	}
+	if e.Operation != "" {
+		data["operation"] = e.Operation
+	}
+	if e.Target != "" {
+		data["selector"] = e.Target
+	}
+	return data
+}
+
+// Unwrap returns the underlying error for error chain traversal.
+func (e *InteractionError) Unwrap() error {
+	return e.Err
+}
+
+// WrapInteractionError creates an InteractionError that wraps an underlying error.
+func WrapInteractionError(operation, target string, err error) *InteractionError {
+	return &InteractionError{Operation: operation, Target: target, Err: err}
+}
+
 // InvalidParamsError indicates a tool argument failed validation.
 type InvalidParamsError struct {
 	// Param is the name of the invalid parameter.
@@ -337,4 +452,5 @@ var (
 	_ MCPError = (*ElementNotFoundError)(nil)
 	_ MCPError = (*TimeoutError)(nil)
 	_ MCPError = (*NavigationError)(nil)
+	_ MCPError = (*InteractionError)(nil)
 )

@@ -81,7 +81,7 @@ func GetNetworkLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *Tim
 		sessionID := req.GetString("sessionId", "")
 		if sessionID == "" {
 			slog.Error("missing required sessionId", "tool", "get_network_logs")
-			return mcp.NewToolResultError("sessionId is required"), nil
+			return requiredParamResult("sessionId"), nil
 		}
 
 		limit, offset, err := listPageParams(args)
@@ -93,7 +93,7 @@ func GetNetworkLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *Tim
 		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
 		if !ok {
 			slog.Error("session not found", "tool", "get_network_logs", "sessionID", sessionID)
-			return mcp.NewToolResultError(errors.FormatErrorForTool(errors.NewSessionNotFoundError(sessionID))), nil
+			return errorResult(errors.NewSessionNotFoundError(sessionID)), nil
 		}
 
 		// Retrieve all entries; Entries() returns chronological order (oldest first)
@@ -110,7 +110,7 @@ func GetNetworkLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *Tim
 			filtered, err := applyNetworkFilters(entries, filterVal)
 			if err != nil {
 				slog.Error("invalid network log filter", "tool", "get_network_logs", "sessionID", sessionID, "error", err)
-				return mcp.NewToolResultError(fmt.Sprintf("Invalid filter: %v", err)), nil
+				return paramErrorResult("filter", fmt.Sprintf("Invalid filter: %v", err)), nil
 			}
 			entries = filtered
 		}
@@ -134,7 +134,7 @@ func GetNetworkLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *Tim
 		result, err := paginateItems(output, offset, limit, responseConfig.budget(), true)
 		if err != nil {
 			slog.Error("failed to format network logs", "tool", "get_network_logs", "sessionID", sessionID, "error", err)
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to format logs: %v", err)), nil
+			return internalErrorResult("Failed to format logs: %v", err), nil
 		}
 
 		slog.Debug("network logs retrieved", "tool", "get_network_logs", "sessionID", sessionID, "matchingEntries", len(output))

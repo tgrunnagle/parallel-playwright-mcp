@@ -48,6 +48,7 @@ const (
 	msgElementNotFound  = "Element not found"
 	msgTimeout          = "Operation timed out"
 	msgNavigationFailed = "Navigation failed"
+	msgInteraction      = "Interaction failed"
 	msgInternalError    = "Internal server error"
 	msgParseError       = "Parse error"
 	msgInvalidRequest   = "Invalid request"
@@ -58,16 +59,23 @@ const (
 // Suggestion messages for each error type.
 // These are exported so they can be used consistently in ErrorData() methods.
 const (
-	SuggestSessionNotFound  = "Verify the session ID or create a new session with session_create"
-	SuggestElementNotFound  = "Verify the selector is correct, ensure the element exists, or increase timeout"
-	SuggestTimeout          = "Increase the timeout value or check if the page/element is responsive"
-	SuggestNavigationFailed = "Verify the URL is accessible and correctly formatted"
-	SuggestInternalError    = "An unexpected error occurred. Check server logs for details."
-	SuggestParseError       = "Check that the request body is valid JSON"
-	SuggestInvalidRequest   = "Verify the request follows JSON-RPC 2.0 format"
-	SuggestMethodNotFound   = "Check the method name is correct and the tool is registered"
-	SuggestInvalidParams    = "Verify all required parameters are provided with correct types"
+	SuggestSessionNotFound   = "Verify the session ID or create a new session with session_create"
+	SuggestElementNotFound   = "Verify the selector is correct, ensure the element exists, or increase timeout"
+	SuggestTimeout           = "Increase the timeout value or check if the page/element is responsive"
+	SuggestNavigationFailed  = "Verify the URL is accessible and correctly formatted"
+	SuggestInternalError     = "An unexpected error occurred. Check server logs for details."
+	SuggestParseError        = "Check that the request body is valid JSON"
+	SuggestInvalidRequest    = "Verify the request follows JSON-RPC 2.0 format"
+	SuggestMethodNotFound    = "Check the method name is correct and the tool is registered"
+	SuggestInvalidParams     = "Verify all required parameters are provided with correct types"
+	SuggestStaleRef          = "Take a new snapshot with get_accessibility_tree"
+	SuggestMultipleMatch     = "Use a more specific selector, or take a snapshot with get_accessibility_tree and target the element by ref"
+	SuggestInteractionFailed = "Check that the element is in a state that accepts this action, or take a new snapshot with get_accessibility_tree"
 )
+
+// MsgStaleRef is the message of the error returned for an element ref that is no
+// longer on the page.
+const MsgStaleRef = "Stale element ref"
 
 // FormatError converts any error to an MCP-compliant ErrorResponse.
 // It handles custom MCP error types, standard JSON-RPC errors, and generic errors.
@@ -97,6 +105,11 @@ func FormatError(err error) *ErrorResponse {
 	var navErr *NavigationError
 	if errors.As(err, &navErr) {
 		return formatNavigationError(navErr)
+	}
+
+	var interactionErr *InteractionError
+	if errors.As(err, &interactionErr) {
+		return formatInteractionError(interactionErr)
 	}
 
 	var paramsErr *InvalidParamsError
@@ -138,23 +151,36 @@ func formatSessionNotFoundError(e *SessionNotFoundError) *ErrorResponse {
 // formatElementNotFoundError formats an ElementNotFoundError into an ErrorResponse.
 func formatElementNotFoundError(e *ElementNotFoundError) *ErrorResponse {
 	data := &ErrorData{
-		Suggestion: SuggestElementNotFound,
+		Suggestion: e.suggestion(),
+		Selector:   e.Selector,
+		Timeout:    e.Timeout,
+		Reason:     e.Reason,
+		Cause:      unwrapMessage(e.Err),
 	}
 
-	if e.Selector != "" {
-		data.Selector = e.Selector
-	}
-	if e.Timeout > 0 {
-		data.Timeout = e.Timeout
-	}
-	if cause := unwrapMessage(e.Err); cause != "" {
-		data.Cause = cause
+	msg := msgElementNotFound
+	if e.Message != "" {
+		msg = e.Message
 	}
 
 	return &ErrorResponse{
 		Code:    CodeElementNotFound,
-		Message: msgElementNotFound,
+		Message: msg,
 		Data:    data,
+	}
+}
+
+// formatInteractionError formats an InteractionError into an ErrorResponse.
+func formatInteractionError(e *InteractionError) *ErrorResponse {
+	return &ErrorResponse{
+		Code:    CodeInteractionFailed,
+		Message: msgInteraction,
+		Data: &ErrorData{
+			Operation:  e.Operation,
+			Selector:   e.Target,
+			Cause:      unwrapMessage(e.Err),
+			Suggestion: SuggestInteractionFailed,
+		},
 	}
 }
 
@@ -270,6 +296,8 @@ func standardMessage(code int) string {
 		return msgTimeout
 	case CodeNavigationFailed:
 		return msgNavigationFailed
+	case CodeInteractionFailed:
+		return msgInteraction
 	default:
 		return msgInternalError
 	}

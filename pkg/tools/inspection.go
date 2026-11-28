@@ -57,7 +57,7 @@ func GetConsoleLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *Tim
 		sessionID := req.GetString("sessionId", "")
 		if sessionID == "" {
 			slog.Error("missing required sessionId", "tool", "get_console_logs")
-			return mcp.NewToolResultError("sessionId is required"), nil
+			return requiredParamResult("sessionId"), nil
 		}
 
 		limit, offset, err := listPageParams(args)
@@ -69,12 +69,12 @@ func GetConsoleLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *Tim
 		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
 		if !ok {
 			slog.Error("session not found", "tool", "get_console_logs", "sessionID", sessionID)
-			return mcp.NewToolResultError(errors.FormatErrorForTool(errors.NewSessionNotFoundError(sessionID))), nil
+			return errorResult(errors.NewSessionNotFoundError(sessionID)), nil
 		}
 
 		// Check if ConsoleLogs buffer exists
 		if sess.ConsoleLogs == nil {
-			return mcp.NewToolResultError("Console log buffer not initialized for this session"), nil
+			return internalErrorResult("Console log buffer not initialized for this session"), nil
 		}
 
 		// Extract and validate level filter parameter
@@ -85,7 +85,7 @@ func GetConsoleLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *Tim
 			case "log", "info", "warn", "error", "debug":
 				level = session.ConsoleLogLevel(levelStr)
 			default:
-				return mcp.NewToolResultError(fmt.Sprintf("Invalid level: %s. Must be one of: log, info, warn, error, debug", levelStr)), nil
+				return paramErrorResult("level", fmt.Sprintf("Invalid level: %s. Must be one of: log, info, warn, error, debug", levelStr)), nil
 			}
 		}
 
@@ -96,7 +96,7 @@ func GetConsoleLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *Tim
 
 		result, err := paginateItems(entries, offset, limit, responseConfig.budget(), true)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to serialize console logs: %v", err)), nil
+			return internalErrorResult("Failed to serialize console logs: %v", err), nil
 		}
 		return result, nil
 	}
@@ -157,21 +157,21 @@ func ScreenshotHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeout
 		sessionID := req.GetString("sessionId", "")
 		if sessionID == "" {
 			slog.Error("missing required sessionId", "tool", "screenshot")
-			return mcp.NewToolResultError("sessionId is required"), nil
+			return requiredParamResult("sessionId"), nil
 		}
 
 		// Get session with ownership validation
 		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
 		if !ok {
 			slog.Error("session not found", "tool", "screenshot", "sessionID", sessionID)
-			return mcp.NewToolResultError(errors.FormatErrorForTool(errors.NewSessionNotFoundError(sessionID))), nil
+			return errorResult(errors.NewSessionNotFoundError(sessionID)), nil
 		}
 
 		// Get the active page from the session
 		page := sess.ActivePage()
 		if page == nil {
 			slog.Error("no active page in session", "tool", "screenshot", "sessionID", sessionID)
-			return mcp.NewToolResultError("no active page in session"), nil
+			return noActivePageResult(), nil
 		}
 
 		// Check for selector parameter - element screenshot
@@ -180,15 +180,15 @@ func ScreenshotHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeout
 			// Element-specific screenshot
 			element, err := page.QuerySelector(selector)
 			if err != nil {
-				return mcp.NewToolResultError(errors.FormatErrorForTool(errors.WrapElementNotFoundError("", 0, err))), nil
+				return errorResult(errors.WrapElementNotFoundError("", 0, err)), nil
 			}
 			if element == nil {
-				return mcp.NewToolResultError(errors.FormatErrorForTool(errors.NewElementNotFoundError(selector, 0))), nil
+				return errorResult(errors.NewElementNotFoundError(selector, 0)), nil
 			}
 
 			screenshotBytes, err := element.Screenshot()
 			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("Failed to capture element screenshot: %v", err)), nil
+				return internalErrorResult("Failed to capture element screenshot: %v", err), nil
 			}
 
 			base64Data := base64.StdEncoding.EncodeToString(screenshotBytes)
@@ -218,7 +218,7 @@ func ScreenshotHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeout
 		screenshotBytes, err := page.Screenshot(opts)
 		if err != nil {
 			slog.Error("failed to capture screenshot", "tool", "screenshot", "sessionID", sessionID, "error", err)
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to capture screenshot: %v", err)), nil
+			return internalErrorResult("Failed to capture screenshot: %v", err), nil
 		}
 
 		slog.Debug("screenshot captured", "tool", "screenshot", "sessionID", sessionID, "bytes", len(screenshotBytes))
@@ -326,7 +326,7 @@ func ExtractTextHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeou
 		sessionID := req.GetString("sessionId", "")
 		if sessionID == "" {
 			slog.Error("missing required sessionId", "tool", "extract_text")
-			return mcp.NewToolResultError("sessionId is required"), nil
+			return requiredParamResult("sessionId"), nil
 		}
 
 		maxChars, offset, err := textPageParams(args, responseConfig.budget())
@@ -338,14 +338,14 @@ func ExtractTextHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeou
 		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
 		if !ok {
 			slog.Error("session not found", "tool", "extract_text", "sessionID", sessionID)
-			return mcp.NewToolResultError(errors.FormatErrorForTool(errors.NewSessionNotFoundError(sessionID))), nil
+			return errorResult(errors.NewSessionNotFoundError(sessionID)), nil
 		}
 
 		// Get the active page from the session
 		page := sess.ActivePage()
 		if page == nil {
 			slog.Error("no active page in session", "tool", "extract_text", "sessionID", sessionID)
-			return mcp.NewToolResultError("no active page in session"), nil
+			return noActivePageResult(), nil
 		}
 
 		// Get selector or default to body
@@ -354,17 +354,17 @@ func ExtractTextHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeou
 		// Execute JavaScript to extract visible text as markdown
 		result, err := page.Evaluate(extractTextAsMarkdownJS, selector)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to extract text: %v", err)), nil
+			return internalErrorResult("Failed to extract text: %v", err), nil
 		}
 
 		// Check if element was found (JavaScript returns null if selector doesn't match)
 		if result == nil {
-			return mcp.NewToolResultError(errors.FormatErrorForTool(errors.NewElementNotFoundError(selector, 0))), nil
+			return errorResult(errors.NewElementNotFoundError(selector, 0)), nil
 		}
 
 		text, ok := result.(string)
 		if !ok {
-			return mcp.NewToolResultError("Failed to extract text: unexpected result type"), nil
+			return internalErrorResult("Failed to extract text: unexpected result type"), nil
 		}
 
 		text = strings.TrimSpace(text)
@@ -765,7 +765,7 @@ func GetHTMLHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCon
 		sessionID := req.GetString("sessionId", "")
 		if sessionID == "" {
 			slog.Error("missing required sessionId", "tool", "get_html")
-			return mcp.NewToolResultError("sessionId is required"), nil
+			return requiredParamResult("sessionId"), nil
 		}
 
 		maxChars, offset, err := textPageParams(args, responseConfig.budget())
@@ -777,14 +777,14 @@ func GetHTMLHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCon
 		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
 		if !ok {
 			slog.Error("session not found", "tool", "get_html", "sessionID", sessionID)
-			return mcp.NewToolResultError(errors.FormatErrorForTool(errors.NewSessionNotFoundError(sessionID))), nil
+			return errorResult(errors.NewSessionNotFoundError(sessionID)), nil
 		}
 
 		// Get the active page from the session
 		page := sess.ActivePage()
 		if page == nil {
 			slog.Error("no active page in session", "tool", "get_html", "sessionID", sessionID)
-			return mcp.NewToolResultError("no active page in session"), nil
+			return noActivePageResult(), nil
 		}
 
 		selector := req.GetString("selector", "")
@@ -803,30 +803,30 @@ func GetHTMLHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCon
 			// Get entire page content
 			html, err = page.Content()
 			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("Failed to get page content: %v", err)), nil
+				return internalErrorResult("Failed to get page content: %v", err), nil
 			}
 		} else {
 			// Get element HTML
 			element, err := page.QuerySelector(selector)
 			if err != nil {
-				return mcp.NewToolResultError(errors.FormatErrorForTool(errors.WrapElementNotFoundError("", 0, err))), nil
+				return errorResult(errors.WrapElementNotFoundError("", 0, err)), nil
 			}
 			if element == nil {
-				return mcp.NewToolResultError(errors.FormatErrorForTool(errors.NewElementNotFoundError(selector, 0))), nil
+				return errorResult(errors.NewElementNotFoundError(selector, 0)), nil
 			}
 
 			if outer {
 				// Get outerHTML
 				result, err := element.Evaluate("el => el.outerHTML", nil)
 				if err != nil {
-					return mcp.NewToolResultError(fmt.Sprintf("Failed to get outerHTML: %v", err)), nil
+					return internalErrorResult("Failed to get outerHTML: %v", err), nil
 				}
 				html, _ = result.(string)
 			} else {
 				// Get innerHTML
 				html, err = element.InnerHTML()
 				if err != nil {
-					return mcp.NewToolResultError(fmt.Sprintf("Failed to get innerHTML: %v", err)), nil
+					return internalErrorResult("Failed to get innerHTML: %v", err), nil
 				}
 			}
 		}
@@ -870,14 +870,14 @@ func EvaluateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 		sessionID := req.GetString("sessionId", "")
 		if sessionID == "" {
 			slog.Error("missing required sessionId", "tool", "evaluate")
-			return mcp.NewToolResultError("sessionId is required"), nil
+			return requiredParamResult("sessionId"), nil
 		}
 
 		// Parse and validate expression argument
 		expression := req.GetString("expression", "")
 		if expression == "" {
 			slog.Error("missing required expression", "tool", "evaluate", "sessionID", sessionID)
-			return mcp.NewToolResultError("expression is required"), nil
+			return requiredParamResult("expression"), nil
 		}
 
 		maxChars, err := maxCharsParam(args, responseConfig.budget())
@@ -891,14 +891,14 @@ func EvaluateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
 		if !ok {
 			slog.Error("session not found", "tool", "evaluate", "sessionID", sessionID)
-			return mcp.NewToolResultError(errors.FormatErrorForTool(errors.NewSessionNotFoundError(sessionID))), nil
+			return errorResult(errors.NewSessionNotFoundError(sessionID)), nil
 		}
 
 		// Get the active page from the session
 		page := sess.ActivePage()
 		if page == nil {
 			slog.Error("no active page in session", "tool", "evaluate", "sessionID", sessionID)
-			return mcp.NewToolResultError("no active page in session"), nil
+			return noActivePageResult(), nil
 		}
 
 		// Execute JavaScript expression with context deadline enforcement.
@@ -925,16 +925,16 @@ func EvaluateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 				errStr := r.err.Error()
 				if strings.Contains(errStr, "SyntaxError") || strings.Contains(errStr, "ReferenceError") {
 					slog.Error("JavaScript error", "tool", "evaluate", "sessionID", sessionID, "error", r.err)
-					return mcp.NewToolResultError(fmt.Sprintf("JavaScript error: %v", r.err)), nil
+					return paramErrorResult("expression", fmt.Sprintf("JavaScript error: %v", r.err)), nil
 				}
 				slog.Error("failed to evaluate expression", "tool", "evaluate", "sessionID", sessionID, "error", r.err)
-				return mcp.NewToolResultError(fmt.Sprintf("Failed to evaluate expression: %v", r.err)), nil
+				return internalErrorResult("Failed to evaluate expression: %v", r.err), nil
 			}
 
 			// Serialize result to JSON
 			jsonBytes, err := json.Marshal(r.value)
 			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("Failed to serialize result: %v", err)), nil
+				return internalErrorResult("Failed to serialize result: %v", err), nil
 			}
 
 			resultJSON := string(jsonBytes)
@@ -945,7 +945,7 @@ func EvaluateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 		case <-ctx.Done():
 			slog.Warn("evaluate returning due to context cancellation; Playwright goroutine still running",
 				"tool", "evaluate", "sessionID", sessionID, "error", ctx.Err())
-			return mcp.NewToolResultError(fmt.Sprintf("Script evaluation timed out: %v", ctx.Err())), nil
+			return errorResult(errors.WrapTimeoutError("evaluate", 0, ctx.Err())), nil
 		}
 	}
 }
@@ -1007,14 +1007,14 @@ func QuerySelectorHandler(mgr session.BrowserSessionManager, timeoutConfig *Time
 		sessionID := req.GetString("sessionId", "")
 		if sessionID == "" {
 			slog.Error("missing required sessionId", "tool", "query_selector")
-			return mcp.NewToolResultError("sessionId is required"), nil
+			return requiredParamResult("sessionId"), nil
 		}
 
 		// Parse and validate selector argument
 		selector := req.GetString("selector", "")
 		if selector == "" {
 			slog.Error("missing required selector", "tool", "query_selector", "sessionID", sessionID)
-			return mcp.NewToolResultError("selector is required"), nil
+			return requiredParamResult("selector"), nil
 		}
 
 		limit, offset, err := listPageParams(args)
@@ -1028,14 +1028,14 @@ func QuerySelectorHandler(mgr session.BrowserSessionManager, timeoutConfig *Time
 		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
 		if !ok {
 			slog.Error("session not found", "tool", "query_selector", "sessionID", sessionID)
-			return mcp.NewToolResultError(errors.FormatErrorForTool(errors.NewSessionNotFoundError(sessionID))), nil
+			return errorResult(errors.NewSessionNotFoundError(sessionID)), nil
 		}
 
 		// Get the active page from the session
 		page := sess.ActivePage()
 		if page == nil {
 			slog.Error("no active page in session", "tool", "query_selector", "sessionID", sessionID)
-			return mcp.NewToolResultError("no active page in session"), nil
+			return noActivePageResult(), nil
 		}
 
 		// Check if all parameter is set
@@ -1050,7 +1050,7 @@ func QuerySelectorHandler(mgr session.BrowserSessionManager, timeoutConfig *Time
 			// Query all matching elements
 			elements, err := page.QuerySelectorAll(selector)
 			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("Failed to query elements: %v", err)), nil
+				return internalErrorResult("Failed to query elements: %v", err), nil
 			}
 
 			infos := make([]ElementInfo, 0, len(elements))
@@ -1068,7 +1068,7 @@ func QuerySelectorHandler(mgr session.BrowserSessionManager, timeoutConfig *Time
 
 			result, err := paginateItems(infos, offset, limit, responseConfig.budget(), false)
 			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("Failed to serialize element info: %v", err)), nil
+				return internalErrorResult("Failed to serialize element info: %v", err), nil
 			}
 			return result, nil
 		}
@@ -1076,25 +1076,25 @@ func QuerySelectorHandler(mgr session.BrowserSessionManager, timeoutConfig *Time
 		// Query single element
 		element, err := page.QuerySelector(selector)
 		if err != nil {
-			return mcp.NewToolResultError(errors.FormatErrorForTool(errors.WrapElementNotFoundError("", 0, err))), nil
+			return errorResult(errors.WrapElementNotFoundError("", 0, err)), nil
 		}
 		if element == nil {
-			return mcp.NewToolResultError(errors.FormatErrorForTool(errors.NewElementNotFoundError(selector, 0))), nil
+			return errorResult(errors.NewElementNotFoundError(selector, 0)), nil
 		}
 
 		info, err := extractElementInfo(element)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to extract element info: %v", err)), nil
+			return internalErrorResult("Failed to extract element info: %v", err), nil
 		}
 
 		jsonBytes, err := json.Marshal(info)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to serialize element info: %v", err)), nil
+			return internalErrorResult("Failed to serialize element info: %v", err), nil
 		}
 		if budget := responseConfig.budget(); utf8.RuneCount(jsonBytes) > budget {
 			// Cut long attribute values and text so the single object fits the budget.
 			if jsonBytes, err = cutItemToBudget(jsonBytes, budget); err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("Failed to serialize element info: %v", err)), nil
+				return internalErrorResult("Failed to serialize element info: %v", err), nil
 			}
 		}
 
@@ -1182,21 +1182,21 @@ func GetAccessibilityTreeHandler(mgr session.BrowserSessionManager, timeoutConfi
 		sessionID := req.GetString("sessionId", "")
 		if sessionID == "" {
 			slog.Error("missing required sessionId", "tool", "get_accessibility_tree")
-			return mcp.NewToolResultError("sessionId is required"), nil
+			return requiredParamResult("sessionId"), nil
 		}
 
 		// Get session with ownership validation
 		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
 		if !ok {
 			slog.Error("session not found", "tool", "get_accessibility_tree", "sessionID", sessionID)
-			return mcp.NewToolResultError(errors.FormatErrorForTool(errors.NewSessionNotFoundError(sessionID))), nil
+			return errorResult(errors.NewSessionNotFoundError(sessionID)), nil
 		}
 
 		// Get the active page from the session
 		page := sess.ActivePage()
 		if page == nil {
 			slog.Error("no active page in session", "tool", "get_accessibility_tree", "sessionID", sessionID)
-			return mcp.NewToolResultError("no active page in session"), nil
+			return noActivePageResult(), nil
 		}
 
 		// Get accessibility tree using JavaScript
@@ -1205,13 +1205,13 @@ func GetAccessibilityTreeHandler(mgr session.BrowserSessionManager, timeoutConfi
 		result, err := page.Evaluate(accessibilityTreeJS)
 		if err != nil {
 			slog.Error("failed to get accessibility tree", "tool", "get_accessibility_tree", "sessionID", sessionID, "error", err)
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to get accessibility tree: %v", err)), nil
+			return internalErrorResult("Failed to get accessibility tree: %v", err), nil
 		}
 
 		// Serialize result to JSON
 		jsonBytes, err := json.Marshal(result)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to serialize accessibility tree: %v", err)), nil
+			return internalErrorResult("Failed to serialize accessibility tree: %v", err), nil
 		}
 
 		return mcp.NewToolResultText(string(jsonBytes)), nil
@@ -1411,7 +1411,7 @@ func GetLinksHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 		sessionID := req.GetString("sessionId", "")
 		if sessionID == "" {
 			slog.Error("missing required sessionId", "tool", "get_links")
-			return mcp.NewToolResultError("sessionId is required"), nil
+			return requiredParamResult("sessionId"), nil
 		}
 
 		limit, offset, err := listPageParams(args)
@@ -1423,14 +1423,14 @@ func GetLinksHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
 		if !ok {
 			slog.Error("session not found", "tool", "get_links", "sessionID", sessionID)
-			return mcp.NewToolResultError(errors.FormatErrorForTool(errors.NewSessionNotFoundError(sessionID))), nil
+			return errorResult(errors.NewSessionNotFoundError(sessionID)), nil
 		}
 
 		// Get the active page from the session
 		page := sess.ActivePage()
 		if page == nil {
 			slog.Error("no active page in session", "tool", "get_links", "sessionID", sessionID)
-			return mcp.NewToolResultError("no active page in session"), nil
+			return noActivePageResult(), nil
 		}
 
 		// If url param provided, navigate first
@@ -1443,7 +1443,7 @@ func GetLinksHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 			if _, err := page.Goto(url, opts); err != nil {
 				if ctxErr := HandleContextError(ctx, fmt.Sprintf("navigation to %s", url)); ctxErr != nil {
 					slog.Error("get_links navigation context error", "tool", "get_links", "sessionID", sessionID, "url", url, "error", ctxErr)
-					return mcp.NewToolResultError(errors.FormatErrorForTool(ctxErr)), nil
+					return errorResult(ctxErr), nil
 				}
 				return handleNavigationError(err, url), nil
 			}
@@ -1453,17 +1453,17 @@ func GetLinksHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 		result, err := page.Evaluate(getLinksJS)
 		if err != nil {
 			slog.Error("failed to extract links", "tool", "get_links", "sessionID", sessionID, "error", err)
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to extract links: %v", err)), nil
+			return internalErrorResult("Failed to extract links: %v", err), nil
 		}
 
 		links, ok := result.([]any)
 		if !ok && result != nil {
-			return mcp.NewToolResultError("Failed to extract links: unexpected result type"), nil
+			return internalErrorResult("Failed to extract links: unexpected result type"), nil
 		}
 
 		linksPage, err := paginateItems(links, offset, limit, responseConfig.budget(), false)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to serialize links: %v", err)), nil
+			return internalErrorResult("Failed to serialize links: %v", err), nil
 		}
 		return linksPage, nil
 	}
@@ -1523,7 +1523,7 @@ func NavigateAndExtractTextHandler(mgr session.BrowserSessionManager, timeoutCon
 		url := req.GetString("url", "")
 		if url == "" {
 			slog.Error("missing required url", "tool", "navigate_and_extract_text")
-			return mcp.NewToolResultError("url is required"), nil
+			return requiredParamResult("url"), nil
 		}
 
 		maxChars, offset, err := textPageParams(args, responseConfig.budget())
@@ -1542,7 +1542,7 @@ func NavigateAndExtractTextHandler(mgr session.BrowserSessionManager, timeoutCon
 			case "webkit":
 				browserType = browser.BrowserWebKit
 			default:
-				return mcp.NewToolResultError(fmt.Sprintf("Invalid browserType: %s. Must be chromium, firefox, or webkit", btStr)), nil
+				return paramErrorResult("browserType", fmt.Sprintf("Invalid browserType: %s. Must be chromium, firefox, or webkit", btStr)), nil
 			}
 		}
 
@@ -1557,7 +1557,7 @@ func NavigateAndExtractTextHandler(mgr session.BrowserSessionManager, timeoutCon
 		sess, err := mgr.CreateSession(ctx, mcpSessionID, opts)
 		if err != nil {
 			slog.Error("failed to create temporary session", "tool", "navigate_and_extract_text", "error", err)
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to create temporary session: %v", err)), nil
+			return internalErrorResult("Failed to create temporary session: %v", err), nil
 		}
 
 		// Ensure session cleanup on exit
@@ -1568,7 +1568,7 @@ func NavigateAndExtractTextHandler(mgr session.BrowserSessionManager, timeoutCon
 		// Get the page from the session
 		page := sess.ActivePage()
 		if page == nil {
-			return mcp.NewToolResultError("no active page in temporary session"), nil
+			return internalErrorResult("no active page in temporary session"), nil
 		}
 
 		// Build navigation options
@@ -1596,17 +1596,17 @@ func NavigateAndExtractTextHandler(mgr session.BrowserSessionManager, timeoutCon
 		// Execute JavaScript to extract visible text as markdown
 		result, err := page.Evaluate(extractTextAsMarkdownJS, selector)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to extract text: %v", err)), nil
+			return internalErrorResult("Failed to extract text: %v", err), nil
 		}
 
 		// Check if element was found (JavaScript returns null if selector doesn't match)
 		if result == nil {
-			return mcp.NewToolResultError(errors.FormatErrorForTool(errors.NewElementNotFoundError(selector, 0))), nil
+			return errorResult(errors.NewElementNotFoundError(selector, 0)), nil
 		}
 
 		text, ok := result.(string)
 		if !ok {
-			return mcp.NewToolResultError("Failed to extract text: unexpected result type"), nil
+			return internalErrorResult("Failed to extract text: unexpected result type"), nil
 		}
 
 		text = strings.TrimSpace(text)
