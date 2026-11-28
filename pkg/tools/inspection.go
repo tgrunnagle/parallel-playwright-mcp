@@ -1179,21 +1179,21 @@ func extractElementInfo(element playwright.ElementHandle) (*ElementInfo, error) 
 	return info, nil
 }
 
-// snapshotRefsDescription explains element refs; tool descriptions that return or
-// accept refs share it.
-const snapshotRefsDescription = "Each element carries a ref like [ref=e3], or [ref=f1e2] inside an iframe or a document loaded after the first. " +
-	"Pass a ref as the ref argument of click, type, fill, select_option, hover, or press_key to act on exactly that element. " +
-	"Refs stay the same while the document is unchanged and go stale when the page navigates; a stale ref fails at once with 'Stale element ref', so take a new snapshot."
+// snapshotRefsDescription explains element refs in one sentence; tool
+// descriptions that return or accept refs share it.
+const snapshotRefsDescription = "Each element carries a ref such as [ref=e3] ([ref=f1e2] inside an iframe or a document loaded after the first) " +
+	"to pass as the ref argument of click, type, fill, select_option, hover, or press_key; refs stay the same while the document is unchanged " +
+	"and go stale when the page navigates, failing at once with 'Stale element ref', so take a new snapshot."
 
 // GetAccessibilityTreeTool returns the get_accessibility_tree MCP tool definition.
 func GetAccessibilityTreeTool() mcp.Tool {
 	return mcp.NewTool("get_accessibility_tree",
 		readOnlyPageHints.option(),
 		timeoutParam(TimeoutDefault),
-		mcp.WithDescription("Get an ARIA snapshot of the page: a compact YAML tree of roles, accessible names, states such as [checked], and form values (password values show as •••). "+
+		mcp.WithDescription("Get an ARIA snapshot of the page: a compact YAML tree of roles, accessible names, states such as [checked], and form values (password values show as •••), "+
+			"leaving out content hidden with display:none or visibility:hidden but keeping on-screen aria-hidden content. "+
 			"Use it to find elements to act on; use extract_text to read the page's content, and screenshot when visuals matter. "+
-			snapshotRefsDescription+
-			" Content hidden with display:none or visibility:hidden is left out; content that is on screen but aria-hidden is kept."),
+			snapshotRefsDescription),
 		mcp.WithString("sessionId",
 			mcp.Required(),
 			mcp.Description("Browser session ID"),

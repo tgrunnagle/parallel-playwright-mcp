@@ -109,13 +109,14 @@ func TestToolAnnotations(t *testing.T) {
 	}
 }
 
-// TestToolDescriptions checks that every description is at least two sentences
+// TestToolDescriptions checks that every description is two to four sentences
 // and that every selector parameter documents the shared selector syntax.
 func TestToolDescriptions(t *testing.T) {
 	for _, st := range Registry(nil, nil, nil) {
 		t.Run(st.Tool.Name, func(t *testing.T) {
-			if n := strings.Count(st.Tool.Description, ". "); n < 1 || !strings.HasSuffix(st.Tool.Description, ".") {
-				t.Errorf("description is not at least two sentences: %q", st.Tool.Description)
+			sentences := strings.Count(st.Tool.Description, ". ") + 1
+			if sentences < 2 || sentences > 4 || !strings.HasSuffix(st.Tool.Description, ".") {
+				t.Errorf("description is %d sentences, want two to four: %q", sentences, st.Tool.Description)
 			}
 			prop, ok := st.Tool.InputSchema.Properties["selector"].(map[string]any)
 			if !ok {
