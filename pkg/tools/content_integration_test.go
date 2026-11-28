@@ -64,7 +64,7 @@ func openSessionAt(t *testing.T, mgr session.BrowserSessionManager, url string) 
 	sessionID := strings.TrimPrefix(extractTextContent(createResult.Content), "Created session: ")
 	t.Cleanup(func() { _ = mgr.CloseSession(ctx, "", sessionID) })
 
-	navResult := callIntegrationTool(t, NavigateHandler(mgr, DefaultTimeoutConfig()), "navigate", map[string]any{
+	navResult := callIntegrationTool(t, NavigateHandler(mgr, DefaultTimeoutConfig(), nil), "navigate", map[string]any{
 		"sessionId": sessionID,
 		"url":       url,
 	})

@@ -34,11 +34,14 @@ func NavigateTool() mcp.Tool {
 		mcp.WithNumber("timeout",
 			mcp.Description("Navigation timeout in milliseconds (default: 30000)"),
 		),
+		mcp.WithBoolean("includeSnapshot",
+			mcp.Description(includeSnapshotDescription),
+		),
 	)
 }
 
 // NavigateHandler returns the handler function for navigate.
-func NavigateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
+func NavigateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig, responseConfig *ResponseConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		slog.Debug("tool handler called", "tool", "navigate")
 
@@ -80,7 +83,7 @@ func NavigateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 			return noActivePageResult(), nil
 		}
 
-		rec := startAction(sess, page, "navigate", "", timeoutConfig)
+		rec := startAction(sess, page, "navigate", "", args, timeoutConfig, responseConfig)
 
 		// Build Playwright options from optional parameters
 		opts := buildGotoOptions(args)
@@ -121,11 +124,14 @@ func GoBackTool() mcp.Tool {
 		mcp.WithNumber("timeout",
 			mcp.Description("Navigation timeout in milliseconds (default: 30000)"),
 		),
+		mcp.WithBoolean("includeSnapshot",
+			mcp.Description(includeSnapshotDescription),
+		),
 	)
 }
 
 // GoBackHandler returns the handler function for go_back.
-func GoBackHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
+func GoBackHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig, responseConfig *ResponseConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		slog.Debug("tool handler called", "tool", "go_back")
 
@@ -158,7 +164,7 @@ func GoBackHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConf
 			return noActivePageResult(), nil
 		}
 
-		rec := startAction(sess, page, "go_back", "", timeoutConfig)
+		rec := startAction(sess, page, "go_back", "", args, timeoutConfig, responseConfig)
 
 		// Build Playwright options from optional parameters
 		opts := buildGoBackOptions(args)
@@ -205,11 +211,14 @@ func GoForwardTool() mcp.Tool {
 		mcp.WithNumber("timeout",
 			mcp.Description("Navigation timeout in milliseconds (default: 30000)"),
 		),
+		mcp.WithBoolean("includeSnapshot",
+			mcp.Description(includeSnapshotDescription),
+		),
 	)
 }
 
 // GoForwardHandler returns the handler function for go_forward.
-func GoForwardHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
+func GoForwardHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig, responseConfig *ResponseConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		slog.Debug("tool handler called", "tool", "go_forward")
 
@@ -242,7 +251,7 @@ func GoForwardHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutC
 			return noActivePageResult(), nil
 		}
 
-		rec := startAction(sess, page, "go_forward", "", timeoutConfig)
+		rec := startAction(sess, page, "go_forward", "", args, timeoutConfig, responseConfig)
 
 		// Build Playwright options from optional parameters
 		opts := buildGoForwardOptions(args)
@@ -289,11 +298,14 @@ func ReloadTool() mcp.Tool {
 		mcp.WithNumber("timeout",
 			mcp.Description("Reload timeout in milliseconds"),
 		),
+		mcp.WithBoolean("includeSnapshot",
+			mcp.Description(includeSnapshotDescription),
+		),
 	)
 }
 
 // ReloadHandler returns the handler function for reload.
-func ReloadHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
+func ReloadHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig, responseConfig *ResponseConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		slog.Debug("tool handler called", "tool", "reload")
 
@@ -326,7 +338,7 @@ func ReloadHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConf
 			return noActivePageResult(), nil
 		}
 
-		rec := startAction(sess, page, "reload", "", timeoutConfig)
+		rec := startAction(sess, page, "reload", "", args, timeoutConfig, responseConfig)
 
 		// Build Playwright reload options from optional parameters
 		opts := buildReloadOptions(args)

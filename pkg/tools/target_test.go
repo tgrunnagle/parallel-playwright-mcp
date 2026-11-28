@@ -176,7 +176,7 @@ func TestElementTargetLocate(t *testing.T) {
 func TestInteractionHandlersAcceptRef(t *testing.T) {
 	cases := []struct {
 		tool    string
-		handler func(session.BrowserSessionManager, *TimeoutConfig) server.ToolHandlerFunc
+		handler func(session.BrowserSessionManager, *TimeoutConfig, *ResponseConfig) server.ToolHandlerFunc
 		args    map[string]any
 		want    string
 	}{
@@ -222,7 +222,7 @@ func TestInteractionHandlersAcceptRef(t *testing.T) {
 				for k, v := range tc.args {
 					args[k] = v
 				}
-				result, err := tc.handler(mgr, DefaultTimeoutConfig())(context.Background(), mcp.CallToolRequest{
+				result, err := tc.handler(mgr, DefaultTimeoutConfig(), nil)(context.Background(), mcp.CallToolRequest{
 					Params: mcp.CallToolParams{Name: tc.tool, Arguments: args},
 				})
 				if err != nil {

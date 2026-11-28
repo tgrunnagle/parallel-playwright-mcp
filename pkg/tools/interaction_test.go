@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -248,6 +249,18 @@ type mockInteractionPage struct {
 	keyboardFunc func() playwright.Keyboard
 	urlFunc      func() string
 	titleFunc    func() (string, error)
+	snapshotFunc func(opts playwright.PageAriaSnapshotOptions) (string, error)
+}
+
+func (m *mockInteractionPage) AriaSnapshot(opts ...playwright.PageAriaSnapshotOptions) (string, error) {
+	if m.snapshotFunc != nil {
+		opt := playwright.PageAriaSnapshotOptions{}
+		if len(opts) > 0 {
+			opt = opts[0]
+		}
+		return m.snapshotFunc(opt)
+	}
+	return `- button "Go" [ref=e2]`, nil
 }
 
 func (m *mockInteractionPage) URL() string {
@@ -872,7 +885,7 @@ func TestClickHandler(t *testing.T) {
 				getSessionFunc: tt.getSessionFunc,
 			}
 
-			handler := ClickHandler(mgr, DefaultTimeoutConfig())
+			handler := ClickHandler(mgr, DefaultTimeoutConfig(), nil)
 			req := mcp.CallToolRequest{}
 			req.Params.Name = "click"
 			req.Params.Arguments = tt.arguments
@@ -916,7 +929,7 @@ func TestClickHandler(t *testing.T) {
 		for k, v := range extra {
 			args[k] = v
 		}
-		result, err := ClickHandler(mgr, DefaultTimeoutConfig())(context.Background(), mcp.CallToolRequest{
+		result, err := ClickHandler(mgr, DefaultTimeoutConfig(), nil)(context.Background(), mcp.CallToolRequest{
 			Params: mcp.CallToolParams{Name: "click", Arguments: args},
 		})
 		if err != nil || result.IsError {
@@ -937,6 +950,86 @@ func TestClickHandler(t *testing.T) {
 		}
 		if summary.Action != "click" || summary.Target != "#button" || summary.URL != "https://example.com/" {
 			t.Errorf("Unexpected summary: %+v", summary)
+		}
+	})
+
+	t.Run("without includeSnapshot there is one content block", func(t *testing.T) {
+		result := clickResult(t, nil)
+		if len(result.Content) != 1 {
+			t.Errorf("Expected 1 content block, got %d", len(result.Content))
+		}
+		result = clickResult(t, map[string]any{"includeSnapshot": false})
+		if len(result.Content) != 1 {
+			t.Errorf("Expected 1 content block with includeSnapshot false, got %d", len(result.Content))
+		}
+	})
+
+	t.Run("includeSnapshot appends the snapshot as a second block", func(t *testing.T) {
+		result := clickResult(t, map[string]any{"includeSnapshot": true})
+		if len(result.Content) != 2 {
+			t.Fatalf("Expected 2 content blocks, got %d", len(result.Content))
+		}
+		snapshot, _ := mcp.AsTextContent(result.Content[1])
+		if snapshot.Text != `- button "Go" [ref=e2]` {
+			t.Errorf("Second block = %q, want the snapshot", snapshot.Text)
+		}
+		if first := extractTextContent(result.Content); !strings.HasPrefix(first, "Clicked element: #button\n{") {
+			t.Errorf("First block should stay the line and summary, got %q", first)
+		}
+	})
+
+	// snapshotClick clicks #button on a page whose snapshot is canned.
+	snapshotClick := func(t *testing.T, rc *ResponseConfig, snapshotFunc func(playwright.PageAriaSnapshotOptions) (string, error)) *mcp.CallToolResult {
+		t.Helper()
+		page := &mockInteractionPage{
+			locatorFunc: func(string, ...playwright.PageLocatorOptions) playwright.Locator {
+				return &mockLocator{clickFunc: func(playwright.LocatorClickOptions) error { return nil }}
+			},
+			snapshotFunc: snapshotFunc,
+		}
+		mgr := &mockSessionManager{getSessionFunc: func(string, string) (*session.BrowserSession, bool) {
+			return createInteractionSessionWithMockPage(page), true
+		}}
+		result, err := ClickHandler(mgr, DefaultTimeoutConfig(), rc)(context.Background(), mcp.CallToolRequest{
+			Params: mcp.CallToolParams{Name: "click", Arguments: map[string]any{
+				"sessionId": "sess-123", "selector": "#button", "includeSnapshot": true,
+			}},
+		})
+		if err != nil || result.IsError {
+			t.Fatalf("click failed: %v %s", err, extractTextContent(result.Content))
+		}
+		return result
+	}
+
+	t.Run("includeSnapshot over budget is cut with a notice", func(t *testing.T) {
+		long := strings.Repeat(`- listitem "Item" [ref=e1]`+"\n", 50)
+		result := snapshotClick(t, &ResponseConfig{MaxResponseChars: 100}, func(playwright.PageAriaSnapshotOptions) (string, error) {
+			return long, nil
+		})
+		if len(result.Content) != 3 {
+			t.Fatalf("Expected summary, snapshot, and notice blocks, got %d", len(result.Content))
+		}
+		snapshot, _ := mcp.AsTextContent(result.Content[1])
+		notice, _ := mcp.AsTextContent(result.Content[2])
+		if snapshot.Text != long[:100] {
+			t.Errorf("Snapshot block = %q, want the first 100 characters", snapshot.Text)
+		}
+		want := "[truncated: " + strconv.Itoa(len(long)-100) + " more characters; call get_accessibility_tree with offset=100]"
+		if notice.Text != want {
+			t.Errorf("Notice = %q, want %q", notice.Text, want)
+		}
+	})
+
+	t.Run("includeSnapshot failure keeps the action's success", func(t *testing.T) {
+		result := snapshotClick(t, nil, func(playwright.PageAriaSnapshotOptions) (string, error) {
+			return "", errors.New("target closed")
+		})
+		if len(result.Content) != 2 {
+			t.Fatalf("Expected 2 content blocks, got %d", len(result.Content))
+		}
+		block, _ := mcp.AsTextContent(result.Content[1])
+		if !strings.HasPrefix(block.Text, "[snapshot unavailable: [-32603]") {
+			t.Errorf("Second block = %q", block.Text)
 		}
 	})
 }
@@ -1064,7 +1157,7 @@ func TestTypeHandler(t *testing.T) {
 				getSessionFunc: tt.getSessionFunc,
 			}
 
-			handler := TypeHandler(mgr, DefaultTimeoutConfig())
+			handler := TypeHandler(mgr, DefaultTimeoutConfig(), nil)
 			req := mcp.CallToolRequest{}
 			req.Params.Name = "type"
 			req.Params.Arguments = tt.arguments
@@ -1207,7 +1300,7 @@ func TestFillHandler(t *testing.T) {
 				getSessionFunc: tt.getSessionFunc,
 			}
 
-			handler := FillHandler(mgr, DefaultTimeoutConfig())
+			handler := FillHandler(mgr, DefaultTimeoutConfig(), nil)
 			req := mcp.CallToolRequest{}
 			req.Params.Name = "fill"
 			req.Params.Arguments = tt.arguments
@@ -1407,7 +1500,7 @@ func TestSelectOptionHandler(t *testing.T) {
 				getSessionFunc: tt.getSessionFunc,
 			}
 
-			handler := SelectOptionHandler(mgr, DefaultTimeoutConfig())
+			handler := SelectOptionHandler(mgr, DefaultTimeoutConfig(), nil)
 			req := mcp.CallToolRequest{}
 			req.Params.Name = "select_option"
 			req.Params.Arguments = tt.arguments
@@ -1542,7 +1635,7 @@ func TestHoverHandler(t *testing.T) {
 				getSessionFunc: tt.getSessionFunc,
 			}
 
-			handler := HoverHandler(mgr, DefaultTimeoutConfig())
+			handler := HoverHandler(mgr, DefaultTimeoutConfig(), nil)
 			req := mcp.CallToolRequest{}
 			req.Params.Name = "hover"
 			req.Params.Arguments = tt.arguments
@@ -1759,7 +1852,7 @@ func TestPressKeyHandler(t *testing.T) {
 				getSessionFunc: tt.getSessionFunc,
 			}
 
-			handler := PressKeyHandler(mgr, DefaultTimeoutConfig())
+			handler := PressKeyHandler(mgr, DefaultTimeoutConfig(), nil)
 			req := mcp.CallToolRequest{}
 			req.Params.Name = "press_key"
 			req.Params.Arguments = tt.arguments
@@ -1844,7 +1937,7 @@ func TestHandleInteractionError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := handleInteractionError(tt.err, tt.operation, tt.selector)
+			result := handleInteractionError(tt.err, tt.operation, tt.selector, nil)
 			text := extractTextContent(result.Content)
 			if !strings.Contains(text, tt.expectedCode) {
 				t.Errorf("Expected error code %s in result, got: %s", tt.expectedCode, text)
@@ -2022,4 +2115,45 @@ func TestBuildKeyWithModifiers(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestHandleInteractionErrorMultipleMatch checks a strict mode violation becomes
+// the multi-match error describing the first matches.
+func TestHandleInteractionErrorMultipleMatch(t *testing.T) {
+	strictErr := errors.New("playwright: Error: strict mode violation: locator('button') resolved to 4 elements:\n    1) <button>A</button>")
+	loc := &mockLocator{evaluateAllFunc: func(_ string, arg ...any) (any, error) {
+		if len(arg) != 1 || arg[0] != maxDescribedMatches {
+			t.Errorf("EvaluateAll arg = %v, want %d", arg, maxDescribedMatches)
+		}
+		return []any{
+			map[string]any{"tag": "button", "text": "Alpha"},
+			map[string]any{"tag": "button", "text": strings.Repeat("b", 100)},
+			map[string]any{"tag": "a", "text": ""},
+		}, nil
+	}}
+
+	text := extractTextContent(handleInteractionError(strictErr, "click", "button", loc).Content)
+	for _, part := range []string{
+		"[-32002] Selector matched 4 elements (selector: button)",
+		`<button> "Alpha"; <button> "` + strings.Repeat("b", 79) + `…"; <a> ""`,
+		"target the element by ref",
+	} {
+		if !strings.Contains(text, part) {
+			t.Errorf("error = %q, want it to contain %q", text, part)
+		}
+	}
+	if strings.Contains(text, "strict mode violation") {
+		t.Errorf("described matches should replace the raw Playwright cause: %q", text)
+	}
+
+	t.Run("count from the locator when the message has none", func(t *testing.T) {
+		loc := &mockLocator{countFunc: func() (int, error) { return 3, nil }}
+		text := extractTextContent(handleInteractionError(errors.New("strict mode violation"), "hover", ".x", loc).Content)
+		if !strings.HasPrefix(text, "[-32002] Selector matched 3 elements (selector: .x)") {
+			t.Errorf("error = %q", text)
+		}
+		if !strings.Contains(text, "strict mode violation") {
+			t.Errorf("without descriptions the cause should stay: %q", text)
+		}
+	})
 }

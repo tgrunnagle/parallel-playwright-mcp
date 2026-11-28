@@ -29,7 +29,7 @@ func TestBuildStateSummary(t *testing.T) {
 		sess.ConsoleLogs.Add(session.ConsoleLogEntry{Level: session.ConsoleLogLevelError, Text: "before"})
 		sess.NetworkLogs.Add(session.NetworkLogEntry{Method: "GET", URL: "http://h/old", Status: 500})
 
-		rec := startAction(sess, page, "click", "#go", nil)
+		rec := startAction(sess, page, "click", "#go", nil, nil, nil)
 		sess.ConsoleLogs.Add(session.ConsoleLogEntry{Level: session.ConsoleLogLevelLog, Text: "just a log"})
 		sess.ConsoleLogs.Add(session.ConsoleLogEntry{Level: session.ConsoleLogLevelError, Text: "after"})
 		sess.NetworkLogs.Add(session.NetworkLogEntry{Method: "GET", URL: "http://h/ok", Status: 200})
@@ -71,7 +71,7 @@ func TestBuildStateSummary(t *testing.T) {
 	t.Run("strips query strings from failed request URLs", func(t *testing.T) {
 		page := &mockInteractionPage{}
 		sess := summarySession(page)
-		rec := startAction(sess, page, "click", "#go", nil)
+		rec := startAction(sess, page, "click", "#go", nil, nil, nil)
 		sess.NetworkLogs.Add(session.NetworkLogEntry{Method: "GET", URL: "http://h/api?token=abc", Status: 500})
 
 		got := buildStateSummary(rec)
@@ -87,7 +87,7 @@ func TestBuildStateSummary(t *testing.T) {
 	t.Run("title failure omits title and keeps the summary", func(t *testing.T) {
 		page := &mockInteractionPage{titleFunc: func() (string, error) { return "", errors.New("execution context was destroyed") }}
 		sess := summarySession(page)
-		rec := startAction(sess, page, "click", "#go", nil)
+		rec := startAction(sess, page, "click", "#go", nil, nil, nil)
 
 		got := buildStateSummary(rec)
 		if got.Title != nil {
@@ -101,7 +101,7 @@ func TestBuildStateSummary(t *testing.T) {
 
 	t.Run("empty title is kept", func(t *testing.T) {
 		page := &mockInteractionPage{titleFunc: func() (string, error) { return "", nil }}
-		got := buildStateSummary(startAction(summarySession(page), page, "hover", "#x", nil))
+		got := buildStateSummary(startAction(summarySession(page), page, "hover", "#x", nil, nil, nil))
 		if got.Title == nil || *got.Title != "" {
 			t.Errorf("Title = %v, want empty string", got.Title)
 		}
@@ -110,7 +110,7 @@ func TestBuildStateSummary(t *testing.T) {
 	t.Run("caps lists and cuts long entries", func(t *testing.T) {
 		page := &mockInteractionPage{}
 		sess := summarySession(page)
-		rec := startAction(sess, page, "click", "#go", nil)
+		rec := startAction(sess, page, "click", "#go", nil, nil, nil)
 		for range 8 {
 			sess.ConsoleLogs.Add(session.ConsoleLogEntry{Level: session.ConsoleLogLevelError, Text: strings.Repeat("x", 500)})
 		}
@@ -133,7 +133,7 @@ func TestBuildStateSummary(t *testing.T) {
 	t.Run("URL change counts as navigation", func(t *testing.T) {
 		url := "https://example.com/a"
 		page := &mockInteractionPage{urlFunc: func() string { return url }}
-		rec := startAction(summarySession(page), page, "click", "a", nil)
+		rec := startAction(summarySession(page), page, "click", "a", nil, nil, nil)
 		url = "https://example.com/b"
 		got := buildStateSummary(rec)
 		if !got.Navigated || got.URL != "https://example.com/b" {
@@ -143,7 +143,7 @@ func TestBuildStateSummary(t *testing.T) {
 
 	t.Run("navigation tool reports the response status", func(t *testing.T) {
 		page := &mockPage{}
-		rec := startAction(summarySession(page), page, "reload", "", nil)
+		rec := startAction(summarySession(page), page, "reload", "", nil, nil, nil)
 		rec.navigated(&mockResponse{statusFunc: func() int { return 201 }})
 		got := buildStateSummary(rec)
 		if !got.Navigated || got.HTTPStatus == nil || *got.HTTPStatus != 201 {
@@ -153,7 +153,7 @@ func TestBuildStateSummary(t *testing.T) {
 
 	t.Run("navigation tool without a response has no status", func(t *testing.T) {
 		page := &mockPage{}
-		rec := startAction(summarySession(page), page, "go_back", "", nil)
+		rec := startAction(summarySession(page), page, "go_back", "", nil, nil, nil)
 		rec.navigated(nil)
 		got := buildStateSummary(rec)
 		if got.Navigated || got.HTTPStatus != nil {
@@ -164,7 +164,7 @@ func TestBuildStateSummary(t *testing.T) {
 	t.Run("session without buffers", func(t *testing.T) {
 		page := &mockInteractionPage{}
 		sess := &session.BrowserSession{ID: "s", Pages: map[string]playwright.Page{}}
-		got := buildStateSummary(startAction(sess, page, "click", "#go", nil))
+		got := buildStateSummary(startAction(sess, page, "click", "#go", nil, nil, nil))
 		if got.NewConsoleErrors == nil || got.FailedRequests == nil {
 			t.Error("lists should be empty, not null")
 		}
@@ -173,7 +173,7 @@ func TestBuildStateSummary(t *testing.T) {
 
 func TestActionResultShape(t *testing.T) {
 	page := &mockInteractionPage{}
-	rec := startAction(summarySession(page), page, "click", "#button", nil)
+	rec := startAction(summarySession(page), page, "click", "#button", nil, nil, nil)
 	result := rec.finish(context.Background(), "Clicked element: #button")
 
 	text := extractTextContent(result.Content)

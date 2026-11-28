@@ -9,9 +9,11 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mxschmitt/playwright-go"
+	"github.com/tgrunnagle/parallel-playwright-mcp/pkg/errors"
 	"github.com/tgrunnagle/parallel-playwright-mcp/pkg/session"
 )
 
@@ -26,6 +28,10 @@ const maxSummaryEntries = 5
 
 // maxSummaryEntryChars caps each list entry in a state summary.
 const maxSummaryEntryChars = 200
+
+// includeSnapshotDescription describes the includeSnapshot argument of the action tools.
+const includeSnapshotDescription = "When true, append a second content block with the page's ARIA snapshot " +
+	"(the get_accessibility_tree format, with element refs) taken after the action settles, cut to the response budget"
 
 // stateSummary describes the page after an action tool ran.
 type stateSummary struct {
@@ -62,24 +68,32 @@ type actionRecorder struct {
 	networkMark int
 	waitTimeout time.Duration
 
+	// includeSnapshot appends a snapshot block to the result, cut to budget.
+	includeSnapshot bool
+	budget          int
+
 	// navigation marks a navigation tool; response is its main document response.
 	navigation bool
 	response   playwright.Response
 }
 
 // startAction records the page state before an action. Call it after validation
-// and before the action runs.
-func startAction(sess *session.BrowserSession, page playwright.Page, action, target string, timeoutConfig *TimeoutConfig) *actionRecorder {
+// and before the action runs. args supplies includeSnapshot.
+func startAction(sess *session.BrowserSession, page playwright.Page, action, target string,
+	args map[string]any, timeoutConfig *TimeoutConfig, responseConfig *ResponseConfig) *actionRecorder {
 	if timeoutConfig == nil {
 		timeoutConfig = DefaultTimeoutConfig()
 	}
+	includeSnapshot, _ := args["includeSnapshot"].(bool)
 	r := &actionRecorder{
-		sess:        sess,
-		page:        page,
-		action:      action,
-		target:      target,
-		urlBefore:   page.URL(),
-		waitTimeout: timeoutConfig.Element,
+		sess:            sess,
+		page:            page,
+		action:          action,
+		target:          target,
+		urlBefore:       page.URL(),
+		waitTimeout:     timeoutConfig.Element,
+		includeSnapshot: includeSnapshot,
+		budget:          responseConfig.budget(),
 	}
 	if sess.ConsoleLogs != nil {
 		r.consoleMark = sess.ConsoleLogs.Total()
@@ -98,15 +112,43 @@ func (r *actionRecorder) navigated(resp playwright.Response) {
 
 // finish waits for the page to settle and returns the action's result: line, then
 // a newline and the state summary JSON, as text, with the summary also as
-// structured content.
+// structured content. With includeSnapshot, a second block holds the snapshot.
 func (r *actionRecorder) finish(ctx context.Context, line string) *mcp.CallToolResult {
 	summary := r.summarize(ctx)
-	data, err := json.Marshal(summary)
-	if err != nil {
+	var result *mcp.CallToolResult
+	if data, err := json.Marshal(summary); err != nil {
 		slog.Error("failed to serialize state summary", "action", r.action, "error", err)
-		return mcp.NewToolResultText(line)
+		result = mcp.NewToolResultText(line)
+	} else {
+		result = mcp.NewToolResultStructured(summary, line+"\n"+string(data))
 	}
-	return mcp.NewToolResultStructured(summary, line+"\n"+string(data))
+	if r.includeSnapshot {
+		result.Content = append(result.Content, r.snapshotBlocks(ctx)...)
+	}
+	return result
+}
+
+// snapshotBlocks takes the post-action snapshot and returns it as a content block
+// cut to the budget, followed by a notice block when it was cut. The action has
+// already succeeded, so a snapshot failure is reported in the block, not as an
+// error result.
+func (r *actionRecorder) snapshotBlocks(ctx context.Context) []mcp.Content {
+	snapshot, err := takeSnapshot(r.page, "", 0, PlaywrightTimeoutFromContext(ctx))
+	if err != nil {
+		slog.Warn("snapshot after action failed", "action", r.action, "error", err)
+		return []mcp.Content{mcp.NewTextContent("[snapshot unavailable: " + errors.FormatErrorForTool(err) + "]")}
+	}
+	if strings.TrimSpace(snapshot) == "" {
+		return []mcp.Content{mcp.NewTextContent("No accessible elements found.")}
+	}
+	total := utf8.RuneCountInString(snapshot)
+	if total <= r.budget {
+		return []mcp.Content{mcp.NewTextContent(snapshot)}
+	}
+	return []mcp.Content{
+		mcp.NewTextContent(runeSlice(snapshot, 0, r.budget)),
+		mcp.NewTextContent(fmt.Sprintf("[truncated: %d more characters; call get_accessibility_tree with offset=%d]", total-r.budget, r.budget)),
+	}
 }
 
 // summarize waits for the page to settle and builds the state summary.

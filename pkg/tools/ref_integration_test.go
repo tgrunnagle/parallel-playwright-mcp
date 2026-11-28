@@ -302,4 +302,61 @@ func TestActionStateSummaryIntegration(t *testing.T) {
 				second.NewConsoleErrors, second.FailedRequests)
 		}
 	})
+
+	t.Run("includeSnapshot", func(t *testing.T) {
+		h.mustCall("navigate", map[string]any{"url": ts.URL + "/page1"})
+		result := h.mustCall("click", map[string]any{"selector": "a", "includeSnapshot": true})
+
+		if len(result.Content) != 2 {
+			t.Fatalf("Expected 2 content blocks, got %d", len(result.Content))
+		}
+		block, ok := mcp.AsTextContent(result.Content[1])
+		if !ok {
+			t.Fatal("Expected the second block to be text")
+		}
+		// The snapshot is of the page the click navigated to.
+		refs := h.mustRefs(block.Text, "heading", "Second page", 1)
+
+		// A ref from the post-action snapshot works on the next call.
+		next := h.mustCall("click", map[string]any{"ref": refs[0]})
+		if text := extractTextContent(next.Content); !strings.HasPrefix(text, "Clicked element: ref="+refs[0]) {
+			t.Errorf("Unexpected result clicking a ref from includeSnapshot: %s", text)
+		}
+	})
+
+	t.Run("navigation tool includeSnapshot", func(t *testing.T) {
+		result := h.mustCall("navigate", map[string]any{"url": ts.URL + "/twins", "includeSnapshot": true})
+		if len(result.Content) != 2 {
+			t.Fatalf("Expected 2 content blocks, got %d", len(result.Content))
+		}
+		block, _ := mcp.AsTextContent(result.Content[1])
+		refs := h.mustRefs(block.Text, "button", "Go", 2)
+		h.mustCall("click", map[string]any{"ref": refs[0]})
+		if got := h.eval(`() => document.querySelector('button').textContent`); got != "Clicked" {
+			t.Errorf("Expected the first button clicked by its navigate-snapshot ref, got %q", got)
+		}
+	})
+}
+
+func TestAmbiguousSelectorIntegration(t *testing.T) {
+	h := newRefHarness(t)
+	ts := refTestPages(t)
+	h.mustCall("navigate", map[string]any{"url": ts.URL + "/three"})
+
+	start := time.Now()
+	result := h.call("click", map[string]any{"selector": "button", "timeout": float64(5000)})
+	elapsed := time.Since(start)
+
+	text := extractTextContent(result.Content)
+	if !result.IsError || !strings.HasPrefix(text, "[-32002] Selector matched 3 elements") {
+		t.Fatalf("Expected the multi-match error, got: %s", text)
+	}
+	for _, want := range []string{`<button> "Alpha"`, `<button> "Beta"`, `<button> "Gamma"`} {
+		if !strings.Contains(text, want) {
+			t.Errorf("Expected the error to describe %s, got: %s", want, text)
+		}
+	}
+	if elapsed > 3*time.Second {
+		t.Errorf("Expected the strict mode violation to fail fast, took %v", elapsed)
+	}
 }

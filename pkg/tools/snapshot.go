@@ -158,13 +158,17 @@ func textboxValue(line string) (ref string, valueStart int, ok bool) {
 }
 
 // multipleMatchError builds the -32002 error for a selector that matched count
-// elements, describing the first maxDescribedMatches by tag and text. When the
-// matches cannot be described, the error carries the count alone.
+// elements, describing the first maxDescribedMatches by tag and text. The
+// Playwright cause is kept only when the matches cannot be described, since it
+// repeats them at length.
 func multipleMatchError(loc playwright.Locator, selector string, count int, cause error) error {
 	var described []string
-	result, err := loc.EvaluateAll(describeMatchesJS, maxDescribedMatches)
-	if err != nil {
-		slog.Debug("could not describe selector matches", "selector", selector, "error", err)
+	var result any
+	if loc != nil {
+		var err error
+		if result, err = loc.EvaluateAll(describeMatchesJS, maxDescribedMatches); err != nil {
+			slog.Debug("could not describe selector matches", "selector", selector, "error", err)
+		}
 	}
 	if items, ok := result.([]any); ok {
 		for _, item := range items {
@@ -176,6 +180,9 @@ func multipleMatchError(loc playwright.Locator, selector string, count int, caus
 			text, _ := m["text"].(string)
 			described = append(described, fmt.Sprintf("<%s> %q", tag, cutRunes(text, maxMatchTextChars)))
 		}
+	}
+	if len(described) > 0 {
+		cause = nil
 	}
 	return errors.NewMultipleMatchError(selector, count, described, cause)
 }

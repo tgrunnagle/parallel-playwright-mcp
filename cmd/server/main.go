@@ -219,18 +219,18 @@ func run(ctx context.Context, emergencyCleanup **shutdown.EmergencyCleanup) erro
 	addTool(tools.GetLinksTool(), tools.GetLinksHandler(sessionMgr, timeoutConfig, responseConfig))
 
 	// Register navigation tools
-	addTool(tools.NavigateTool(), tools.NavigateHandler(sessionMgr, timeoutConfig))
-	addTool(tools.GoBackTool(), tools.GoBackHandler(sessionMgr, timeoutConfig))
-	addTool(tools.GoForwardTool(), tools.GoForwardHandler(sessionMgr, timeoutConfig))
-	addTool(tools.ReloadTool(), tools.ReloadHandler(sessionMgr, timeoutConfig))
+	addTool(tools.NavigateTool(), tools.NavigateHandler(sessionMgr, timeoutConfig, responseConfig))
+	addTool(tools.GoBackTool(), tools.GoBackHandler(sessionMgr, timeoutConfig, responseConfig))
+	addTool(tools.GoForwardTool(), tools.GoForwardHandler(sessionMgr, timeoutConfig, responseConfig))
+	addTool(tools.ReloadTool(), tools.ReloadHandler(sessionMgr, timeoutConfig, responseConfig))
 
 	// Register interaction tools
-	addTool(tools.ClickTool(), tools.ClickHandler(sessionMgr, timeoutConfig))
-	addTool(tools.TypeTool(), tools.TypeHandler(sessionMgr, timeoutConfig))
-	addTool(tools.FillTool(), tools.FillHandler(sessionMgr, timeoutConfig))
-	addTool(tools.SelectOptionTool(), tools.SelectOptionHandler(sessionMgr, timeoutConfig))
-	addTool(tools.HoverTool(), tools.HoverHandler(sessionMgr, timeoutConfig))
-	addTool(tools.PressKeyTool(), tools.PressKeyHandler(sessionMgr, timeoutConfig))
+	addTool(tools.ClickTool(), tools.ClickHandler(sessionMgr, timeoutConfig, responseConfig))
+	addTool(tools.TypeTool(), tools.TypeHandler(sessionMgr, timeoutConfig, responseConfig))
+	addTool(tools.FillTool(), tools.FillHandler(sessionMgr, timeoutConfig, responseConfig))
+	addTool(tools.SelectOptionTool(), tools.SelectOptionHandler(sessionMgr, timeoutConfig, responseConfig))
+	addTool(tools.HoverTool(), tools.HoverHandler(sessionMgr, timeoutConfig, responseConfig))
+	addTool(tools.PressKeyTool(), tools.PressKeyHandler(sessionMgr, timeoutConfig, responseConfig))
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 

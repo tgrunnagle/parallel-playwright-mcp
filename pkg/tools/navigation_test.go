@@ -453,7 +453,7 @@ func TestNavigateHandler(t *testing.T) {
 			mgr := &mockSessionManager{
 				getSessionFunc: tt.getSessionFunc,
 			}
-			handler := NavigateHandler(mgr, DefaultTimeoutConfig())
+			handler := NavigateHandler(mgr, DefaultTimeoutConfig(), nil)
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{
@@ -588,7 +588,7 @@ func TestGoBackHandler(t *testing.T) {
 			mgr := &mockSessionManager{
 				getSessionFunc: tt.getSessionFunc,
 			}
-			handler := GoBackHandler(mgr, DefaultTimeoutConfig())
+			handler := GoBackHandler(mgr, DefaultTimeoutConfig(), nil)
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{
@@ -723,7 +723,7 @@ func TestGoForwardHandler(t *testing.T) {
 			mgr := &mockSessionManager{
 				getSessionFunc: tt.getSessionFunc,
 			}
-			handler := GoForwardHandler(mgr, DefaultTimeoutConfig())
+			handler := GoForwardHandler(mgr, DefaultTimeoutConfig(), nil)
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{
@@ -868,7 +868,7 @@ func TestReloadHandler(t *testing.T) {
 			mgr := &mockSessionManager{
 				getSessionFunc: tt.getSessionFunc,
 			}
-			handler := ReloadHandler(mgr, DefaultTimeoutConfig())
+			handler := ReloadHandler(mgr, DefaultTimeoutConfig(), nil)
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{
