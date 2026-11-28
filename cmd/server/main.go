@@ -12,7 +12,6 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/tgrunnagle/parallel-playwright-mcp/pkg/browser"
 	"github.com/tgrunnagle/parallel-playwright-mcp/pkg/config"
@@ -193,44 +192,13 @@ func run(ctx context.Context, emergencyCleanup **shutdown.EmergencyCleanup) erro
 	for _, name := range cfg.EnabledTools {
 		enabledSet[name] = true
 	}
-	addTool := func(tool mcp.Tool, handler server.ToolHandlerFunc) {
-		if len(enabledSet) > 0 && !enabledSet[tool.Name] {
-			slog.Debug("tool disabled by configuration", "tool", tool.Name)
-			return
+	for _, st := range tools.Registry(sessionMgr, timeoutConfig, responseConfig) {
+		if len(enabledSet) > 0 && !enabledSet[st.Tool.Name] {
+			slog.Debug("tool disabled by configuration", "tool", st.Tool.Name)
+			continue
 		}
-		mcpServer.AddTool(tool, handler)
+		mcpServer.AddTool(st.Tool, st.Handler)
 	}
-
-	// Register session management tools
-	addTool(tools.SessionCreateTool(), tools.SessionCreateHandler(sessionMgr, timeoutConfig))
-	addTool(tools.SessionListTool(), tools.SessionListHandler(sessionMgr, timeoutConfig))
-	addTool(tools.SessionCloseTool(), tools.SessionCloseHandler(sessionMgr, timeoutConfig))
-
-	// Register inspection tools
-	addTool(tools.GetConsoleLogsTool(), tools.GetConsoleLogsHandler(sessionMgr, timeoutConfig, responseConfig))
-	addTool(tools.GetNetworkLogsTool(), tools.GetNetworkLogsHandler(sessionMgr, timeoutConfig, responseConfig))
-	addTool(tools.ScreenshotTool(), tools.ScreenshotHandler(sessionMgr, timeoutConfig))
-	addTool(tools.ExtractTextTool(), tools.ExtractTextHandler(sessionMgr, timeoutConfig, responseConfig))
-	addTool(tools.GetHTMLTool(), tools.GetHTMLHandler(sessionMgr, timeoutConfig, responseConfig))
-	addTool(tools.EvaluateTool(), tools.EvaluateHandler(sessionMgr, timeoutConfig, responseConfig))
-	addTool(tools.QuerySelectorTool(), tools.QuerySelectorHandler(sessionMgr, timeoutConfig, responseConfig))
-	addTool(tools.GetAccessibilityTreeTool(), tools.GetAccessibilityTreeHandler(sessionMgr, timeoutConfig, responseConfig))
-	addTool(tools.NavigateAndExtractTextTool(), tools.NavigateAndExtractTextHandler(sessionMgr, timeoutConfig, responseConfig))
-	addTool(tools.GetLinksTool(), tools.GetLinksHandler(sessionMgr, timeoutConfig, responseConfig))
-
-	// Register navigation tools
-	addTool(tools.NavigateTool(), tools.NavigateHandler(sessionMgr, timeoutConfig, responseConfig))
-	addTool(tools.GoBackTool(), tools.GoBackHandler(sessionMgr, timeoutConfig, responseConfig))
-	addTool(tools.GoForwardTool(), tools.GoForwardHandler(sessionMgr, timeoutConfig, responseConfig))
-	addTool(tools.ReloadTool(), tools.ReloadHandler(sessionMgr, timeoutConfig, responseConfig))
-
-	// Register interaction tools
-	addTool(tools.ClickTool(), tools.ClickHandler(sessionMgr, timeoutConfig, responseConfig))
-	addTool(tools.TypeTool(), tools.TypeHandler(sessionMgr, timeoutConfig, responseConfig))
-	addTool(tools.FillTool(), tools.FillHandler(sessionMgr, timeoutConfig, responseConfig))
-	addTool(tools.SelectOptionTool(), tools.SelectOptionHandler(sessionMgr, timeoutConfig, responseConfig))
-	addTool(tools.HoverTool(), tools.HoverHandler(sessionMgr, timeoutConfig, responseConfig))
-	addTool(tools.PressKeyTool(), tools.PressKeyHandler(sessionMgr, timeoutConfig, responseConfig))
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 

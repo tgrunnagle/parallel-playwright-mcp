@@ -359,13 +359,30 @@ type BrowserStats struct {
 
 > **Note:** All tools except `session_create` and `session_list` require `sessionId` parameter.
 
+Every tool takes an optional `timeout` in milliseconds. Its default is the server's timeout for the tool's category (`session.timeout` in config): navigation (30000) for `navigate`, `go_back`, `go_forward`, `reload`, `get_links`, and `navigate_and_extract_text`; element (5000) for the interaction tools, `extract_text`, `get_html`, and `query_selector`; script (30000) for `evaluate`; and default (30000) for the rest. Each tool's `timeout` description names its category.
+
+**Annotations.** Every tool sets all four MCP annotation hints explicitly, since mcp-go defaults a tool to destructive and open-world. Clients may use them to decide what to auto-approve; tools that can submit forms or trigger page actions stay destructive.
+
+| Tools | readOnly | destructive | idempotent | openWorld |
+|---|---|---|---|---|
+| `get_console_logs`, `get_network_logs`, `session_list` | true | false | false | false |
+| `screenshot`, `extract_text`, `get_html`, `query_selector`, `get_accessibility_tree` | true | false | false | true |
+| `session_create` | false | false | false | false |
+| `navigate`, `go_back`, `go_forward`, `reload`, `navigate_and_extract_text`, `get_links`, `hover` | false | false | false | true |
+| `click`, `type`, `fill`, `select_option`, `press_key`, `evaluate` | false | true | false | true |
+| `session_close` | false | true | true | false |
+
+`destructiveHint` and `idempotentHint` mean nothing for a read-only tool, so read-only tools set them to false rather than leaving mcp-go's destructive default.
+
+**Selectors.** Every `selector` parameter goes through `page.Locator`, so all tools accept the same syntax: `role=button[name="Save"]` (recommended), `text=Sign in`, CSS, and XPath. The inspection tools that take a selector (`screenshot`, `extract_text`, `get_html`, `navigate_and_extract_text`, and `query_selector` without `all`) count matches first and return `[-32002]` at once when there are none, then act on the first match.
+
 ### 5.1 Session Management Tools
 
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
-| `session_create` | Create new browser session | `browserType`, `headless`, `viewport` (all optional) |
-| `session_close` | Close a browser session | `sessionId`* |
-| `session_list` | List active sessions | - |
+| `session_create` | Create new browser session | `browserType`, `headless`, `viewport` (all optional), `timeout` |
+| `session_close` | Close a browser session | `sessionId`*, `timeout` |
+| `session_list` | List active sessions | `timeout` |
 
 *Required parameter
 
@@ -374,20 +391,20 @@ type BrowserStats struct {
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
 | `navigate` | Navigate to URL | `sessionId`*, `url`*, `waitUntil`, `timeout`, `includeSnapshot` |
-| `go_back` | Go back in history | `sessionId`*, `includeSnapshot` |
-| `go_forward` | Go forward in history | `sessionId`*, `includeSnapshot` |
-| `reload` | Reload current page | `sessionId`*, `waitUntil`, `includeSnapshot` |
+| `go_back` | Go back in history | `sessionId`*, `includeSnapshot`, `timeout` |
+| `go_forward` | Go forward in history | `sessionId`*, `includeSnapshot`, `timeout` |
+| `reload` | Reload current page | `sessionId`*, `waitUntil`, `includeSnapshot`, `timeout` |
 
 ### 5.3 Interaction Tools
 
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
-| `click` | Click an element | `sessionId`*, `selector`† or `ref`†, `button`, `clickCount`, `includeSnapshot` |
-| `type` | Type text with keystrokes | `sessionId`*, `selector`† or `ref`†, `text`*, `delay`, `includeSnapshot` |
-| `fill` | Fill input field (fast) | `sessionId`*, `selector`† or `ref`†, `value`*, `includeSnapshot` |
-| `select_option` | Select dropdown option | `sessionId`*, `selector`† or `ref`†, `value`*, `includeSnapshot` |
-| `hover` | Hover over element | `sessionId`*, `selector`† or `ref`†, `includeSnapshot` |
-| `press_key` | Press keyboard key | `sessionId`*, `key`*, `selector` or `ref` (optional), `modifiers`, `includeSnapshot` |
+| `click` | Click an element | `sessionId`*, `selector`† or `ref`†, `button`, `clickCount`, `includeSnapshot`, `timeout` |
+| `type` | Type text with keystrokes | `sessionId`*, `selector`† or `ref`†, `text`*, `delay`, `includeSnapshot`, `timeout` |
+| `fill` | Fill input field (fast) | `sessionId`*, `selector`† or `ref`†, `value`*, `includeSnapshot`, `timeout` |
+| `select_option` | Select dropdown option | `sessionId`*, `selector`† or `ref`†, `value`*, `includeSnapshot`, `timeout` |
+| `hover` | Hover over element | `sessionId`*, `selector`† or `ref`†, `includeSnapshot`, `timeout` |
+| `press_key` | Press keyboard key | `sessionId`*, `key`*, `selector` or `ref` (optional), `modifiers`, `includeSnapshot`, `timeout` |
 
 †Exactly one of `selector` and `ref` is required. JSON Schema cannot express this through mcp-go's builders, so the tool descriptions state it and the handlers enforce it: both or neither returns `[-32602]` naming both parameters. `press_key` takes at most one; with neither, the key goes to the page.
 
@@ -412,16 +429,16 @@ With `includeSnapshot: true`, the result appends a second content block holding 
 
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
-| `screenshot` | Capture PNG screenshot | `sessionId`*, `fullPage`, `selector` |
-| `extract_text` | Extract visible text as markdown, with form controls as inline tokens | `sessionId`*, `selector` (optional), `maxChars`, `offset` |
-| `navigate_and_extract_text` | Navigate to a URL and extract visible text as markdown (no session required) | `url`*, `waitUntil`, `selector`, `browserType`, `maxChars`, `offset` |
-| `get_html` | Get page HTML source | `sessionId`*, `selector` (optional), `outer`, `maxChars`, `offset` |
-| `get_accessibility_tree` | Get an ARIA snapshot with element refs | `sessionId`*, `selector`, `depth`, `maxChars`, `offset` |
-| `evaluate` | Execute JavaScript | `sessionId`*, `expression`*, `maxChars` |
-| `query_selector` | Query element info | `sessionId`*, `selector`*, `all`, `limit`, `offset` |
+| `screenshot` | Capture PNG screenshot | `sessionId`*, `fullPage`, `selector`, `timeout` |
+| `extract_text` | Extract visible text as markdown, with form controls as inline tokens | `sessionId`*, `selector` (optional), `maxChars`, `offset`, `timeout` |
+| `navigate_and_extract_text` | Navigate to a URL and extract visible text as markdown (no session required) | `url`*, `waitUntil`, `selector`, `browserType`, `maxChars`, `offset`, `timeout` |
+| `get_html` | Get page HTML source | `sessionId`*, `selector` (optional), `outer`, `maxChars`, `offset`, `timeout` |
+| `get_accessibility_tree` | Get an ARIA snapshot with element refs | `sessionId`*, `selector`, `depth`, `maxChars`, `offset`, `timeout` |
+| `evaluate` | Execute JavaScript | `sessionId`*, `expression`*, `maxChars`, `timeout` |
+| `query_selector` | Query element info | `sessionId`*, `selector`*, `all`, `limit`, `offset`, `timeout` |
 | `get_links` | Get hyperlinks with IDs and labels | `sessionId`*, `url`, `waitUntil`, `timeout`, `limit`, `offset` |
-| `get_console_logs` | Get captured console messages | `sessionId`*, `level`, `limit`, `offset` |
-| `get_network_logs` | Get captured network requests | `sessionId`*, `limit`, `offset`, `filter` |
+| `get_console_logs` | Get captured console messages | `sessionId`*, `level`, `limit`, `offset`, `timeout` |
+| `get_network_logs` | Get captured network requests | `sessionId`*, `limit`, `offset`, `filter`, `timeout` |
 
 **ARIA snapshot.** `get_accessibility_tree` returns Playwright's AI-mode ARIA snapshot (`Page.AriaSnapshot` with `Mode: AriaSnapshotModeAi`): a compact YAML tree with one line per element, carrying its role, accessible name, states, ref, and form value.
 

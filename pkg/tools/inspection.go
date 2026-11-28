@@ -22,7 +22,11 @@ import (
 // GetConsoleLogsTool returns the get_console_logs MCP tool definition.
 func GetConsoleLogsTool() mcp.Tool {
 	return mcp.NewTool("get_console_logs",
-		mcp.WithDescription("Retrieve browser console log messages from a session"),
+		readOnlyLocalHints.option(),
+		timeoutParam(TimeoutDefault),
+		mcp.WithDescription("Return console messages logged by the session's pages as a JSON array of level, text, and timestamp, optionally filtered by level. "+
+			"Use it to debug script errors and log output; get_network_logs covers requests and responses. "+
+			"Only the most recent 100 messages are kept."),
 		mcp.WithString("sessionId",
 			mcp.Required(),
 			mcp.Description("Browser session ID"),
@@ -105,7 +109,11 @@ func GetConsoleLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *Tim
 // ScreenshotTool returns the screenshot MCP tool definition.
 func ScreenshotTool() mcp.Tool {
 	return mcp.NewTool("screenshot",
-		mcp.WithDescription("Capture a PNG screenshot of the page or element"),
+		readOnlyPageHints.option(),
+		timeoutParam(TimeoutDefault),
+		mcp.WithDescription("Capture a PNG image of the viewport, the full page, a clip region, or one element. "+
+			"Use it when layout or visuals matter; extract_text and get_accessibility_tree read content in far fewer tokens. "+
+			"A selector matching nothing fails at once with [-32002]."),
 		mcp.WithString("sessionId",
 			mcp.Required(),
 			mcp.Description("Browser session ID"),
@@ -114,7 +122,7 @@ func ScreenshotTool() mcp.Tool {
 			mcp.Description("Capture full scrollable page (default: false)"),
 		),
 		mcp.WithString("selector",
-			mcp.Description("CSS selector to capture specific element"),
+			mcp.Description("Element to capture instead of the page; the first match is used. "+selectorSyntaxDescription),
 		),
 		mcp.WithObject("viewport",
 			mcp.Description("Clip region to capture (x, y, width, height in pixels)"),
@@ -178,13 +186,11 @@ func ScreenshotHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeout
 		selector := req.GetString("selector", "")
 		if selector != "" {
 			// Element-specific screenshot
-			element, err := page.QuerySelector(selector)
+			element, err := firstMatch(page, selector, PlaywrightTimeoutFromContext(ctx))
 			if err != nil {
-				return errorResult(errors.WrapElementNotFoundError("", 0, err)), nil
+				return errorResult(err), nil
 			}
-			if element == nil {
-				return errorResult(errors.NewElementNotFoundError(selector, 0)), nil
-			}
+			defer element.Dispose()
 
 			screenshotBytes, err := element.Screenshot()
 			if err != nil {
@@ -292,13 +298,17 @@ func parseClipRegion(vp map[string]any) *playwright.Rect {
 // ExtractTextTool returns the extract_text MCP tool definition.
 func ExtractTextTool() mcp.Tool {
 	return mcp.NewTool("extract_text",
-		mcp.WithDescription("Extract visible text from page as markdown"),
+		readOnlyPageHints.option(),
+		timeoutParam(TimeoutElement),
+		mcp.WithDescription("Return the page's visible text as markdown, with headings, links, lists, tables, and form controls as tokens such as [textbox \"Email\": a@b.c]; secret values such as passwords are never included. "+
+			"Use it to read content; use get_accessibility_tree to find elements to act on. "+
+			"Output over the response budget is cut; read the rest with offset."),
 		mcp.WithString("sessionId",
 			mcp.Required(),
 			mcp.Description("Browser session ID"),
 		),
 		mcp.WithString("selector",
-			mcp.Description("CSS selector to extract from (defaults to body)"),
+			mcp.Description("Element to extract from (default: body); the first match is used. "+selectorSyntaxDescription),
 		),
 		mcp.WithNumber("maxChars",
 			mcp.Description("Maximum characters to return (default and upper bound: the server's response budget)"),
@@ -348,26 +358,12 @@ func ExtractTextHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeou
 			return noActivePageResult(), nil
 		}
 
-		// Get selector or default to body
-		selector := req.GetString("selector", "body")
-
-		// Execute JavaScript to extract visible text as markdown
-		result, err := page.Evaluate(extractTextAsMarkdownJS, selector)
-		if err != nil {
-			return internalErrorResult("Failed to extract text: %v", err), nil
+		// Extract from the selector's first match, or from the body
+		text, errResult := extractMarkdown(page, req.GetString("selector", "body"), PlaywrightTimeoutFromContext(ctx))
+		if errResult != nil {
+			return errResult, nil
 		}
 
-		// Check if element was found (JavaScript returns null if selector doesn't match)
-		if result == nil {
-			return errorResult(errors.NewElementNotFoundError(selector, 0)), nil
-		}
-
-		text, ok := result.(string)
-		if !ok {
-			return internalErrorResult("Failed to extract text: unexpected result type"), nil
-		}
-
-		text = strings.TrimSpace(text)
 		// An empty page reports itself only on the first call; at a non-zero offset
 		// it falls through so the caller gets the usual end-of-content notice.
 		if text == "" && offset == 0 {
@@ -378,8 +374,31 @@ func ExtractTextHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeou
 	}
 }
 
+// extractMarkdown renders the first element selector matches as markdown, with
+// surrounding whitespace trimmed. A selector matching nothing fails at once with
+// [-32002]; any failure comes back as an error result.
+func extractMarkdown(page playwright.Page, selector string, timeout *float64) (string, *mcp.CallToolResult) {
+	element, err := firstMatch(page, selector, timeout)
+	if err != nil {
+		return "", errorResult(err)
+	}
+	defer element.Dispose()
+
+	result, err := element.Evaluate(extractTextAsMarkdownJS, nil)
+	if err != nil {
+		return "", internalErrorResult("Failed to extract text: %v", err)
+	}
+	text, ok := result.(string)
+	if !ok {
+		return "", internalErrorResult("Failed to extract text: unexpected result type")
+	}
+	return strings.TrimSpace(text), nil
+}
+
 // extractTextAsMarkdownJS is the JavaScript code that extracts visible text from the DOM
-// and formats it as markdown. Shared by extract_text and navigate_and_extract_text.
+// and formats it as markdown. It is evaluated on the element to extract from, which
+// it receives as its argument. Shared by extract_text and navigate_and_extract_text
+// through extractMarkdown.
 //
 // Relative link and image URLs are resolved against the page, so they come out
 // absolute; absolute URLs are kept as written.
@@ -393,7 +412,7 @@ func ExtractTextHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeou
 // is masked with -webkit-text-security. Open shadow roots are walked in
 // place of the host's light DOM, with each slot rendering its assigned nodes.
 // Iframes render as an [iframe "<title or src>"] placeholder without their content.
-const extractTextAsMarkdownJS = `(selector) => {
+const extractTextAsMarkdownJS = `(el) => {
 	const BT = String.fromCharCode(96);
 	const SKIP = new Set(['script','style','noscript','svg','template','meta','link']);
 	const TEXTBOX_TYPES = new Set(['text','email','search','tel','url']);
@@ -693,9 +712,6 @@ const extractTextAsMarkdownJS = `(selector) => {
 		}
 	}
 
-	const el = document.querySelector(selector);
-	if (!el) return null;
-
 	// Tidy whitespace outside code blocks: collapse runs of spaces and trim each
 	// line, so whitespace-only lines collapse with the surrounding blank lines. Code
 	// blocks are the sentinel-delimited segments and keep their text as written. A
@@ -728,13 +744,17 @@ const extractTextAsMarkdownJS = `(selector) => {
 // GetHTMLTool returns the get_html MCP tool definition.
 func GetHTMLTool() mcp.Tool {
 	return mcp.NewTool("get_html",
-		mcp.WithDescription("Get HTML source of page or element"),
+		readOnlyPageHints.option(),
+		timeoutParam(TimeoutElement),
+		mcp.WithDescription("Return the HTML of the page, or of the first element a selector matches (innerHTML, or outerHTML with outer). "+
+			"Use it when markup or attributes matter; extract_text is far shorter for reading content. "+
+			"Output over the response budget is cut; read the rest with offset."),
 		mcp.WithString("sessionId",
 			mcp.Required(),
 			mcp.Description("Browser session ID"),
 		),
 		mcp.WithString("selector",
-			mcp.Description("CSS selector (defaults to entire page)"),
+			mcp.Description("Element whose HTML to return (default: the entire page); the first match is used. "+selectorSyntaxDescription),
 		),
 		mcp.WithBoolean("outer",
 			mcp.Description("Return outerHTML instead of innerHTML (default: false)"),
@@ -807,13 +827,11 @@ func GetHTMLHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCon
 			}
 		} else {
 			// Get element HTML
-			element, err := page.QuerySelector(selector)
+			element, err := firstMatch(page, selector, PlaywrightTimeoutFromContext(ctx))
 			if err != nil {
-				return errorResult(errors.WrapElementNotFoundError("", 0, err)), nil
+				return errorResult(err), nil
 			}
-			if element == nil {
-				return errorResult(errors.NewElementNotFoundError(selector, 0)), nil
-			}
+			defer element.Dispose()
 
 			if outer {
 				// Get outerHTML
@@ -838,7 +856,11 @@ func GetHTMLHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCon
 // EvaluateTool returns the evaluate MCP tool definition.
 func EvaluateTool() mcp.Tool {
 	return mcp.NewTool("evaluate",
-		mcp.WithDescription("Execute JavaScript expression in page context"),
+		pageActionHints.option(),
+		timeoutParam(TimeoutScript),
+		mcp.WithDescription("Run a JavaScript expression in the page and return its result as JSON. "+
+			"Use it as a last resort, when no other tool can do what you need: extract_text, get_html, and query_selector cover most reads, and the interaction tools cover actions. "+
+			"The expression can change the page, and a result over the response budget is cut, not paged."),
 		mcp.WithString("sessionId",
 			mcp.Required(),
 			mcp.Description("Browser session ID"),
@@ -969,14 +991,18 @@ type BoundingBox struct {
 // QuerySelectorTool returns the query_selector MCP tool definition.
 func QuerySelectorTool() mcp.Tool {
 	return mcp.NewTool("query_selector",
-		mcp.WithDescription("Query element info by CSS selector"),
+		readOnlyPageHints.option(),
+		timeoutParam(TimeoutElement),
+		mcp.WithDescription("Return the tag, attributes, text (first 500 characters), and bounding box of the first element a selector matches, or of every match with all. "+
+			"Use it to inspect particular elements' attributes or positions; use get_accessibility_tree to find elements to act on, or extract_text to read content. "+
+			"Without all, a selector matching nothing fails at once with [-32002]."),
 		mcp.WithString("sessionId",
 			mcp.Required(),
 			mcp.Description("Browser session ID"),
 		),
 		mcp.WithString("selector",
 			mcp.Required(),
-			mcp.Description("CSS selector to query"),
+			mcp.Description("Elements to describe; without all, the first match. "+selectorSyntaxDescription),
 		),
 		mcp.WithBoolean("all",
 			mcp.Description("Return all matching elements (default: false, first match only)"),
@@ -1048,10 +1074,15 @@ func QuerySelectorHandler(mgr session.BrowserSessionManager, timeoutConfig *Time
 
 		if all {
 			// Query all matching elements
-			elements, err := page.QuerySelectorAll(selector)
+			elements, err := page.Locator(selector).ElementHandles()
 			if err != nil {
 				return internalErrorResult("Failed to query elements: %v", err), nil
 			}
+			defer func() {
+				for _, elem := range elements {
+					_ = elem.Dispose()
+				}
+			}()
 
 			infos := make([]ElementInfo, 0, len(elements))
 			for i, elem := range elements {
@@ -1074,13 +1105,11 @@ func QuerySelectorHandler(mgr session.BrowserSessionManager, timeoutConfig *Time
 		}
 
 		// Query single element
-		element, err := page.QuerySelector(selector)
+		element, err := firstMatch(page, selector, PlaywrightTimeoutFromContext(ctx))
 		if err != nil {
-			return errorResult(errors.WrapElementNotFoundError("", 0, err)), nil
+			return errorResult(err), nil
 		}
-		if element == nil {
-			return errorResult(errors.NewElementNotFoundError(selector, 0)), nil
-		}
+		defer element.Dispose()
 
 		info, err := extractElementInfo(element)
 		if err != nil {
@@ -1150,24 +1179,27 @@ func extractElementInfo(element playwright.ElementHandle) (*ElementInfo, error) 
 	return info, nil
 }
 
-// snapshotRefsDescription explains element refs; tool descriptions that return or
-// accept refs share it.
-const snapshotRefsDescription = "Each element carries a ref like [ref=e3], or [ref=f1e2] inside an iframe or a document loaded after the first. " +
-	"Pass a ref as the ref argument of click, type, fill, select_option, hover, or press_key to act on exactly that element. " +
-	"Refs stay the same while the document is unchanged and go stale when the page navigates; a stale ref fails at once with 'Stale element ref', so take a new snapshot."
+// snapshotRefsDescription explains element refs in one sentence; tool
+// descriptions that return or accept refs share it.
+const snapshotRefsDescription = "Each element carries a ref such as [ref=e3] ([ref=f1e2] inside an iframe or a document loaded after the first) " +
+	"to pass as the ref argument of click, type, fill, select_option, hover, or press_key; refs stay the same while the document is unchanged " +
+	"and go stale when the page navigates, failing at once with 'Stale element ref', so take a new snapshot."
 
 // GetAccessibilityTreeTool returns the get_accessibility_tree MCP tool definition.
 func GetAccessibilityTreeTool() mcp.Tool {
 	return mcp.NewTool("get_accessibility_tree",
-		mcp.WithDescription("Get an ARIA snapshot of the page: a compact YAML tree of roles, accessible names, states such as [checked], and form values (password values show as •••). "+
-			snapshotRefsDescription+
-			" Content hidden with display:none or visibility:hidden is left out; content that is on screen but aria-hidden is kept."),
+		readOnlyPageHints.option(),
+		timeoutParam(TimeoutDefault),
+		mcp.WithDescription("Get an ARIA snapshot of the page: a compact YAML tree of roles, accessible names, states such as [checked], and form values (password values show as •••), "+
+			"leaving out content hidden with display:none or visibility:hidden but keeping on-screen aria-hidden content. "+
+			"Use it to find elements to act on; use extract_text to read the page's content, and screenshot when visuals matter. "+
+			snapshotRefsDescription),
 		mcp.WithString("sessionId",
 			mcp.Required(),
 			mcp.Description("Browser session ID"),
 		),
 		mcp.WithString("selector",
-			mcp.Description("Playwright selector (CSS, XPath, or text) matching exactly one element to snapshot instead of the whole page"),
+			mcp.Description("Element to snapshot instead of the whole page; it must match exactly one element. "+selectorSyntaxDescription),
 		),
 		mcp.WithNumber("depth",
 			mcp.Description("Maximum depth of the tree (default: unlimited)"),
@@ -1251,7 +1283,11 @@ type LinkInfo struct {
 // GetLinksTool returns the get_links MCP tool definition.
 func GetLinksTool() mcp.Tool {
 	return mcp.NewTool("get_links",
-		mcp.WithDescription("Get all hyperlinks from the page with their IDs and labels"),
+		pageChangeHints.option(),
+		timeoutParam(TimeoutNavigation),
+		mcp.WithDescription("Return the page's hyperlinks as a JSON array of href, label, and id, optionally navigating to url first. "+
+			"Use it to choose where to go next; extract_text shows the same links in the context of the surrounding text. "+
+			"Passing url navigates the session's active page, as navigate does."),
 		mcp.WithString("sessionId",
 			mcp.Required(),
 			mcp.Description("Browser session ID"),
@@ -1262,9 +1298,6 @@ func GetLinksTool() mcp.Tool {
 		mcp.WithString("waitUntil",
 			mcp.Enum("load", "domcontentloaded", "networkidle"),
 			mcp.Description("Wait condition for navigation (default: load)"),
-		),
-		mcp.WithNumber("timeout",
-			mcp.Description("Navigation timeout in milliseconds"),
 		),
 		mcp.WithNumber("limit",
 			mcp.Description("Maximum number of links to return (default: 50)"),
@@ -1362,7 +1395,11 @@ const getLinksJS = `() => {
 // NavigateAndExtractTextTool returns the navigate_and_extract_text MCP tool definition.
 func NavigateAndExtractTextTool() mcp.Tool {
 	return mcp.NewTool("navigate_and_extract_text",
-		mcp.WithDescription("Navigate to URL and extract visible text as markdown (creates temporary session)"),
+		pageChangeHints.option(),
+		timeoutParam(TimeoutNavigation),
+		mcp.WithDescription("Open a URL in a temporary browser session, return its visible text as markdown in the extract_text format, and close the session. "+
+			"Use it for a one-off read with no session to manage; use session_create, navigate, and extract_text to interact with a page, stay signed in, or read several pages. "+
+			"Each call starts fresh, without the cookies of earlier calls."),
 		mcp.WithString("url",
 			mcp.Required(),
 			mcp.Description("URL to navigate to"),
@@ -1372,7 +1409,7 @@ func NavigateAndExtractTextTool() mcp.Tool {
 			mcp.Enum("load", "domcontentloaded", "networkidle"),
 		),
 		mcp.WithString("selector",
-			mcp.Description("CSS selector to extract from (defaults to body)"),
+			mcp.Description("Element to extract from (default: body); the first match is used. "+selectorSyntaxDescription),
 		),
 		mcp.WithString("browserType",
 			mcp.Description("Browser to use: chromium, firefox, webkit"),
@@ -1452,8 +1489,9 @@ func NavigateAndExtractTextHandler(mgr session.BrowserSessionManager, timeoutCon
 			return internalErrorResult("no active page in temporary session"), nil
 		}
 
-		// Build navigation options
-		gotoOpts := playwright.PageGotoOptions{}
+		// Build navigation options. The navigation gets what is left of the call's
+		// timeout after the temporary session was created.
+		gotoOpts := playwright.PageGotoOptions{Timeout: PlaywrightTimeoutFromContext(ctx)}
 
 		if waitUntil, ok := args["waitUntil"].(string); ok && waitUntil != "" {
 			gotoOpts.WaitUntil = mapWaitUntil(waitUntil)
@@ -1471,26 +1509,12 @@ func NavigateAndExtractTextHandler(mgr session.BrowserSessionManager, timeoutCon
 				errors.WrapNavigationError(url, "", err))), nil
 		}
 
-		// Get selector or default to body
-		selector := req.GetString("selector", "body")
-
-		// Execute JavaScript to extract visible text as markdown
-		result, err := page.Evaluate(extractTextAsMarkdownJS, selector)
-		if err != nil {
-			return internalErrorResult("Failed to extract text: %v", err), nil
+		// Extract from the selector's first match, or from the body
+		text, errResult := extractMarkdown(page, req.GetString("selector", "body"), PlaywrightTimeoutFromContext(ctx))
+		if errResult != nil {
+			return errResult, nil
 		}
 
-		// Check if element was found (JavaScript returns null if selector doesn't match)
-		if result == nil {
-			return errorResult(errors.NewElementNotFoundError(selector, 0)), nil
-		}
-
-		text, ok := result.(string)
-		if !ok {
-			return internalErrorResult("Failed to extract text: unexpected result type"), nil
-		}
-
-		text = strings.TrimSpace(text)
 		// An empty page reports itself only on the first call; at a non-zero offset
 		// it falls through so the caller gets the usual end-of-content notice.
 		if text == "" && offset == 0 {

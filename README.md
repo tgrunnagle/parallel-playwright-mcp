@@ -79,7 +79,20 @@ go build -o bin/playwright-mcp-server ./cmd/server
 | `hover` | Hover over an element |
 | `press_key` | Press a keyboard key or key combination |
 
-Interaction tools take exactly one of `selector` (a CSS, XPath, or text selector) or `ref` (an element ref from a snapshot; `press_key` takes at most one).
+Interaction tools take exactly one of `selector` or `ref` (an element ref from a snapshot; `press_key` takes at most one).
+
+### Selectors
+
+Every `selector` parameter, on the interaction and inspection tools alike, takes Playwright selector syntax:
+
+| Form | Example |
+|------|---------|
+| Role and accessible name (recommended) | `role=button[name="Save"]` |
+| Visible text | `text=Sign in` |
+| CSS | `#email`, `.item > a` |
+| XPath | `//h1`, `xpath=//main//p` |
+
+`screenshot`, `extract_text`, `get_html`, `navigate_and_extract_text`, and `query_selector` without `all` act on the first match, and a selector matching nothing returns `[-32002]` at once instead of waiting for the element timeout. `query_selector` with `all` returns every match, or an empty list. `get_accessibility_tree` needs a selector that matches exactly one element.
 
 ### Acting on refs
 
@@ -118,14 +131,14 @@ Refs go stale when the page navigates: the new document's refs get a new prefix 
 | `extract_text` | Extract visible text from the page as markdown, including form controls as `[textbox "Email": a@b.c]` tokens |
 | `get_html` | Get HTML source of the page or an element |
 | `evaluate` | Execute a JavaScript expression in the page context |
-| `query_selector` | Query element info by CSS selector |
+| `query_selector` | Query element info (tag, attributes, text, bounding box) by selector |
 | `get_accessibility_tree` | Get an ARIA snapshot of the page, or of one element by `selector`, with element refs for the interaction tools |
 | `get_links` | Get all hyperlinks from the page with IDs and labels |
 | `get_console_logs` | Retrieve browser console log messages |
 | `get_network_logs` | Retrieve captured network request/response logs |
 | `navigate_and_extract_text` | Navigate to a URL and extract visible text as markdown (creates a temporary session) |
 
-Tools can be restricted at startup with the `enabled_tools` config option or `MCP_ENABLED_TOOLS` environment variable.
+Tools can be restricted at startup with the `enabled_tools` config option or `MCP_ENABLED_TOOLS` environment variable. Every tool takes an optional `timeout` in milliseconds and sets the MCP annotation hints (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`); the tools that can submit forms or run scripts are marked destructive.
 
 #### Response budget and pagination
 

@@ -33,7 +33,10 @@ A Playwright MCP (Model Context Protocol) server implemented in Go that supports
 | [session.go](pkg/tools/session.go) | `session_create`, `session_list`, `session_close` |
 | [navigation.go](pkg/tools/navigation.go) | `navigate`, `go_back`, `go_forward`, `reload` |
 | [interaction.go](pkg/tools/interaction.go) | `click`, `type`, `fill`, `select_option`, `hover`, `press_key` |
-| [inspection.go](pkg/tools/inspection.go) | `get_console_logs` |
+| [inspection.go](pkg/tools/inspection.go) | `get_console_logs`, `screenshot`, `extract_text`, `get_html`, `evaluate`, `query_selector`, `get_accessibility_tree`, `get_links`, `navigate_and_extract_text` |
+| [network.go](pkg/tools/network.go) | `get_network_logs` |
+
+[registry.go](pkg/tools/registry.go) holds `Registry`, which pairs every tool with its handler and is what `main.go` registers, and `AllToolNames`, which config validation uses. A new tool goes in both; `TestAllToolNamesMatchesRegistry` checks they agree. Every tool sets all four annotation hints ([annotations.go](pkg/tools/annotations.go)) and declares `timeout` through `timeoutParam`.
 
 ### Infrastructure
 

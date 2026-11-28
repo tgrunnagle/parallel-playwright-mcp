@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -1064,6 +1065,31 @@ func TestLoadConfig(t *testing.T) {
 		}
 		if cfg.Tools.MaxResponseChars != 500 {
 			t.Errorf("Tools.MaxResponseChars = %d, want 500", cfg.Tools.MaxResponseChars)
+		}
+	})
+
+	t.Run("yaml enables get_links", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		if err := os.WriteFile(path, []byte("enabled_tools: [session_create, get_links]\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := Load(path)
+		if err != nil {
+			t.Fatalf("Load() error = %v", err)
+		}
+		if want := []string{"session_create", "get_links"}; !reflect.DeepEqual(cfg.EnabledTools, want) {
+			t.Errorf("EnabledTools = %v, want %v", cfg.EnabledTools, want)
+		}
+	})
+
+	t.Run("env enables get_links", func(t *testing.T) {
+		t.Setenv("MCP_ENABLED_TOOLS", "session_create,get_links")
+		cfg, err := Load("/nonexistent/path/config.yaml")
+		if err != nil {
+			t.Fatalf("Load() error = %v", err)
+		}
+		if want := []string{"session_create", "get_links"}; !reflect.DeepEqual(cfg.EnabledTools, want) {
+			t.Errorf("EnabledTools = %v, want %v", cfg.EnabledTools, want)
 		}
 	})
 

@@ -24,7 +24,11 @@ const (
 // SessionCreateTool returns the session_create MCP tool definition.
 func SessionCreateTool() mcp.Tool {
 	return mcp.NewTool("session_create",
-		mcp.WithDescription("Create a new isolated browser session"),
+		sessionCreateHints.option(),
+		timeoutParam(TimeoutDefault),
+		mcp.WithDescription("Create an isolated browser session, with its own cookies and storage, and return 'Created session: <id>'. "+
+			"Pass the ID as sessionId to the other tools, and close the session with session_close when done. "+
+			"For a one-off read of a single URL, navigate_and_extract_text needs no session."),
 		mcp.WithString("browserType",
 			mcp.Description("Browser engine to use (chromium, firefox, or webkit)"),
 			mcp.Enum("chromium", "firefox", "webkit"),
@@ -117,7 +121,10 @@ func SessionCreateHandler(mgr session.BrowserSessionManager, timeoutConfig *Time
 // SessionListTool returns the session_list MCP tool definition.
 func SessionListTool() mcp.Tool {
 	return mcp.NewTool("session_list",
-		mcp.WithDescription("List all active browser sessions for this connection"),
+		readOnlyLocalHints.option(),
+		timeoutParam(TimeoutDefault),
+		mcp.WithDescription("List the browser sessions this connection owns, as JSON with each session's ID, browser type, current URL, title, and creation time. "+
+			"Use it to recover a session ID; session_create starts a new session. Sessions of other connections are never listed."),
 	)
 }
 
@@ -153,7 +160,11 @@ func SessionListHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeou
 // SessionCloseTool returns the session_close MCP tool definition.
 func SessionCloseTool() mcp.Tool {
 	return mcp.NewTool("session_close",
-		mcp.WithDescription("Close a browser session and release all associated resources"),
+		sessionCloseHints.option(),
+		timeoutParam(TimeoutDefault),
+		mcp.WithDescription("Close a browser session and release its browser context, pages, and logs. "+
+			"The session ID stops working afterwards, and closing it again returns a session-not-found error. "+
+			"Use it when done with a session; navigate_and_extract_text closes its temporary session itself."),
 		mcp.WithString("sessionId",
 			mcp.Required(),
 			mcp.Description("Browser session ID to close"),

@@ -516,6 +516,29 @@ func (m *mockContentPage) Evaluate(expression string, arg ...any) (any, error) {
 	return m.evaluateFunc(expression, arg...)
 }
 
+// Locator matches one element, whose Evaluate is the page's, so the text tools,
+// which evaluate on the element they extract from, see the canned values too.
+func (m *mockContentPage) Locator(selector string, options ...playwright.PageLocatorOptions) playwright.Locator {
+	return &mockLocator{
+		countFunc: one,
+		elementHandleFunc: func() (playwright.ElementHandle, error) {
+			return &mockContentElement{page: m}, nil
+		},
+	}
+}
+
+// mockContentElement is the element a mockContentPage's locator matches.
+type mockContentElement struct {
+	playwright.ElementHandle
+	page *mockContentPage
+}
+
+func (e *mockContentElement) Evaluate(expression string, arg ...any) (any, error) {
+	return e.page.Evaluate(expression, arg...)
+}
+
+func (e *mockContentElement) Dispose() error { return nil }
+
 // sessionWithPage returns a session manager whose only session has page active.
 func sessionWithPage(page playwright.Page) *mockSessionManager {
 	return &mockSessionManager{
@@ -971,21 +994,22 @@ func (m *mockElementHandle) BoundingBox() (*playwright.Rect, error) {
 	return &playwright.Rect{X: 1, Y: 2, Width: 3, Height: 4}, nil
 }
 
-// mockQueryPage is a playwright.Page that answers QuerySelector(All) with mocks.
+func (m *mockElementHandle) Dispose() error { return nil }
+
+// mockQueryPage is a playwright.Page whose locators match its mock elements.
 type mockQueryPage struct {
 	playwright.Page
 	elements []playwright.ElementHandle
 }
 
-func (m *mockQueryPage) QuerySelector(selector string, options ...playwright.PageQuerySelectorOptions) (playwright.ElementHandle, error) {
-	if len(m.elements) == 0 {
-		return nil, nil
+func (m *mockQueryPage) Locator(selector string, options ...playwright.PageLocatorOptions) playwright.Locator {
+	return &mockLocator{
+		countFunc: func() (int, error) { return len(m.elements), nil },
+		elementHandleFunc: func() (playwright.ElementHandle, error) {
+			return m.elements[0], nil
+		},
+		elementHandlesFunc: func() ([]playwright.ElementHandle, error) { return m.elements, nil },
 	}
-	return m.elements[0], nil
-}
-
-func (m *mockQueryPage) QuerySelectorAll(selector string) ([]playwright.ElementHandle, error) {
-	return m.elements, nil
 }
 
 // testQuerySelectorPagination covers query_selector with and without all. It

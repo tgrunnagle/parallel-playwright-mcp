@@ -20,13 +20,17 @@ import (
 // Click simulates a mouse click on an element identified by selector.
 func ClickTool() mcp.Tool {
 	return mcp.NewTool("click",
-		mcp.WithDescription("Click an element on the page. Target it with exactly one of selector or ref; a ref comes from get_accessibility_tree and fails at once with 'Stale element ref' once the page has changed"),
+		pageActionHints.option(),
+		timeoutParam(TimeoutElement),
+		mcp.WithDescription("Click an element and return a state summary of the page afterwards: URL, title, whether it navigated, and new console errors and failed requests. "+
+			"Use hover to reveal a menu without activating anything, and select_option for <select> dropdowns. "+
+			targetDescription),
 		mcp.WithString("sessionId",
 			mcp.Required(),
 			mcp.Description("Browser session ID"),
 		),
 		mcp.WithString("selector",
-			mcp.Description("CSS selector, XPath, or text selector for element to click. Provide exactly one of selector or ref"),
+			mcp.Description("Element to click. Provide exactly one of selector or ref. "+selectorSyntaxDescription),
 		),
 		mcp.WithString("ref",
 			mcp.Description(refParamDescription),
@@ -37,9 +41,6 @@ func ClickTool() mcp.Tool {
 		),
 		mcp.WithNumber("clickCount",
 			mcp.Description("Number of clicks (1 for single, 2 for double)"),
-		),
-		mcp.WithNumber("timeout",
-			mcp.Description("Maximum time to wait for element in milliseconds"),
 		),
 		mcp.WithBoolean("includeSnapshot",
 			mcp.Description(includeSnapshotDescription),
@@ -102,13 +103,17 @@ func ClickHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfi
 // Type simulates typing text into an element with keystroke events.
 func TypeTool() mcp.Tool {
 	return mcp.NewTool("type",
-		mcp.WithDescription("Type text into an element with keystroke events. Target it with exactly one of selector or ref; a ref comes from get_accessibility_tree and fails at once with 'Stale element ref' once the page has changed"),
+		pageActionHints.option(),
+		timeoutParam(TimeoutElement),
+		mcp.WithDescription("Type text into an element one key at a time, firing key and input events for each character, and return a state summary. "+
+			"Use it only when the page needs keystroke events, such as autocomplete or key handlers; fill is faster for ordinary inputs. "+
+			targetDescription),
 		mcp.WithString("sessionId",
 			mcp.Required(),
 			mcp.Description("Browser session ID"),
 		),
 		mcp.WithString("selector",
-			mcp.Description("CSS selector for input element. Provide exactly one of selector or ref"),
+			mcp.Description("Input element. Provide exactly one of selector or ref. "+selectorSyntaxDescription),
 		),
 		mcp.WithString("ref",
 			mcp.Description(refParamDescription),
@@ -119,9 +124,6 @@ func TypeTool() mcp.Tool {
 		),
 		mcp.WithNumber("delay",
 			mcp.Description("Delay between keystrokes in milliseconds"),
-		),
-		mcp.WithNumber("timeout",
-			mcp.Description("Maximum time to wait for element in milliseconds"),
 		),
 		mcp.WithBoolean("includeSnapshot",
 			mcp.Description(includeSnapshotDescription),
@@ -185,13 +187,17 @@ func TypeHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig
 // Fill populates an input field with text without keystroke events.
 func FillTool() mcp.Tool {
 	return mcp.NewTool("fill",
-		mcp.WithDescription("Fill an input field with text (fast, no keystroke events). Target it with exactly one of selector or ref; a ref comes from get_accessibility_tree and fails at once with 'Stale element ref' once the page has changed"),
+		pageActionHints.option(),
+		timeoutParam(TimeoutElement),
+		mcp.WithDescription("Set the value of an input, textarea, or contenteditable element in one step and return a state summary. "+
+			"Prefer it to type for ordinary inputs; use type only when the page reacts to individual keystrokes. "+
+			targetDescription),
 		mcp.WithString("sessionId",
 			mcp.Required(),
 			mcp.Description("Browser session ID"),
 		),
 		mcp.WithString("selector",
-			mcp.Description("CSS selector for input element. Provide exactly one of selector or ref"),
+			mcp.Description("Input element. Provide exactly one of selector or ref. "+selectorSyntaxDescription),
 		),
 		mcp.WithString("ref",
 			mcp.Description(refParamDescription),
@@ -199,9 +205,6 @@ func FillTool() mcp.Tool {
 		mcp.WithString("value",
 			mcp.Required(),
 			mcp.Description("Value to fill into the input"),
-		),
-		mcp.WithNumber("timeout",
-			mcp.Description("Maximum time to wait for element in milliseconds"),
 		),
 		mcp.WithBoolean("includeSnapshot",
 			mcp.Description(includeSnapshotDescription),
@@ -262,13 +265,17 @@ func FillHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig
 // SelectOption selects an option from a dropdown/select element.
 func SelectOptionTool() mcp.Tool {
 	return mcp.NewTool("select_option",
-		mcp.WithDescription("Select an option from a dropdown/select element. Target it with exactly one of selector or ref; a ref comes from get_accessibility_tree and fails at once with 'Stale element ref' once the page has changed"),
+		pageActionHints.option(),
+		timeoutParam(TimeoutElement),
+		mcp.WithDescription("Choose an option in a <select> element by value, label, or index, and return a state summary. "+
+			"Use click instead for custom dropdowns that are not <select> elements. "+
+			targetDescription),
 		mcp.WithString("sessionId",
 			mcp.Required(),
 			mcp.Description("Browser session ID"),
 		),
 		mcp.WithString("selector",
-			mcp.Description("CSS selector for select element. Provide exactly one of selector or ref"),
+			mcp.Description("The <select> element. Provide exactly one of selector or ref. "+selectorSyntaxDescription),
 		),
 		mcp.WithString("ref",
 			mcp.Description(refParamDescription),
@@ -280,9 +287,6 @@ func SelectOptionTool() mcp.Tool {
 		mcp.WithString("selectBy",
 			mcp.Description("Selection method: value, label, or index (default: value)"),
 			mcp.Enum("value", "label", "index"),
-		),
-		mcp.WithNumber("timeout",
-			mcp.Description("Maximum time to wait for element in milliseconds"),
 		),
 		mcp.WithBoolean("includeSnapshot",
 			mcp.Description(includeSnapshotDescription),
@@ -371,19 +375,20 @@ func SelectOptionHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeo
 // Hover simulates a mouse hover over an element.
 func HoverTool() mcp.Tool {
 	return mcp.NewTool("hover",
-		mcp.WithDescription("Hover over an element. Target it with exactly one of selector or ref; a ref comes from get_accessibility_tree and fails at once with 'Stale element ref' once the page has changed"),
+		pageChangeHints.option(),
+		timeoutParam(TimeoutElement),
+		mcp.WithDescription("Move the mouse over an element, for example to open a menu or show a tooltip, and return a state summary. "+
+			"Use click to activate the element instead. "+
+			targetDescription),
 		mcp.WithString("sessionId",
 			mcp.Required(),
 			mcp.Description("Browser session ID"),
 		),
 		mcp.WithString("selector",
-			mcp.Description("CSS selector for element to hover over. Provide exactly one of selector or ref"),
+			mcp.Description("Element to hover over. Provide exactly one of selector or ref. "+selectorSyntaxDescription),
 		),
 		mcp.WithString("ref",
 			mcp.Description(refParamDescription),
-		),
-		mcp.WithNumber("timeout",
-			mcp.Description("Maximum time to wait for element in milliseconds"),
 		),
 		mcp.WithBoolean("includeSnapshot",
 			mcp.Description(includeSnapshotDescription),
@@ -441,7 +446,11 @@ func HoverHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfi
 // PressKey simulates pressing a keyboard key or key combination.
 func PressKeyTool() mcp.Tool {
 	return mcp.NewTool("press_key",
-		mcp.WithDescription("Press a keyboard key or key combination"),
+		pageActionHints.option(),
+		timeoutParam(TimeoutElement),
+		mcp.WithDescription("Press a key such as Enter, Tab, Escape, or ArrowDown, optionally holding modifiers, and return a state summary. "+
+			"Use type to enter text and fill to set a field's value. "+
+			"Focus an element first with at most one of selector or ref; with neither, the key goes to the focused element of the page."),
 		mcp.WithString("sessionId",
 			mcp.Required(),
 			mcp.Description("Browser session ID"),
@@ -451,7 +460,7 @@ func PressKeyTool() mcp.Tool {
 			mcp.Description("Key to press (e.g., 'Enter', 'Tab', 'a')"),
 		),
 		mcp.WithString("selector",
-			mcp.Description("Optional CSS selector to focus before pressing key. Give at most one of selector or ref; with neither, the key goes to the page"),
+			mcp.Description("Optional element to focus before pressing key. Give at most one of selector or ref; with neither, the key goes to the page. "+selectorSyntaxDescription),
 		),
 		mcp.WithString("ref",
 			mcp.Description("Optional element ref from get_accessibility_tree to focus before pressing key, such as e3 or f1e2"),
@@ -462,9 +471,6 @@ func PressKeyTool() mcp.Tool {
 				"type": "string",
 				"enum": []string{"Control", "Shift", "Alt", "Meta"},
 			}),
-		),
-		mcp.WithNumber("timeout",
-			mcp.Description("Maximum time to wait for element in milliseconds"),
 		),
 		mcp.WithBoolean("includeSnapshot",
 			mcp.Description(includeSnapshotDescription),
