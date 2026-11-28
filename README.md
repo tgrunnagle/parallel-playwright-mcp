@@ -106,7 +106,7 @@ Clicked element: ref=e6
 {"action":"click","target":"ref=e6","url":"http://localhost:8080/checkout","title":"Checkout","navigated":false,"newConsoleErrors":[],"failedRequests":["POST http://localhost:8080/api/cart 500"]}
 ```
 
-The summary lists console errors and failed requests (status 400 or above, or no response, with query strings removed) that appeared since the action started, at most 5 of each. Navigation tools add `httpStatus`. With `includeSnapshot: true`, a second content block holds a fresh snapshot, so the next call can use its refs without another round trip.
+The summary lists console errors and failed requests (status 400 or above, or no response, with query strings removed) that appeared since the action started, at most 5 of each; entries left out are counted under `more`. Navigation tools add `httpStatus`. With `includeSnapshot: true`, a second content block holds a fresh snapshot, so the next call can use its refs without another round trip.
 
 Refs go stale when the page navigates: the new document's refs get a new prefix such as `f2e3`. A stale ref fails at once with `[-32002] Stale element ref`; take a new snapshot. A selector that matches several elements fails with `[-32002] Selector matched <n> elements`, describing the first three.
 

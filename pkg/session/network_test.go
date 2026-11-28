@@ -1404,4 +1404,16 @@ func TestNetworkBufferSince(t *testing.T) {
 	if buf.Total() != 102 {
 		t.Errorf("Total() after Clear = %d, want 102", buf.Total())
 	}
+
+	t.Run("more new entries than capacity returns what is held", func(t *testing.T) {
+		buf := NewNetworkLogBuffer(3)
+		mark := buf.Total()
+		for _, u := range []string{"a", "b", "c", "d", "e"} {
+			buf.Add(NetworkLogEntry{URL: "http://h/" + u, Status: 500})
+		}
+		got := buf.Since(mark)
+		if len(got) != 3 || got[0].URL != "http://h/c" || got[2].URL != "http://h/e" {
+			t.Errorf("Since() = %+v, want c, d, e", got)
+		}
+	})
 }

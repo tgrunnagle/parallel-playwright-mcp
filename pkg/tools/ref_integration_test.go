@@ -4,7 +4,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -119,6 +118,28 @@ func (h *refHarness) page() playwright.Page {
 	return sess.ActivePage()
 }
 
+// waitForQuietLogs waits until the session's console and network logs have
+// stopped growing for quiet, or until timeout, so events from one action cannot
+// spill into the next action's summary on a slow runner.
+func (h *refHarness) waitForQuietLogs(quiet, timeout time.Duration) {
+	h.t.Helper()
+	sess, ok := h.mgr.GetSession("", h.sessionID)
+	if !ok {
+		h.t.Fatal("Expected the session")
+	}
+	totals := func() [2]int { return [2]int{sess.ConsoleLogs.Total(), sess.NetworkLogs.Total()} }
+	last, since := totals(), time.Now()
+	for deadline := time.Now().Add(timeout); time.Now().Before(deadline); {
+		time.Sleep(25 * time.Millisecond)
+		if now := totals(); now != last {
+			last, since = now, time.Now()
+		} else if time.Since(since) >= quiet {
+			return
+		}
+	}
+	h.t.Fatalf("Logs kept growing for %v", timeout)
+}
+
 // eval evaluates an expression on the active page.
 func (h *refHarness) eval(expression string) any {
 	h.t.Helper()
@@ -229,22 +250,6 @@ func TestStaleRefIntegration(t *testing.T) {
 	}
 }
 
-// summaryOf parses the state summary from an action result's text: the line after
-// the action line.
-func summaryOf(t *testing.T, result *mcp.CallToolResult) stateSummary {
-	t.Helper()
-	text := extractTextContent(result.Content)
-	_, rest, ok := strings.Cut(text, "\n")
-	if !ok {
-		t.Fatalf("Expected a state summary after the action line, got %q", text)
-	}
-	var summary stateSummary
-	if err := json.Unmarshal([]byte(rest), &summary); err != nil {
-		t.Fatalf("State summary is not JSON: %v\n%s", err, rest)
-	}
-	return summary
-}
-
 func TestActionStateSummaryIntegration(t *testing.T) {
 	h := newRefHarness(t)
 	ts := refTestPages(t)
@@ -296,6 +301,8 @@ func TestActionStateSummaryIntegration(t *testing.T) {
 			t.Errorf("Expected failed request %q, got %v", wantFailed, first.FailedRequests)
 		}
 
+		// Let every event from the first click land before the second starts.
+		h.waitForQuietLogs(300*time.Millisecond, 5*time.Second)
 		second := summaryOf(t, h.mustCall("click", map[string]any{"selector": "button"}))
 		if len(second.NewConsoleErrors) != 0 || len(second.FailedRequests) != 0 {
 			t.Errorf("Expected nothing new on the second click, got errors %v and requests %v",
