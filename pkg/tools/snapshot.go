@@ -73,59 +73,165 @@ func takeSnapshot(page playwright.Page, selector string, depth int, timeout *flo
 		}
 		return "", fmt.Errorf("failed to take accessibility snapshot: %w", err)
 	}
-	return redactPasswords(page, snapshot, timeout), nil
+	return redactPasswords(page, snapshot), nil
 }
+
+// passwordCheckTimeout bounds the type check of one textbox ref, in milliseconds.
+// The ref was counted first, so the element exists and the check does not wait.
+const passwordCheckTimeout = 1000
 
 // redactPasswords replaces the value of every password textbox in snapshot with
 // redactedValue. AI-mode snapshots print input values in clear text, passwords
-// included. Each textbox line with a value is resolved through its ref; when the
-// element's type cannot be read, the value is redacted anyway.
-func redactPasswords(page playwright.Page, snapshot string, timeout *float64) string {
+// included. The renderer writes a textbox value in one of two shapes:
+//
+//   - textbox "Password" [ref=e3]: hunter2
+//   - textbox "Password" [ref=e3]:
+//   - /placeholder: Enter your password
+//   - text: hunter2
+//
+// and wraps the key in single quotes when the name needs YAML quoting. Every
+// textbox with a value in either shape is resolved through its ref; when the
+// element is a password input, or its type cannot be read, the value is replaced.
+// In the block shape every child line except /property lines is replaced.
+func redactPasswords(page playwright.Page, snapshot string) string {
 	lines := strings.Split(snapshot, "\n")
-	for i, line := range lines {
-		ref, valueStart, ok := textboxValue(line)
+	for i := 0; i < len(lines); i++ {
+		tb, ok := parseTextboxLine(lines[i])
 		if !ok {
 			continue
 		}
-		if !refPattern.MatchString(ref) || isPasswordRef(page, ref, timeout) {
-			lines[i] = line[:valueStart] + redactedValue
+		var children []int
+		if tb.valueStart < 0 {
+			for j := i + 1; j < len(lines) && lineIndent(lines[j]) > tb.indent; j++ {
+				if !strings.HasPrefix(lines[j][lineIndent(lines[j]):], "- /") {
+					children = append(children, j)
+				}
+			}
+			if len(children) == 0 {
+				continue
+			}
+		}
+		if refPattern.MatchString(tb.ref) && !isPasswordRef(page, tb.ref) {
+			continue
+		}
+		if tb.valueStart >= 0 {
+			lines[i] = lines[i][:tb.valueStart] + redactedValue
+		}
+		for _, j := range children {
+			lines[j] = lines[j][:lineIndent(lines[j])] + "- text: " + redactedValue
 		}
 	}
 	return strings.Join(lines, "\n")
 }
 
 // isPasswordRef reports whether the element ref resolves to a password input.
-// It fails closed: an error resolving the element counts as a password.
-func isPasswordRef(page playwright.Page, ref string, timeout *float64) bool {
-	result, err := page.Locator(refSelector(ref)).Evaluate(isPasswordJS, nil, playwright.LocatorEvaluateOptions{Timeout: timeout})
+// It fails closed: a ref that matches nothing, or whose type cannot be read,
+// counts as a password. The count does not wait, so a re-rendered element does
+// not hold the snapshot for the request timeout.
+func isPasswordRef(page playwright.Page, ref string) bool {
+	loc := page.Locator(refSelector(ref))
+	if n, err := loc.Count(); err != nil || n == 0 {
+		slog.Debug("textbox ref did not resolve; redacting its value", "ref", ref, "error", err)
+		return true
+	}
+	result, err := loc.Evaluate(isPasswordJS, nil, playwright.LocatorEvaluateOptions{Timeout: playwright.Float(passwordCheckTimeout)})
 	if err != nil {
-		slog.Debug("could not resolve textbox ref; redacting its value", "ref", ref, "error", err)
+		slog.Debug("could not read textbox type; redacting its value", "ref", ref, "error", err)
 		return true
 	}
 	isPassword, ok := result.(bool)
 	return !ok || isPassword
 }
 
-// textboxValue parses one snapshot line of the form
+// textboxLine is a parsed snapshot line for a textbox that has a value.
+type textboxLine struct {
+	// ref is the element ref from the line's attributes.
+	ref string
+	// indent is the number of leading spaces.
+	indent int
+	// valueStart is the byte offset of an inline value, or -1 when the value is
+	// in the child lines that follow.
+	valueStart int
+}
+
+// lineIndent returns the number of leading spaces in line.
+func lineIndent(line string) int {
+	return len(line) - len(strings.TrimLeft(line, " "))
+}
+
+// parseTextboxLine parses one snapshot line for a textbox with a value, in either
+// shape redactPasswords describes, with the key plain or single-quoted. ok is false
+// for other roles, for textboxes without a value, and for lines it cannot parse.
+func parseTextboxLine(line string) (textboxLine, bool) {
+	indent := lineIndent(line)
+	rest, found := strings.CutPrefix(line[indent:], "- ")
+	if !found {
+		return textboxLine{}, false
+	}
+	base := indent + 2
+
+	var ref, after string
+	var afterStart int
+	if strings.HasPrefix(rest, "'") {
+		// Single-quoted YAML key: '' is an escaped quote.
+		end := -1
+		for i := 1; i < len(rest); i++ {
+			if rest[i] != '\'' {
+				continue
+			}
+			if i+1 < len(rest) && rest[i+1] == '\'' {
+				i++
+				continue
+			}
+			end = i
+			break
+		}
+		if end < 0 {
+			return textboxLine{}, false
+		}
+		key := strings.ReplaceAll(rest[1:end], "''", "'")
+		r, keyEnd, ok := textboxKeyRef(key)
+		if !ok || keyEnd != len(key) {
+			return textboxLine{}, false
+		}
+		ref, after, afterStart = r, rest[end+1:], base+end+1
+	} else {
+		r, keyEnd, ok := textboxKeyRef(rest)
+		if !ok {
+			return textboxLine{}, false
+		}
+		ref, after, afterStart = r, rest[keyEnd:], base+keyEnd
+	}
+
+	switch {
+	case strings.HasPrefix(after, ": "):
+		return textboxLine{ref: ref, indent: indent, valueStart: afterStart + 2}, true
+	case after == ":":
+		return textboxLine{ref: ref, indent: indent, valueStart: -1}, true
+	default:
+		return textboxLine{}, false
+	}
+}
+
+// textboxKeyRef parses a snapshot key of the form
 //
-//   - textbox "Name" [attr] [ref=e3]: value
+//	textbox "Name" [attr] [ref=e3]
 //
-// and returns the ref and the byte offset where the value starts. ok is false for
-// other roles, for textboxes without a value, and for lines it cannot parse. The
-// quoted name is skipped with its escapes, so a name cannot pose as the value.
-func textboxValue(line string) (ref string, valueStart int, ok bool) {
-	i := len(line) - len(strings.TrimLeft(line, " "))
-	const prefix = "- textbox"
-	if !strings.HasPrefix(line[i:], prefix) {
+// at the start of key and returns its ref and the byte offset where the key ends.
+// The quoted name is skipped with its escapes, so a name cannot pose as an
+// attribute or a value.
+func textboxKeyRef(key string) (string, int, bool) {
+	const role = "textbox"
+	rest, found := strings.CutPrefix(key, role)
+	if !found {
 		return "", 0, false
 	}
-	i += len(prefix)
-
-	if strings.HasPrefix(line[i:], ` "`) {
-		i += 2
+	i := 0
+	if strings.HasPrefix(rest, ` "`) {
+		i = 2
 		closed := false
-		for i < len(line) && !closed {
-			switch line[i] {
+		for i < len(rest) && !closed {
+			switch rest[i] {
 			case '\\':
 				i += 2
 			case '"':
@@ -140,21 +246,21 @@ func textboxValue(line string) (ref string, valueStart int, ok bool) {
 		}
 	}
 
-	for strings.HasPrefix(line[i:], " [") {
-		end := strings.IndexByte(line[i:], ']')
+	ref := ""
+	for strings.HasPrefix(rest[i:], " [") {
+		end := strings.IndexByte(rest[i:], ']')
 		if end < 0 {
 			return "", 0, false
 		}
-		if r, found := strings.CutPrefix(line[i+2:i+end], "ref="); found {
+		if r, found := strings.CutPrefix(rest[i+2:i+end], "ref="); found {
 			ref = r
 		}
 		i += end + 1
 	}
-
-	if ref == "" || !strings.HasPrefix(line[i:], ": ") {
+	if ref == "" {
 		return "", 0, false
 	}
-	return ref, i + 2, true
+	return ref, len(role) + i, true
 }
 
 // multipleMatchError builds the -32002 error for a selector that matched count

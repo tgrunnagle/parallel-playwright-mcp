@@ -40,14 +40,17 @@ func (m *mockSnapshotPage) Locator(selector string, _ ...playwright.PageLocatorO
 
 // passwordLocator resolves a ref whose element is (or is not) a password input.
 func passwordLocator(isPassword bool) *mockLocator {
-	return &mockLocator{evaluateFunc: func(string, any) (any, error) { return isPassword, nil }}
+	return &mockLocator{countFunc: one, evaluateFunc: func(string, any) (any, error) { return isPassword, nil }}
 }
 
-func TestTextboxValue(t *testing.T) {
+// one is a countFunc for a locator that matches one element.
+func one() (int, error) { return 1, nil }
+
+func TestParseTextboxLine(t *testing.T) {
 	tests := []struct {
 		line      string
 		wantRef   string
-		wantValue string
+		wantValue string // "" with wantOK means the value is in child lines
 		wantOK    bool
 	}{
 		{`  - textbox "Email" [ref=e5]: a@b.c`, "e5", "a@b.c", true},
@@ -55,53 +58,112 @@ func TestTextboxValue(t *testing.T) {
 		{`    - textbox "Password" [ref=e4]: "s3cret: pass"`, "e4", `"s3cret: pass"`, true},
 		{`- textbox "Bio" [active] [ref=e10]: "line1 line2"`, "e10", `"line1 line2"`, true},
 		{`- textbox "Name \"x\" [ref=e9]: fake" [ref=e3]: real`, "e3", "real", true},
+		{`  - textbox "Password" [ref=e2]:`, "e2", "", true},
+		{`  - 'textbox "Password: 8+ chars" [ref=e3]': "s3cret: x"`, "e3", `"s3cret: x"`, true},
+		{`  - 'textbox "Pin {x}" [ref=e4]':`, "e4", "", true},
+		{`  - 'textbox "It''s: secret" [ref=e7]': v`, "e7", "v", true},
 		{`- textbox "Empty" [ref=e6]`, "", "", false},
-		{`- textbox "Kids" [ref=e6]:`, "", "", false},
 		{`- button "Go" [ref=e8]: Go`, "", "", false},
+		{`- 'button "a: b" [ref=e8]': Go`, "", "", false},
 		{`- textboxy "x" [ref=e1]: v`, "", "", false},
 		{`- textbox "unterminated [ref=e1]: v`, "", "", false},
+		{`- 'textbox "unterminated [ref=e1]: v`, "", "", false},
 		{`- textbox "No ref": v`, "", "", false},
+		{`- text: hunter2`, "", "", false},
 	}
 	for _, tt := range tests {
-		ref, start, ok := textboxValue(tt.line)
-		if ok != tt.wantOK || ref != tt.wantRef {
-			t.Errorf("textboxValue(%q) = (%q, %d, %v), want (%q, _, %v)", tt.line, ref, start, ok, tt.wantRef, tt.wantOK)
+		tb, ok := parseTextboxLine(tt.line)
+		if ok != tt.wantOK || tb.ref != tt.wantRef {
+			t.Errorf("parseTextboxLine(%q) = (%+v, %v), want ref %q, ok %v", tt.line, tb, ok, tt.wantRef, tt.wantOK)
 			continue
 		}
-		if ok && tt.line[start:] != tt.wantValue {
-			t.Errorf("textboxValue(%q) value = %q, want %q", tt.line, tt.line[start:], tt.wantValue)
+		if !ok {
+			continue
+		}
+		if tt.wantValue == "" {
+			if tb.valueStart != -1 {
+				t.Errorf("parseTextboxLine(%q) valueStart = %d, want -1 for a block value", tt.line, tb.valueStart)
+			}
+		} else if tb.valueStart < 0 || tt.line[tb.valueStart:] != tt.wantValue {
+			t.Errorf("parseTextboxLine(%q) value at %d, want %q", tt.line, tb.valueStart, tt.wantValue)
+		}
+		if tb.indent != lineIndent(tt.line) {
+			t.Errorf("parseTextboxLine(%q) indent = %d", tt.line, tb.indent)
 		}
 	}
 }
 
 func TestRedactPasswords(t *testing.T) {
+	// Shapes taken from the playwright-go v0.6201.1 AI-mode renderer.
 	snapshot := strings.Join([]string{
-		`- generic [ref=e2]:`,
+		`- generic [ref=e1]:`,
 		`  - textbox "Name" [ref=e3]: alice`,
 		`  - textbox "Password" [ref=e4]: "s3cret: pass"`,
 		`  - textbox "Unknown" [ref=e5]: maybe-secret`,
+		`  - textbox "Gone" [ref=e11]: vanished-secret`,
 		`  - checkbox "Agree" [checked] [ref=e6]`,
+		`  - textbox "Login password" [ref=e7]:`,
+		`    - /placeholder: Enter your password`,
+		`    - text: hunter2`,
+		`  - 'textbox "Password: 8+ chars" [ref=e8]': "colon: secret"`,
+		`  - 'textbox "Pin {x}" [ref=e9]':`,
+		`    - /placeholder: pin here`,
+		`    - text: "- text: 1234"`,
+		`  - textbox "Note" [ref=e10]:`,
+		`    - /placeholder: "type: here"`,
+		`    - text: visible note`,
+		`  - textbox "Search" [ref=e12]:`,
+		`    - /placeholder: Search`,
+		`  - button "Go" [ref=e13]`,
 	}, "\n")
 	page := &mockSnapshotPage{locators: map[string]*mockLocator{
-		"aria-ref=e3": passwordLocator(false),
-		"aria-ref=e4": passwordLocator(true),
-		"aria-ref=e5": {evaluateFunc: func(string, any) (any, error) { return nil, errors.New("detached") }},
+		"aria-ref=e3":  passwordLocator(false),
+		"aria-ref=e4":  passwordLocator(true),
+		"aria-ref=e5":  {countFunc: one, evaluateFunc: func(string, any) (any, error) { return nil, errors.New("detached") }},
+		"aria-ref=e7":  passwordLocator(true),
+		"aria-ref=e8":  passwordLocator(true),
+		"aria-ref=e9":  passwordLocator(true),
+		"aria-ref=e10": passwordLocator(false),
+		// e11 is absent: the locator counts 0 matches.
+		"aria-ref=e12": passwordLocator(true),
 	}}
 
-	got := redactPasswords(page, snapshot, nil)
+	got := redactPasswords(page, snapshot)
 
 	want := strings.Join([]string{
-		`- generic [ref=e2]:`,
+		`- generic [ref=e1]:`,
 		`  - textbox "Name" [ref=e3]: alice`,
 		`  - textbox "Password" [ref=e4]: •••`,
 		`  - textbox "Unknown" [ref=e5]: •••`,
+		`  - textbox "Gone" [ref=e11]: •••`,
 		`  - checkbox "Agree" [checked] [ref=e6]`,
+		`  - textbox "Login password" [ref=e7]:`,
+		`    - /placeholder: Enter your password`,
+		`    - text: •••`,
+		`  - 'textbox "Password: 8+ chars" [ref=e8]': •••`,
+		`  - 'textbox "Pin {x}" [ref=e9]':`,
+		`    - /placeholder: pin here`,
+		`    - text: •••`,
+		`  - textbox "Note" [ref=e10]:`,
+		`    - /placeholder: "type: here"`,
+		`    - text: visible note`,
+		`  - textbox "Search" [ref=e12]:`,
+		`    - /placeholder: Search`,
+		`  - button "Go" [ref=e13]`,
 	}, "\n")
 	if got != want {
 		t.Errorf("redactPasswords() =\n%s\nwant\n%s", got, want)
 	}
-	if strings.Contains(got, "s3cret") {
-		t.Error("password value leaked into the snapshot")
+	for _, secret := range []string{"s3cret", "maybe-secret", "vanished-secret", "hunter2", "colon: secret", "1234"} {
+		if strings.Contains(got, secret) {
+			t.Errorf("password value %q leaked into the snapshot", secret)
+		}
+	}
+	// A block textbox with only property lines has no value and is not resolved.
+	for _, sel := range page.located {
+		if sel == "aria-ref=e12" {
+			t.Error("resolved a textbox without a value")
+		}
 	}
 }
 
