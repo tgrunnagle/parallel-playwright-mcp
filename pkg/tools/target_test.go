@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -301,12 +302,24 @@ func TestFirstMatch(t *testing.T) {
 		page := pageWith(&mockLocator{
 			countFunc: func() (int, error) { return 1, nil },
 			elementHandleFunc: func() (playwright.ElementHandle, error) {
-				return nil, errors.New("Timeout 5000ms exceeded")
+				return nil, fmt.Errorf("%w: Timeout 5000ms exceeded", playwright.ErrTimeout)
 			},
 		})
 		timeout := float64(5000)
 		if _, err := firstMatch(page, "text=Save", &timeout); err == nil || !strings.HasPrefix(errText(err), "[-32003]") {
 			t.Fatalf("err = %v, want [-32003]", err)
+		}
+	})
+
+	t.Run("other failure naming timeout in the selector is element not found", func(t *testing.T) {
+		page := pageWith(&mockLocator{
+			countFunc: func() (int, error) { return 1, nil },
+			elementHandleFunc: func() (playwright.ElementHandle, error) {
+				return nil, errors.New("target closed while waiting for locator('#timeout-banner')")
+			},
+		})
+		if _, err := firstMatch(page, "#timeout-banner", nil); err == nil || !strings.HasPrefix(errText(err), "[-32002]") {
+			t.Fatalf("err = %v, want [-32002]", err)
 		}
 	})
 

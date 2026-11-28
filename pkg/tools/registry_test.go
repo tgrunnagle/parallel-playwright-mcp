@@ -42,8 +42,9 @@ func TestAllToolNamesMatchesRegistry(t *testing.T) {
 }
 
 // TestToolAnnotations checks every tool's four annotation hints against the
-// annotation table in docs/design/mvp_design.md section 5. mcp.NewTool defaults to destructive and open-world, so
-// every hint, false ones included, must be set explicitly.
+// annotation table in docs/design/mvp_design.md section 5. mcp.NewTool
+// defaults to destructive and open-world, so every hint, false ones included,
+// must be set explicitly.
 func TestToolAnnotations(t *testing.T) {
 	type hints struct{ readOnly, destructive, idempotent, openWorld bool }
 	var (
@@ -110,9 +111,36 @@ func TestToolAnnotations(t *testing.T) {
 	}
 }
 
-// sentenceBreak matches the end of one sentence and the start of the next, so
-// an abbreviation such as "e.g. foo" is not counted as a break.
-var sentenceBreak = regexp.MustCompile(`[.!?]\s+[A-Z]`)
+// sentenceBreak matches the end of one sentence and the start of the next,
+// whatever the next one starts with: a capital, a tool name, or a backtick.
+var sentenceBreak = regexp.MustCompile(`[.!?]\s+\S`)
+
+// abbreviation matches the abbreviations that end in a period without ending
+// a sentence.
+var abbreviation = regexp.MustCompile(`\b(e\.g|i\.e|etc|vs)\.`)
+
+// countSentences returns the number of sentences in s.
+func countSentences(s string) int {
+	return len(sentenceBreak.FindAllStringIndex(abbreviation.ReplaceAllString(s, ""), -1)) + 1
+}
+
+func TestCountSentences(t *testing.T) {
+	for _, tc := range []struct {
+		text string
+		want int
+	}{
+		{"One sentence.", 1},
+		{"One. Two.", 2},
+		{"Use it first. navigate_and_extract_text does both.", 2},
+		{"Returns refs. `ref` names one element.", 2},
+		{"Done? Yes! Next.", 3},
+		{"Press a key, e.g. Enter, or i.e. Tab.", 1},
+	} {
+		if got := countSentences(tc.text); got != tc.want {
+			t.Errorf("countSentences(%q) = %d, want %d", tc.text, got, tc.want)
+		}
+	}
+}
 
 // TestToolDescriptions checks that every description is two to four sentences
 // and that every selector parameter documents the shared selector syntax.
@@ -120,7 +148,7 @@ func TestToolDescriptions(t *testing.T) {
 	for _, st := range Registry(nil, nil, nil) {
 		t.Run(st.Tool.Name, func(t *testing.T) {
 			desc := st.Tool.Description
-			sentences := len(sentenceBreak.FindAllStringIndex(desc, -1)) + 1
+			sentences := countSentences(desc)
 			if sentences < 2 || sentences > 4 || strings.TrimRight(desc, ".!?") == desc {
 				t.Errorf("description is %d sentences, want two to four: %q", sentences, desc)
 			}

@@ -2,6 +2,8 @@
 package tools
 
 import (
+	"context"
+	stderrors "errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -113,7 +115,9 @@ func firstMatch(page playwright.Page, selector string, timeout *float64) (playwr
 	}
 	element, err := loc.First().ElementHandle(playwright.LocatorElementHandleOptions{Timeout: timeout})
 	if err != nil {
-		if isTimeoutError(err) {
+		// Match the error types, not the text: the text names the selector,
+		// which may itself contain "timeout".
+		if stderrors.Is(err, playwright.ErrTimeout) || stderrors.Is(err, context.DeadlineExceeded) {
 			ms := 0
 			if timeout != nil {
 				ms = int(*timeout)
