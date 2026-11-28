@@ -878,3 +878,22 @@ func TestStandardMessage(t *testing.T) {
 		})
 	}
 }
+
+func TestFormatError_InvalidParamsError(t *testing.T) {
+	resp := FormatError(NewInvalidParamsError("offset", "must be a non-negative integer"))
+	if resp.Code != CodeInvalidParams {
+		t.Fatalf("Code = %d, want %d", resp.Code, CodeInvalidParams)
+	}
+	if resp.Message != msgInvalidParams {
+		t.Errorf("Message = %q, want %q", resp.Message, msgInvalidParams)
+	}
+	if resp.Data.Parameter != "offset" {
+		t.Errorf("Data.Parameter = %q, want offset", resp.Data.Parameter)
+	}
+
+	got := FormatErrorForTool(fmt.Errorf("wrapped: %w", NewInvalidParamsError("offset", "must be a non-negative integer")))
+	want := "[-32602] Invalid parameters (parameter: offset) (reason: must be a non-negative integer). " + SuggestInvalidParams
+	if got != want {
+		t.Errorf("FormatErrorForTool() =\n%q\nwant\n%q", got, want)
+	}
+}

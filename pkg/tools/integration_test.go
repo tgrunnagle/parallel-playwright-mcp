@@ -163,9 +163,124 @@ func startTestHTTPServer(t *testing.T) *httptest.Server {
 			<p>Visible paragraph</p>
 			<p style="display:none">Hidden paragraph</p>
 			<p style="visibility:hidden">Invisible paragraph</p>
+			<div aria-hidden="true"><p>Aria hidden paragraph</p></div>
+			<p>Shown <span aria-hidden="true">decorative icon</span>label</p>
 			<script>var x = "script content";</script>
 			<style>.foo { color: red; }</style>
 			<p>Another visible paragraph</p>
+		</body></html>`)
+	})
+	mux.HandleFunc("/md-structure", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<!DOCTYPE html><html><body>
+			<p><a href="/about">About</a> and <a href="javascript:void(0)">Script link</a></p>
+			<p><img src="/a.png" alt="Logo"></p>
+			<h2><a href="/x">Docs</a></h2>
+			<table id="outer">
+				<tr><th>Key</th><th>Detail</th></tr>
+				<tr><td>Outer row</td><td><table><tr><td>Inner A</td><td>Inner B</td></tr></table></td></tr>
+				<tr><td>Linked</td><td><a href="/cell">Cell link</a></td></tr>
+			</table>
+		</body></html>`)
+	})
+	mux.HandleFunc("/md-forms", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<!DOCTYPE html><html><body>
+			<form>
+				<label for="email">Email</label> <input id="email" type="email" value="a@b.c">
+				<label><input type="checkbox" checked> Subscribe</label>
+				<label><input type="checkbox"> Remember me</label>
+				<label for="role">Role</label>
+				<select id="role"><option value="a">Admin</option><option value="u" selected>User</option></select>
+				<input type="search" aria-label="Search box" value="query">
+				<input type="number" placeholder="Quantity" value="3">
+				<span id="bio-label">Biography</span> <textarea aria-labelledby="bio-label">Hello there</textarea>
+				<input type="radio" name="color" value="red">
+				<input type="hidden" name="csrf" value="hidden-token-value">
+				<label for="pw">Password</label> <input id="pw" type="password" value="hunter2-secret">
+				<label for="pw2">Confirm</label> <input id="pw2" type="password">
+				<label for="cur">Current</label> <input id="cur" type="text" autocomplete="current-password" value="shown-secret">
+				<label for="otp">Login code</label> <input id="otp" type="text" autocomplete="one-time-code" value="981234">
+				<label for="pin">PIN</label> <input id="pin" type="text" style="-webkit-text-security: disc" value="masked-pin">
+				<label for="newpw">New</label> <input id="newpw" type="text" autocomplete="new-password" value="new-secret">
+				<label for="ccn">Card</label> <input id="ccn" type="text" autocomplete="cc-number" value="4111111111111111">
+				<label for="csc">CVC</label> <input id="csc" type="text" autocomplete="cc-csc" value="737">
+				<label for="ccn2">Billing card</label> <input id="ccn2" type="text" autocomplete="section-a billing cc-number" value="5555444433331111">
+				<label for="otp2">Code</label> <input id="otp2" type="text" autocomplete="One-Time-Code" value="246810">
+				<label for="mail">Contact</label> <input id="mail" type="email" autocomplete="email" value="me@example.org">
+				<label for="phrase">Recovery phrase</label> <textarea id="phrase" style="-webkit-text-security: disc">secret-phrase</textarea>
+				<label for="otparea">Code area</label> <textarea id="otparea" autocomplete="one-time-code">135790</textarea>
+				<label for="echo">Echo</label> <input id="echo" aria-labelledby="phrase">
+				<pre>pre: <textarea style="-webkit-text-security: disc">pre-secret</textarea></pre>
+				<p><code>code: <textarea autocomplete="one-time-code">code-secret</textarea></code></p>
+				<span id="pinlbl">Custom PIN</span> <div contenteditable="true" aria-labelledby="pinlbl" style="-webkit-text-security: disc">typed-pin</div>
+				<label>Wrapped PIN <div contenteditable="true" style="-webkit-text-security: disc">wrap-secret</div></label>
+				<div id="pwed" contenteditable="true" style="-webkit-text-security: disc">labelled-secret</div> <input type="checkbox" aria-labelledby="pwed">
+				<div id="pwbox">Box <span contenteditable="true" style="-webkit-text-security: disc">box-secret</span></div> <input type="checkbox" aria-labelledby="pwbox">
+				<pre>pre-ed: <span contenteditable="true" style="-webkit-text-security: disc">pre-ed-secret</span></pre>
+				<button type="button" id="savebtn">Save draft</button> <input id="draft" aria-labelledby="savebtn">
+				<div style="-webkit-text-security: disc"><label><input type="checkbox" checked> Masked box</label> <button type="submit">Masked send</button></div>
+				<button type="submit">Send</button>
+				<input type="submit" value="Go">
+			</form>
+		</body></html>`)
+	})
+	mux.HandleFunc("/md-nested-code", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, "<!DOCTYPE html><html><body>"+
+			"<ol><li><pre>  indented\n    more</pre></li></ol>"+
+			"<ol><li><p>step</p><pre>  sx</pre></li></ol>"+
+			"<ul><li>outer<ul><li><pre>  ny</pre></li></ul></li></ul>"+
+			"<blockquote><pre>  quoted</pre></blockquote>"+
+			"<blockquote><ul><li><p>s</p><pre>  qx</pre></li></ul></blockquote>"+
+			"<p>a   b</p>"+
+			"<pre>  x</pre>"+
+			"<p>c   d</p>"+
+			"<pre>```\ncode\n```\n  after</pre>"+
+			"<p>e   f</p>"+
+			// Each group puts U+0000 in one element and U+0001 in a later one, with a
+			// blank-line run between them. If a source were not cleaned, the pair would
+			// become a code segment and the run would survive the tidy pass.
+			`<p><span id="a1"></span></p><p>g1</p><p>h1</p><p><span id="b1"></span></p>`+
+			`<p><code id="a2"></code></p><p>g2</p><p>h2</p><p><code id="b2"></code></p>`+
+			`<p><img id="a3" src="/i.png"></p><p>g3</p><p>h3</p><p><img id="b3" src="/i.png"></p>`+
+			`<p><input id="a4" aria-label="First"></p><p>g4</p><p>h4</p><p><input id="b4" aria-label="Second"></p>`+
+			`<p><button id="a5">B</button></p><p>g5</p><p>h5</p><p><button id="b5">B</button></p>`+
+			`<p><a id="a6">A</a></p><p>g6</p><p>h6</p><p><a id="b6">B</a></p>`+
+			`<pre id="p7"></pre>`+
+			"<script>"+
+			"const nul = String.fromCharCode(0), soh = String.fromCharCode(1);"+
+			"const $ = id => document.getElementById(id);"+
+			"$('a1').textContent = 'x' + nul; $('b1').textContent = soh + 'x';"+
+			"$('a2').textContent = 'c' + nul; $('b2').textContent = soh + 'c';"+
+			"$('a3').alt = 'p' + nul; $('b3').alt = soh + 'p';"+
+			"$('a4').value = 'v' + nul; $('b4').value = soh + 'v';"+
+			"$('a5').setAttribute('aria-label', 'L' + nul); $('b5').setAttribute('aria-label', soh + 'M');"+
+			"$('a6').setAttribute('href', 'https://a.example/' + nul); $('b6').setAttribute('href', 'https://b.example/' + soh);"+
+			"$('p7').textContent = '  k' + soh + '  m';"+
+			"</script>"+
+			"</body></html>")
+	})
+	mux.HandleFunc("/md-shadow", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<!DOCTYPE html><html><body>
+			<div id="host"><span>Slotted light text</span></div>
+			<div id="host2"><p>Unslotted light text</p></div>
+			<script>
+				document.getElementById('host').attachShadow({mode: 'open'}).innerHTML =
+					'<p>Shadow text before</p><slot></slot><p>Shadow text after</p>';
+				document.getElementById('host2').attachShadow({mode: 'open'}).innerHTML =
+					'<p>Second shadow root</p>';
+			</script>
+		</body></html>`)
+	})
+	mux.HandleFunc("/md-iframe", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<!DOCTYPE html><html><body>
+			<p>Before frames</p>
+			<iframe title="Payment form" srcdoc="<p>Inside titled frame</p>"></iframe>
+			<iframe src="/md-headings"></iframe>
+			<p>After frames</p>
 		</body></html>`)
 	})
 	mux.HandleFunc("/md-code", func(w http.ResponseWriter, r *http.Request) {
@@ -1329,7 +1444,7 @@ func TestExtractTextToolIntegration(t *testing.T) {
 
 	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
 	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
-	extractTextHandler := ExtractTextHandler(mgr, DefaultTimeoutConfig())
+	extractTextHandler := ExtractTextHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -1450,7 +1565,7 @@ func TestGetHTMLToolIntegration(t *testing.T) {
 
 	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
 	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
-	getHTMLHandler := GetHTMLHandler(mgr, DefaultTimeoutConfig())
+	getHTMLHandler := GetHTMLHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -1569,7 +1684,7 @@ func TestEvaluateToolIntegration(t *testing.T) {
 
 	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
 	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
-	evaluateHandler := EvaluateHandler(mgr, DefaultTimeoutConfig())
+	evaluateHandler := EvaluateHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -1692,7 +1807,7 @@ func TestQuerySelectorToolIntegration(t *testing.T) {
 
 	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
 	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
-	querySelectorHandler := QuerySelectorHandler(mgr, DefaultTimeoutConfig())
+	querySelectorHandler := QuerySelectorHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -1908,8 +2023,8 @@ func TestGetConsoleLogsToolIntegration(t *testing.T) {
 
 	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
 	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
-	evaluateHandler := EvaluateHandler(mgr, DefaultTimeoutConfig())
-	consoleLogsHandler := GetConsoleLogsHandler(mgr, DefaultTimeoutConfig())
+	evaluateHandler := EvaluateHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
+	consoleLogsHandler := GetConsoleLogsHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -2639,7 +2754,7 @@ func TestGetNetworkLogsToolIntegration(t *testing.T) {
 
 	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
 	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
-	networkLogsHandler := GetNetworkLogsHandler(mgr, DefaultTimeoutConfig())
+	networkLogsHandler := GetNetworkLogsHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 	closeHandler := SessionCloseHandler(mgr, DefaultTimeoutConfig())
 	ctx := context.Background()
 
@@ -2979,7 +3094,7 @@ func TestGetNetworkLogsWithRealNetworkTrafficIntegration(t *testing.T) {
 
 	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
 	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
-	networkLogsHandler := GetNetworkLogsHandler(mgr, DefaultTimeoutConfig())
+	networkLogsHandler := GetNetworkLogsHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -3274,7 +3389,7 @@ func TestTimeoutBehaviorIntegration(t *testing.T) {
 			Element:    5 * time.Second,
 			Script:     1 * time.Second,
 		}
-		evalHandler := EvaluateHandler(mgr, shortScriptConfig)
+		evalHandler := EvaluateHandler(mgr, shortScriptConfig, DefaultResponseConfig())
 
 		// JavaScript that runs for a long time (Promise that resolves after 30s)
 		req := mcp.CallToolRequest{
@@ -3585,7 +3700,7 @@ func TestNavigateAndExtractTextMarkdownIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
-	handler := NavigateAndExtractTextHandler(mgr, DefaultTimeoutConfig())
+	handler := NavigateAndExtractTextHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 	ctx := context.Background()
 	ts := startTestHTTPServer(t)
 
@@ -3636,6 +3751,202 @@ func TestNavigateAndExtractTextMarkdownIntegration(t *testing.T) {
 
 		if !strings.Contains(text, "[Example Site](https://example.com)") {
 			t.Errorf("Expected markdown link in output, got:\n%s", text)
+		}
+	})
+
+	t.Run("relative links", func(t *testing.T) {
+		text := extractMarkdown(t, map[string]any{"url": ts.URL + "/md-structure"})
+
+		if want := "[About](" + ts.URL + "/about)"; !strings.Contains(text, want) {
+			t.Errorf("Expected %q in output, got:\n%s", want, text)
+		}
+		if !strings.Contains(text, "Script link") || strings.Contains(text, "javascript:") {
+			t.Errorf("Expected javascript: link rendered as text only, got:\n%s", text)
+		}
+	})
+
+	t.Run("images", func(t *testing.T) {
+		text := extractMarkdown(t, map[string]any{"url": ts.URL + "/md-structure"})
+
+		if want := "![Logo](" + ts.URL + "/a.png)"; !strings.Contains(text, want) {
+			t.Errorf("Expected %q in output, got:\n%s", want, text)
+		}
+	})
+
+	t.Run("heading links", func(t *testing.T) {
+		text := extractMarkdown(t, map[string]any{"url": ts.URL + "/md-structure"})
+
+		if want := "## [Docs](" + ts.URL + "/x)"; !strings.Contains(text, want) {
+			t.Errorf("Expected %q in output, got:\n%s", want, text)
+		}
+	})
+
+	t.Run("nested table", func(t *testing.T) {
+		text := extractMarkdown(t, map[string]any{"url": ts.URL + "/md-structure"})
+
+		if n := strings.Count(text, "Outer row"); n != 1 {
+			t.Errorf("Expected outer row once, found %d times:\n%s", n, text)
+		}
+		if n := strings.Count(text, "Inner A"); n != 1 {
+			t.Errorf("Expected nested cell text once, found %d times:\n%s", n, text)
+		}
+		if !strings.Contains(text, "| Outer row | Inner A Inner B |") {
+			t.Errorf("Expected nested table flattened into its cell, got:\n%s", text)
+		}
+		if want := "| Linked | [Cell link](" + ts.URL + "/cell) |"; !strings.Contains(text, want) {
+			t.Errorf("Expected %q in output, got:\n%s", want, text)
+		}
+	})
+
+	t.Run("form controls", func(t *testing.T) {
+		text := extractMarkdown(t, map[string]any{"url": ts.URL + "/md-forms"})
+
+		for _, want := range []string{
+			`[textbox "Email": a@b.c]`,
+			`[checkbox "Subscribe": checked]`,
+			`[checkbox "Remember me": unchecked]`,
+			`[combobox "Role": User]`,
+			`[textbox "Search box": query]`,
+			`[spinbutton "Quantity": 3]`,
+			`[textbox "Biography": Hello there]`,
+			`[radio "color": unchecked]`,
+			`[button "Send"]`,
+			`[button "Go"]`,
+		} {
+			if !strings.Contains(text, want) {
+				t.Errorf("Expected %s in output, got:\n%s", want, text)
+			}
+		}
+		if strings.Contains(text, "hidden-token-value") || strings.Contains(text, "csrf") {
+			t.Errorf("type=hidden input should be skipped, got:\n%s", text)
+		}
+	})
+
+	t.Run("password redaction", func(t *testing.T) {
+		text := extractMarkdown(t, map[string]any{"url": ts.URL + "/md-forms"})
+
+		if !strings.Contains(text, `[password "Password": set]`) {
+			t.Errorf("Expected filled password token, got:\n%s", text)
+		}
+		if !strings.Contains(text, `[password "Confirm": empty]`) {
+			t.Errorf("Expected empty password token, got:\n%s", text)
+		}
+		if strings.Contains(text, "hunter2") {
+			t.Errorf("Password value must never appear in output, got:\n%s", text)
+		}
+	})
+
+	t.Run("secret field redaction", func(t *testing.T) {
+		text := extractMarkdown(t, map[string]any{"url": ts.URL + "/md-forms"})
+
+		for _, want := range []string{
+			`[password "Current": set]`,
+			`[password "Login code": set]`,
+			`[password "PIN": set]`,
+			`[password "New": set]`,
+			`[password "Card": set]`,
+			`[password "CVC": set]`,
+			`[password "Billing card": set]`,
+			`[password "Code": set]`,
+			`[password "Recovery phrase": set]`,
+			`[password "Code area": set]`,
+			`[textbox "Contact": me@example.org]`,
+			`[checkbox "Masked box": checked]`,
+			`[button "Masked send"]`,
+			`[textbox "Echo"`,
+			`[password "Custom PIN": set]`,
+			`[password "Wrapped PIN": set]`,
+			`[checkbox "Box": unchecked]`,
+			`[textbox "Save draft"`,
+		} {
+			if !strings.Contains(text, want) {
+				t.Errorf("Expected %s in output, got:\n%s", want, text)
+			}
+		}
+		for _, secret := range []string{
+			"shown-secret", "981234", "masked-pin", "new-secret", "4111111111111111", "737",
+			"5555444433331111", "246810", "secret-phrase", "135790",
+			"pre-secret", "code-secret", "typed-pin", "wrap-secret", "labelled-secret", "box-secret",
+			"pre-ed-secret",
+		} {
+			if strings.Contains(text, secret) {
+				t.Errorf("Secret value %q must never appear in output, got:\n%s", secret, text)
+			}
+		}
+	})
+
+	t.Run("code blocks in lists and blockquotes", func(t *testing.T) {
+		text := extractMarkdown(t, map[string]any{"url": ts.URL + "/md-nested-code"})
+
+		for _, want := range []string{
+			"1. ```\n     indented\n       more\n   ```",
+			// Code after prose in an item keeps the item's indent on every line.
+			"1. step\n\n   ```\n     sx\n   ```",
+			"- outer\n\n  - ```\n      ny\n    ```",
+			"> ```\n>   quoted\n> ```",
+			// In a list inside a blockquote, the fence keeps the item's indent after "> ".
+			"> - s\n>\n>   ```\n>     qx\n>   ```",
+			"a b",
+			"```\n  x\n```",
+			"c d",
+			// A line inside the code that starts with a fence does not end the block.
+			"```\n```\ncode\n```\n  after\n```",
+			"e f",
+			// Sentinel characters from every page source are stripped before the tidy
+			// pass, so none of the groups pairs into a code segment.
+			"g1\n\nh1", "g2\n\nh2", "g3\n\nh3", "g4\n\nh4", "g5\n\nh5", "g6\n\nh6",
+			// The content next to a stripped sentinel is kept.
+			"`c`", `[textbox "First": v]`, "![p](" + ts.URL + "/i.png)",
+			"```\n  k  m\n```",
+		} {
+			if !strings.Contains(text, want) {
+				t.Errorf("Expected %q in output, got:\n%s", want, text)
+			}
+		}
+		if strings.Contains(text, "a   b") || strings.Contains(text, "c   d") || strings.Contains(text, "e   f") {
+			t.Errorf("Expected prose after code blocks to be tidied, got:\n%s", text)
+		}
+		if strings.ContainsAny(text, "\x00\x01") {
+			t.Errorf("Code block sentinels must be stripped, got:\n%q", text)
+		}
+	})
+
+	t.Run("shadow dom", func(t *testing.T) {
+		text := extractMarkdown(t, map[string]any{"url": ts.URL + "/md-shadow"})
+
+		for _, want := range []string{"Shadow text before", "Shadow text after", "Second shadow root"} {
+			if !strings.Contains(text, want) {
+				t.Errorf("Expected shadow root text %q, got:\n%s", want, text)
+			}
+		}
+		if n := strings.Count(text, "Slotted light text"); n != 1 {
+			t.Errorf("Expected slotted light-DOM text exactly once, found %d times:\n%s", n, text)
+		}
+		if before, after := strings.Index(text, "Shadow text before"), strings.Index(text, "Slotted light text"); before > after {
+			t.Errorf("Expected slotted text rendered in place of its slot, got:\n%s", text)
+		}
+		if strings.Contains(text, "Unslotted light text") {
+			t.Errorf("Light-DOM children with no slot are not rendered by the browser, got:\n%s", text)
+		}
+	})
+
+	t.Run("iframe placeholder", func(t *testing.T) {
+		text := extractMarkdown(t, map[string]any{"url": ts.URL + "/md-iframe"})
+
+		if n := strings.Count(text, `[iframe "Payment form"]`); n != 1 {
+			t.Errorf("Expected one titled iframe token, found %d:\n%s", n, text)
+		}
+		if want := `[iframe "` + ts.URL + `/md-headings"]`; strings.Count(text, want) != 1 {
+			t.Errorf("Expected one %s token, got:\n%s", want, text)
+		}
+		if n := strings.Count(text, "[iframe "); n != 2 {
+			t.Errorf("Expected 2 iframe tokens, found %d:\n%s", n, text)
+		}
+		if strings.Contains(text, "Inside titled frame") || strings.Contains(text, "Main Title") {
+			t.Errorf("Iframe content should be absent, got:\n%s", text)
+		}
+		if !strings.Contains(text, "Before frames") || !strings.Contains(text, "After frames") {
+			t.Errorf("Expected surrounding text, got:\n%s", text)
 		}
 	})
 
@@ -3709,6 +4020,12 @@ func TestNavigateAndExtractTextMarkdownIntegration(t *testing.T) {
 		}
 		if strings.Contains(text, "script content") {
 			t.Error("Script content should not appear in output")
+		}
+		if strings.Contains(text, "Aria hidden paragraph") || strings.Contains(text, "decorative icon") {
+			t.Errorf("aria-hidden text should not appear in output, got:\n%s", text)
+		}
+		if !strings.Contains(text, "Shown label") {
+			t.Errorf("Expected visible siblings of aria-hidden text, got:\n%s", text)
 		}
 		if strings.Contains(text, "color: red") {
 			t.Error("Style content should not appear in output")

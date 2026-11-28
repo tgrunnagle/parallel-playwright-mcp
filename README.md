@@ -84,7 +84,7 @@ go build -o bin/playwright-mcp-server ./cmd/server
 | Tool | Description |
 |------|-------------|
 | `screenshot` | Capture a PNG screenshot of the page or a specific element |
-| `extract_text` | Extract visible text from the page in hierarchical structure |
+| `extract_text` | Extract visible text from the page as markdown, including form controls as `[textbox "Email": a@b.c]` tokens |
 | `get_html` | Get HTML source of the page or an element |
 | `evaluate` | Execute a JavaScript expression in the page context |
 | `query_selector` | Query element info by CSS selector |
@@ -95,6 +95,15 @@ go build -o bin/playwright-mcp-server ./cmd/server
 | `navigate_and_extract_text` | Navigate to a URL and extract visible text as markdown (creates a temporary session) |
 
 Tools can be restricted at startup with the `enabled_tools` config option or `MCP_ENABLED_TOOLS` environment variable.
+
+#### Response budget and pagination
+
+Content tools return at most `tools.maxResponseChars` characters (default 40000) per call:
+
+- **Text tools** (`extract_text`, `navigate_and_extract_text`, `get_html`) take `maxChars` and `offset`, both in characters. When output is cut, a second content block reads `[truncated: <n> more characters; call again with offset=<k>]`; an `offset` at or past the end returns `[end of content: <total> characters]`. `evaluate` takes `maxChars` only and marks cut output as incomplete JSON.
+- **List tools** (`query_selector` with `all: true`, `get_links`, `get_console_logs`, `get_network_logs`) take `limit` (default 50) and `offset`, both in items. The first block is the bare JSON array; a second block holds `{"total", "offset", "returned", "hasMore"}`. Continue with `offset + returned` while `hasMore` is true: fewer than `limit` items come back when the budget is reached. The log tools select the newest entries first (`offset` k skips the k newest) and return them oldest first.
+
+`maxChars` above the budget is clamped to it. A non-positive `maxChars` or `limit`, or a negative `offset`, returns a `[-32602]` error naming the parameter.
 
 ## Task Targets
 
@@ -127,5 +136,6 @@ The server loads configuration from `config.yaml` (or the path in `MCP_CONFIG_PA
 | `MCP_TIMEOUT_NAVIGATION` | Navigation timeout (ms) | `30000` |
 | `MCP_TIMEOUT_ELEMENT` | Element wait timeout (ms) | `5000` |
 | `MCP_ENABLED_TOOLS` | Comma-separated list of enabled tools | all tools |
+| `MCP_MAX_RESPONSE_CHARS` | Response budget for content tools, in characters (`tools.maxResponseChars`; positive integer) | `40000` |
 
 See [config.yaml](config.yaml) for the full configuration reference.

@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -28,6 +30,9 @@ func GetConsoleLogsTool() mcp.Tool {
 		mcp.WithNumber("limit",
 			mcp.Description("Maximum number of entries to return (default: 50)"),
 		),
+		mcp.WithNumber("offset",
+			mcp.Description("Number of newest matching entries to skip (default: 0). Entries are selected newest first and returned oldest first; the buffer is live, so offsets and total shift as new entries arrive. Continue with offset + returned from the second content block while hasMore is true; fewer than limit items may be returned when the response budget is reached"),
+		),
 		mcp.WithString("level",
 			mcp.Enum("log", "info", "warn", "error", "debug"),
 			mcp.Description("Filter by log level (returns all levels if not specified)"),
@@ -36,7 +41,7 @@ func GetConsoleLogsTool() mcp.Tool {
 }
 
 // GetConsoleLogsHandler returns the handler function for get_console_logs.
-func GetConsoleLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
+func GetConsoleLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig, responseConfig *ResponseConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		slog.Debug("tool handler called", "tool", "get_console_logs")
 
@@ -55,6 +60,11 @@ func GetConsoleLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *Tim
 			return mcp.NewToolResultError("sessionId is required"), nil
 		}
 
+		limit, offset, err := listPageParams(args)
+		if err != nil {
+			return invalidParamsResult(err), nil
+		}
+
 		// Get session with ownership validation
 		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
 		if !ok {
@@ -65,17 +75,6 @@ func GetConsoleLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *Tim
 		// Check if ConsoleLogs buffer exists
 		if sess.ConsoleLogs == nil {
 			return mcp.NewToolResultError("Console log buffer not initialized for this session"), nil
-		}
-
-		// Extract limit parameter with default
-		limit := 50
-		if limitVal, ok := args["limit"]; ok && limitVal != nil {
-			switch v := limitVal.(type) {
-			case float64:
-				limit = int(v)
-			case int:
-				limit = v
-			}
 		}
 
 		// Extract and validate level filter parameter
@@ -90,16 +89,16 @@ func GetConsoleLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *Tim
 			}
 		}
 
-		// Retrieve console logs from session buffer
-		entries := sess.ConsoleLogs.Get(limit, level)
+		// Retrieve all matching entries (chronological), then select newest first:
+		// offset k skips the k newest entries. The page is returned oldest first.
+		entries := sess.ConsoleLogs.Get(0, level)
+		slices.Reverse(entries)
 
-		// Serialize entries to JSON
-		jsonBytes, err := json.Marshal(entries)
+		result, err := paginateItems(entries, offset, limit, responseConfig.budget(), true)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to serialize console logs: %v", err)), nil
 		}
-
-		return mcp.NewToolResultText(string(jsonBytes)), nil
+		return result, nil
 	}
 }
 
@@ -301,11 +300,17 @@ func ExtractTextTool() mcp.Tool {
 		mcp.WithString("selector",
 			mcp.Description("CSS selector to extract from (defaults to body)"),
 		),
+		mcp.WithNumber("maxChars",
+			mcp.Description("Maximum characters to return (default and upper bound: the server's response budget)"),
+		),
+		mcp.WithNumber("offset",
+			mcp.Description("Character offset to start from, for reading the next slice of truncated output (default: 0)"),
+		),
 	)
 }
 
 // ExtractTextHandler returns the handler function for extract_text.
-func ExtractTextHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
+func ExtractTextHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig, responseConfig *ResponseConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		slog.Debug("tool handler called", "tool", "extract_text")
 
@@ -322,6 +327,11 @@ func ExtractTextHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeou
 		if sessionID == "" {
 			slog.Error("missing required sessionId", "tool", "extract_text")
 			return mcp.NewToolResultError("sessionId is required"), nil
+		}
+
+		maxChars, offset, err := textPageParams(args, responseConfig.budget())
+		if err != nil {
+			return invalidParamsResult(err), nil
 		}
 
 		// Get session with ownership validation
@@ -358,40 +368,239 @@ func ExtractTextHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeou
 		}
 
 		text = strings.TrimSpace(text)
-		if text == "" {
+		// An empty page reports itself only on the first call; at a non-zero offset
+		// it falls through so the caller gets the usual end-of-content notice.
+		if text == "" && offset == 0 {
 			return mcp.NewToolResultText("No visible text found on the page."), nil
 		}
 
-		return mcp.NewToolResultText(text), nil
+		return textPageResult(text, offset, maxChars), nil
 	}
 }
 
 // extractTextAsMarkdownJS is the JavaScript code that extracts visible text from the DOM
-// and formats it as markdown. Used by navigate_and_extract_text for a cleaner, more
-// readable output compared to the hierarchical JSON structure.
+// and formats it as markdown. Shared by extract_text and navigate_and_extract_text.
+//
+// Relative link and image URLs are resolved against the page, so they come out
+// absolute; absolute URLs are kept as written.
+// Heading and table cell content goes through the inline renderer, so links inside
+// them survive. Tables read table.rows, so a nested table renders once, flattened
+// into its cell. Subtrees under aria-hidden="true" are treated as hidden.
+//
+// Form controls render inline as [<role> "<label>": <value>]; secret values are
+// never emitted, only whether the field is set. A control is secret when it is a
+// password field, its autocomplete names a credential or card field, or its text
+// is masked with -webkit-text-security. Open shadow roots are walked in
+// place of the host's light DOM, with each slot rendering its assigned nodes.
+// Iframes render as an [iframe "<title or src>"] placeholder without their content.
 const extractTextAsMarkdownJS = `(selector) => {
 	const BT = String.fromCharCode(96);
-	const SKIP = new Set(['script','style','noscript','svg','template','iframe','meta','link']);
+	const SKIP = new Set(['script','style','noscript','svg','template','meta','link']);
+	const TEXTBOX_TYPES = new Set(['text','email','search','tel','url']);
+	const BUTTON_TYPES = new Set(['submit','button','reset','image']);
+	const SECRET_AUTOCOMPLETE = new Set(['current-password','new-password','one-time-code','cc-number','cc-csc']);
+	// Code blocks are wrapped in these sentinels so the final tidy pass can tell code
+	// from prose without parsing the rendered markdown. Page content never carries
+	// them: clean() strips them from every string taken from the page (text nodes,
+	// code bodies, attribute values, control values and labels).
+	const CODE_OPEN = String.fromCharCode(0);
+	const CODE_CLOSE = String.fromCharCode(1);
+	const SENTINELS = /[\u0000\u0001]/g;
+	const clean = s => String(s).replace(SENTINELS, '');
+	let cellDepth = 0;
+
+	function isHidden(node) {
+		if (node.getAttribute('aria-hidden') === 'true') return true;
+		try {
+			const style = window.getComputedStyle(node);
+			if (style.display === 'none' || style.visibility === 'hidden') return true;
+		} catch(e) {}
+		return false;
+	}
+
+	// resolveURL returns an absolute URL for a link or image attribute. Absolute
+	// values are kept as written; relative ones use the browser-resolved property.
+	function resolveURL(raw, resolved) {
+		if (!raw) return '';
+		return clean(/^[a-z][a-z0-9+.-]*:/i.test(raw.trim()) ? raw.trim() : (resolved || ''));
+	}
+
+	// kids returns the nodes rendered in place of an element's children: an open
+	// shadow root's children, a slot's assigned nodes (or its fallback content),
+	// or the light-DOM children.
+	function kids(node) {
+		if (node.shadowRoot) return Array.from(node.shadowRoot.childNodes);
+		if (node.tagName === 'SLOT') {
+			const assigned = node.assignedNodes();
+			if (assigned.length) return assigned;
+		}
+		return Array.from(node.childNodes);
+	}
+
+	// labelText returns an element's text without the text of controls or secret
+	// content inside it. A value-bearing control or a secret element has no label
+	// text, so aria-labelledby pointing at one cannot read its content. A button
+	// keeps its text, which is visible content.
+	function labelText(el) {
+		if (/^(INPUT|SELECT|TEXTAREA)$/i.test(el.tagName) || isSecretContent(el)) return '';
+		const clone = withoutSecrets(el);
+		clone.querySelectorAll('input,select,textarea,button').forEach(c => c.remove());
+		return clone.textContent.replace(/\s+/g, ' ').trim();
+	}
+
+	// controlLabel takes the label from the first of: aria-labelledby, aria-label,
+	// intrinsic (a button's own text), label[for=id], a wrapping label,
+	// placeholder, name.
+	function controlLabel(node, intrinsic) {
+		const root = node.getRootNode();
+		const byId = id => (root.getElementById && root.getElementById(id)) || document.getElementById(id);
+		const labelledBy = (node.getAttribute('aria-labelledby') || '').trim();
+		if (labelledBy) {
+			const t = labelledBy.split(/\s+/).map(byId).filter(Boolean).map(labelText).filter(Boolean).join(' ');
+			if (t) return t;
+		}
+		const ariaLabel = (node.getAttribute('aria-label') || '').trim();
+		if (ariaLabel) return ariaLabel;
+		if (intrinsic) return intrinsic;
+		if (node.id && root.querySelector) {
+			const forLabel = root.querySelector('label[for="' + CSS.escape(node.id) + '"]');
+			const t = forLabel ? labelText(forLabel) : '';
+			if (t) return t;
+		}
+		const wrapping = node.closest('label');
+		const wrapped = wrapping ? labelText(wrapping) : '';
+		if (wrapped) return wrapped;
+		const placeholder = (node.getAttribute('placeholder') || '').trim();
+		if (placeholder) return placeholder;
+		return (node.getAttribute('name') || '').trim();
+	}
+
+	function quote(s) {
+		return '"' + clean(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+	}
+
+	function token(role, label, value) {
+		const v = value === undefined ? '' : ': ' + clean(value).replace(/\s+/g, ' ').trim();
+		return ' [' + role + ' ' + quote(label) + v + '] ';
+	}
+
+	function isMasked(node) {
+		try {
+			const style = window.getComputedStyle(node);
+			const mask = style.webkitTextSecurity || style.getPropertyValue('-webkit-text-security');
+			return !!mask && mask !== 'none';
+		} catch(e) {
+			return false;
+		}
+	}
+
+	function isSecret(node, type) {
+		if (type === 'password') return true;
+		const ac = (node.getAttribute('autocomplete') || '').toLowerCase().split(/\s+/);
+		if (ac.some(t => SECRET_AUTOCOMPLETE.has(t))) return true;
+		return isMasked(node);
+	}
+
+	// isSecretContent reports whether an element's text is secret: a secret textarea,
+	// or a masked contenteditable or an element inside one (both properties inherit).
+	function isSecretContent(el) {
+		if (/^textarea$/i.test(el.tagName)) return isSecret(el, 'textarea');
+		return el.isContentEditable && isMasked(el);
+	}
+
+	// withoutSecrets returns a clone of node with its secret descendants removed.
+	// They are found on the original tree, where computed style is available, and
+	// the clone node at the same document-order index is dropped.
+	function withoutSecrets(node) {
+		const clone = node.cloneNode(true);
+		if (!node.isContentEditable && !node.querySelector('textarea,[contenteditable]')) return clone;
+		const copies = clone.querySelectorAll('*');
+		node.querySelectorAll('*').forEach((d, i) => {
+			if (isSecretContent(d)) copies[i].remove();
+		});
+		return clone;
+	}
+
+	// codeText returns the text of a code element without secret content, so a
+	// secret textarea or masked contenteditable cannot leak through a surrounding
+	// pre or code.
+	function codeText(node) {
+		return clean(withoutSecrets(node).textContent);
+	}
+
+	// secretToken renders a secret control with only whether it holds a value.
+	function secretToken(node) {
+		return token('password', controlLabel(node), node.value ? 'set' : 'empty');
+	}
+
+	function renderInput(node) {
+		const type = (node.getAttribute('type') || 'text').toLowerCase();
+		if (type === 'hidden') return '';
+		if (type === 'checkbox' || type === 'radio') {
+			return token(type, controlLabel(node), node.checked ? 'checked' : 'unchecked');
+		}
+		if (BUTTON_TYPES.has(type)) {
+			let own = node.value;
+			if (!own && type === 'submit') own = 'Submit';
+			if (!own && type === 'reset') own = 'Reset';
+			if (type === 'image') own = node.alt || own;
+			return token('button', controlLabel(node, (own || '').trim()));
+		}
+		// Only text-entry controls can be secret: -webkit-text-security inherits, so a
+		// checkbox or button inside a masked wrapper keeps its own token.
+		if (isSecret(node, type)) return secretToken(node);
+		const role = type === 'number' ? 'spinbutton' : 'textbox';
+		return token(role, controlLabel(node), node.value);
+	}
+
+	function renderSelect(node) {
+		const selected = Array.from(node.selectedOptions || []).map(o => (o.label || o.text || '').trim());
+		return token('combobox', controlLabel(node), selected.join(', '));
+	}
+
+	// oneLine collapses rendered content onto a single line.
+	function oneLine(s) {
+		return s.replace(/\s*\n\s*/g, ' ').replace(/[ \t]+/g, ' ').trim();
+	}
+
+	function renderCell(cell) {
+		cellDepth++;
+		try {
+			return oneLine(kids(cell).map(md).join('')).replace(/\|/g, '\\|');
+		} finally {
+			cellDepth--;
+		}
+	}
 
 	function md(node) {
 		if (node.nodeType === Node.TEXT_NODE) {
-			return node.textContent.replace(/[ \t]+/g, ' ');
+			return clean(node.textContent).replace(/[ \t]+/g, ' ');
 		}
 		if (node.nodeType !== Node.ELEMENT_NODE) return '';
 
 		const tag = node.tagName.toLowerCase();
 		if (SKIP.has(tag)) return '';
+		if (isHidden(node)) return '';
+		// A masked contenteditable is a custom secret field: report only whether it
+		// holds text, without walking its children.
+		if (node.isContentEditable && isMasked(node)) {
+			return token('password', controlLabel(node), node.textContent.trim() ? 'set' : 'empty');
+		}
 
-		try {
-			const style = window.getComputedStyle(node);
-			if (style.display === 'none' || style.visibility === 'hidden') return '';
-		} catch(e) {}
-
-		const inner = () => Array.from(node.childNodes).map(md).join('');
+		const inner = () => kids(node).map(md).join('');
 
 		switch(tag) {
+		case 'input': return renderInput(node);
+		case 'textarea':
+			return isSecret(node, 'textarea') ? secretToken(node) : token('textbox', controlLabel(node), node.value);
+		case 'select': return renderSelect(node);
+		case 'button': return token('button', controlLabel(node, node.textContent.replace(/\s+/g, ' ').trim()));
+		case 'iframe': {
+			const src = resolveURL(node.getAttribute('src'), node.src);
+			return ' [iframe ' + quote((node.getAttribute('title') || '').trim() || src) + '] ';
+		}
 		case 'h1': case 'h2': case 'h3': case 'h4': case 'h5': case 'h6': {
-			const t = node.textContent.trim();
+			const t = oneLine(inner());
 			return t ? '\n\n' + '#'.repeat(+tag[1]) + ' ' + t + '\n\n' : '';
 		}
 		case 'p': {
@@ -410,23 +619,28 @@ const extractTextAsMarkdownJS = `(selector) => {
 		}
 		case 'a': {
 			const t = inner().trim();
-			const href = node.getAttribute('href') || '';
-			return t && href ? '[' + t + '](' + href + ')' : (t || '');
+			const href = resolveURL(node.getAttribute('href'), node.href);
+			if (!t) return '';
+			if (!href || /^javascript:/i.test(href)) return t;
+			return '[' + t + '](' + href + ')';
 		}
 		case 'img': {
-			const alt = node.alt || node.getAttribute('aria-label') || '';
-			return alt ? '![' + alt + ']' : '';
+			const alt = clean(node.alt || node.getAttribute('aria-label') || '');
+			if (!alt) return '';
+			const src = resolveURL(node.getAttribute('src'), node.currentSrc || node.src);
+			return src ? '![' + alt + '](' + src + ')' : alt;
 		}
 		case 'code': {
 			if (node.parentElement && node.parentElement.tagName.toLowerCase() === 'pre') {
-				return node.textContent;
+				return codeText(node);
 			}
-			const t = node.textContent;
+			const t = codeText(node);
 			return t ? BT + t + BT : '';
 		}
 		case 'pre': {
-			const t = node.textContent;
-			return t ? '\n\n' + BT.repeat(3) + '\n' + t + '\n' + BT.repeat(3) + '\n\n' : '';
+			const t = codeText(node);
+			if (!t) return '';
+			return '\n\n' + CODE_OPEN + BT.repeat(3) + '\n' + t + '\n' + BT.repeat(3) + CODE_CLOSE + '\n\n';
 		}
 		case 'blockquote': {
 			const t = inner().trim();
@@ -439,25 +653,29 @@ const extractTextAsMarkdownJS = `(selector) => {
 			const ordered = parent && parent.tagName.toLowerCase() === 'ol';
 			const t = inner().trim();
 			if (!t) return '';
+			let marker = '- ';
 			if (ordered) {
-				const idx = Array.from(parent.children).filter(c => c.tagName === 'LI').indexOf(node) + 1;
-				return idx + '. ' + t + '\n';
+				marker = (Array.from(parent.children).filter(c => c.tagName === 'LI').indexOf(node) + 1) + '. ';
 			}
-			return '- ' + t + '\n';
+			// Indent continuation lines to the item's content column, so a code block
+			// inside the item stays part of it. The tidy pass trims prose lines, so only
+			// code keeps the indent.
+			const pad = ' '.repeat(marker.length);
+			return marker + t.split('\n').map((l, k) => k ? pad + l : l).join('\n') + '\n';
 		}
 		case 'table': {
-			const rows = Array.from(node.querySelectorAll('tr'));
+			const rows = Array.from(node.rows).filter(r => !isHidden(r));
 			if (!rows.length) return '';
-			let out = '\n\n';
-			let headerDone = false;
-			for (const row of rows) {
-				const cells = Array.from(row.querySelectorAll('th, td'));
-				out += '| ' + cells.map(c => c.textContent.trim().replace(/\|/g, '\\|')).join(' | ') + ' |\n';
-				if (!headerDone) {
-					out += '| ' + cells.map(() => '---').join(' | ') + ' |\n';
-					headerDone = true;
-				}
+			const rendered = rows.map(r => Array.from(r.cells).filter(c => !isHidden(c)).map(renderCell));
+			if (cellDepth > 0) {
+				// A table nested in a cell flattens into that cell's text.
+				return ' ' + rendered.map(cells => cells.filter(Boolean).join(' ')).filter(Boolean).join(' ') + ' ';
 			}
+			let out = '\n\n';
+			rendered.forEach((cells, i) => {
+				out += '| ' + cells.join(' | ') + ' |\n';
+				if (i === 0) out += '| ' + cells.map(() => '---').join(' | ') + ' |\n';
+			});
 			return out + '\n';
 		}
 		case 'thead': case 'tbody': case 'tfoot': case 'tr': case 'th': case 'td':
@@ -478,8 +696,32 @@ const extractTextAsMarkdownJS = `(selector) => {
 	const el = document.querySelector(selector);
 	if (!el) return null;
 
-	let text = md(el);
-	text = text.replace(/\n{3,}/g, '\n\n').trim();
+	// Tidy whitespace outside code blocks: collapse runs of spaces and trim each
+	// line, so whitespace-only lines collapse with the surrounding blank lines. Code
+	// blocks are the sentinel-delimited segments and keep their text as written. A
+	// prose line that continues into or out of a code block is not trimmed on that
+	// side. The line just before a code block can only hold a wrapper prefix (a list
+	// marker, a list item's continuation indent, "> ", or a mix of them), because pre
+	// emits a blank line before its sentinel, so that prefix is kept as is. Runs of
+	// blank quote lines collapse like runs of blank lines.
+	const parts = md(el).split(/(\u0000[^\u0000\u0001]*\u0001)/);
+	const text = parts.map((part, i) => {
+		if (i % 2 === 1) return part.slice(1, -1);
+		const lines = part.split('\n');
+		const last = lines.length - 1;
+		const beforeCode = i < parts.length - 1;
+		const tidied = lines.map((line, j) => {
+			if (j === last && beforeCode) {
+				const indent = line.match(/^(?:[ \t]*>[ \t]?)*[ \t]*/)[0];
+				return indent + line.slice(indent.length).replace(/[ \t]+/g, ' ');
+			}
+			line = line.replace(/[ \t]+/g, ' ');
+			if (j > 0 || i === 0) line = line.trimStart();
+			if (j < last || i === parts.length - 1) line = line.trimEnd();
+			return line;
+		}).join('\n');
+		return tidied.replace(/\n{3,}/g, '\n\n').replace(/^(>(?: >)*)(?:\n\1)+$/gm, '$1').replace(SENTINELS, '');
+	}).join('').trim();
 	return text;
 }`
 
@@ -497,11 +739,17 @@ func GetHTMLTool() mcp.Tool {
 		mcp.WithBoolean("outer",
 			mcp.Description("Return outerHTML instead of innerHTML (default: false)"),
 		),
+		mcp.WithNumber("maxChars",
+			mcp.Description("Maximum characters to return (default and upper bound: the server's response budget)"),
+		),
+		mcp.WithNumber("offset",
+			mcp.Description("Character offset to start from, for reading the next slice of truncated output (default: 0)"),
+		),
 	)
 }
 
 // GetHTMLHandler returns the handler function for get_html.
-func GetHTMLHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
+func GetHTMLHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig, responseConfig *ResponseConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		slog.Debug("tool handler called", "tool", "get_html")
 
@@ -518,6 +766,11 @@ func GetHTMLHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCon
 		if sessionID == "" {
 			slog.Error("missing required sessionId", "tool", "get_html")
 			return mcp.NewToolResultError("sessionId is required"), nil
+		}
+
+		maxChars, offset, err := textPageParams(args, responseConfig.budget())
+		if err != nil {
+			return invalidParamsResult(err), nil
 		}
 
 		// Get session with ownership validation
@@ -545,7 +798,6 @@ func GetHTMLHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCon
 		}
 
 		var html string
-		var err error
 
 		if selector == "" {
 			// Get entire page content
@@ -579,7 +831,7 @@ func GetHTMLHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCon
 			}
 		}
 
-		return mcp.NewToolResultText(html), nil
+		return textPageResult(html, offset, maxChars), nil
 	}
 }
 
@@ -595,11 +847,14 @@ func EvaluateTool() mcp.Tool {
 			mcp.Required(),
 			mcp.Description("JavaScript expression to evaluate"),
 		),
+		mcp.WithNumber("maxChars",
+			mcp.Description("Maximum characters of result JSON to return (default and upper bound: the server's response budget). Output over the limit is cut, not paged"),
+		),
 	)
 }
 
 // EvaluateHandler returns the handler function for evaluate.
-func EvaluateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
+func EvaluateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig, responseConfig *ResponseConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		slog.Debug("tool handler called", "tool", "evaluate")
 
@@ -623,6 +878,11 @@ func EvaluateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 		if expression == "" {
 			slog.Error("missing required expression", "tool", "evaluate", "sessionID", sessionID)
 			return mcp.NewToolResultError("expression is required"), nil
+		}
+
+		maxChars, err := maxCharsParam(args, responseConfig.budget())
+		if err != nil {
+			return invalidParamsResult(err), nil
 		}
 
 		slog.Debug("evaluating expression", "tool", "evaluate", "sessionID", sessionID)
@@ -677,7 +937,11 @@ func EvaluateHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 				return mcp.NewToolResultError(fmt.Sprintf("Failed to serialize result: %v", err)), nil
 			}
 
-			return mcp.NewToolResultText(string(jsonBytes)), nil
+			resultJSON := string(jsonBytes)
+			if utf8.RuneCountInString(resultJSON) > maxChars {
+				return pagedResult(runeSlice(resultJSON, 0, maxChars), evaluateTruncatedNotice), nil
+			}
+			return mcp.NewToolResultText(resultJSON), nil
 		case <-ctx.Done():
 			slog.Warn("evaluate returning due to context cancellation; Playwright goroutine still running",
 				"tool", "evaluate", "sessionID", sessionID, "error", ctx.Err())
@@ -717,11 +981,17 @@ func QuerySelectorTool() mcp.Tool {
 		mcp.WithBoolean("all",
 			mcp.Description("Return all matching elements (default: false, first match only)"),
 		),
+		mcp.WithNumber("limit",
+			mcp.Description("With all: maximum number of elements to return (default: 50)"),
+		),
+		mcp.WithNumber("offset",
+			mcp.Description("With all: number of matching elements to skip (default: 0). Continue with offset + returned from the second content block while hasMore is true; fewer than limit items may be returned when the response budget is reached"),
+		),
 	)
 }
 
 // QuerySelectorHandler returns the handler function for query_selector.
-func QuerySelectorHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
+func QuerySelectorHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig, responseConfig *ResponseConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		slog.Debug("tool handler called", "tool", "query_selector")
 
@@ -745,6 +1015,11 @@ func QuerySelectorHandler(mgr session.BrowserSessionManager, timeoutConfig *Time
 		if selector == "" {
 			slog.Error("missing required selector", "tool", "query_selector", "sessionID", sessionID)
 			return mcp.NewToolResultError("selector is required"), nil
+		}
+
+		limit, offset, err := listPageParams(args)
+		if err != nil {
+			return invalidParamsResult(err), nil
 		}
 
 		slog.Debug("querying selector", "tool", "query_selector", "sessionID", sessionID, "selector", selector)
@@ -791,12 +1066,11 @@ func QuerySelectorHandler(mgr session.BrowserSessionManager, timeoutConfig *Time
 				infos = append(infos, *info)
 			}
 
-			jsonBytes, err := json.Marshal(infos)
+			result, err := paginateItems(infos, offset, limit, responseConfig.budget(), false)
 			if err != nil {
 				return mcp.NewToolResultError(fmt.Sprintf("Failed to serialize element info: %v", err)), nil
 			}
-
-			return mcp.NewToolResultText(string(jsonBytes)), nil
+			return result, nil
 		}
 
 		// Query single element
@@ -816,6 +1090,12 @@ func QuerySelectorHandler(mgr session.BrowserSessionManager, timeoutConfig *Time
 		jsonBytes, err := json.Marshal(info)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to serialize element info: %v", err)), nil
+		}
+		if budget := responseConfig.budget(); utf8.RuneCount(jsonBytes) > budget {
+			// Cut long attribute values and text so the single object fits the budget.
+			if jsonBytes, err = cutItemToBudget(jsonBytes, budget); err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("Failed to serialize element info: %v", err)), nil
+			}
 		}
 
 		return mcp.NewToolResultText(string(jsonBytes)), nil
@@ -1105,11 +1385,17 @@ func GetLinksTool() mcp.Tool {
 		mcp.WithNumber("timeout",
 			mcp.Description("Navigation timeout in milliseconds"),
 		),
+		mcp.WithNumber("limit",
+			mcp.Description("Maximum number of links to return (default: 50)"),
+		),
+		mcp.WithNumber("offset",
+			mcp.Description("Number of links to skip (default: 0). Continue with offset + returned from the second content block while hasMore is true; fewer than limit items may be returned when the response budget is reached"),
+		),
 	)
 }
 
 // GetLinksHandler returns the handler function for get_links.
-func GetLinksHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
+func GetLinksHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig, responseConfig *ResponseConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		slog.Debug("tool handler called", "tool", "get_links")
 
@@ -1126,6 +1412,11 @@ func GetLinksHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 		if sessionID == "" {
 			slog.Error("missing required sessionId", "tool", "get_links")
 			return mcp.NewToolResultError("sessionId is required"), nil
+		}
+
+		limit, offset, err := listPageParams(args)
+		if err != nil {
+			return invalidParamsResult(err), nil
 		}
 
 		// Get session with ownership validation
@@ -1165,13 +1456,16 @@ func GetLinksHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to extract links: %v", err)), nil
 		}
 
-		// Serialize result to JSON
-		jsonBytes, err := json.Marshal(result)
+		links, ok := result.([]any)
+		if !ok && result != nil {
+			return mcp.NewToolResultError("Failed to extract links: unexpected result type"), nil
+		}
+
+		linksPage, err := paginateItems(links, offset, limit, responseConfig.budget(), false)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to serialize links: %v", err)), nil
 		}
-
-		return mcp.NewToolResultText(string(jsonBytes)), nil
+		return linksPage, nil
 	}
 }
 
@@ -1203,11 +1497,17 @@ func NavigateAndExtractTextTool() mcp.Tool {
 			mcp.Description("Browser to use: chromium, firefox, webkit"),
 			mcp.Enum("chromium", "firefox", "webkit"),
 		),
+		mcp.WithNumber("maxChars",
+			mcp.Description("Maximum characters to return (default and upper bound: the server's response budget)"),
+		),
+		mcp.WithNumber("offset",
+			mcp.Description("Character offset to start from, for reading the next slice of truncated output (default: 0)"),
+		),
 	)
 }
 
 // NavigateAndExtractTextHandler returns the handler function for navigate_and_extract_text.
-func NavigateAndExtractTextHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
+func NavigateAndExtractTextHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig, responseConfig *ResponseConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		slog.Debug("tool handler called", "tool", "navigate_and_extract_text")
 
@@ -1224,6 +1524,11 @@ func NavigateAndExtractTextHandler(mgr session.BrowserSessionManager, timeoutCon
 		if url == "" {
 			slog.Error("missing required url", "tool", "navigate_and_extract_text")
 			return mcp.NewToolResultError("url is required"), nil
+		}
+
+		maxChars, offset, err := textPageParams(args, responseConfig.budget())
+		if err != nil {
+			return invalidParamsResult(err), nil
 		}
 
 		// Parse browserType with default
@@ -1305,10 +1610,12 @@ func NavigateAndExtractTextHandler(mgr session.BrowserSessionManager, timeoutCon
 		}
 
 		text = strings.TrimSpace(text)
-		if text == "" {
+		// An empty page reports itself only on the first call; at a non-zero offset
+		// it falls through so the caller gets the usual end-of-content notice.
+		if text == "" && offset == 0 {
 			return mcp.NewToolResultText("No visible text found on the page."), nil
 		}
 
-		return mcp.NewToolResultText(text), nil
+		return textPageResult(text, offset, maxChars), nil
 	}
 }

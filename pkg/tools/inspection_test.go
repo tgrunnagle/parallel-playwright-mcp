@@ -338,7 +338,7 @@ func TestGetConsoleLogsHandler(t *testing.T) {
 			mgr := &mockSessionManager{
 				getSessionFunc: tt.getSessionFunc,
 			}
-			handler := GetConsoleLogsHandler(mgr, DefaultTimeoutConfig())
+			handler := GetConsoleLogsHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{
@@ -377,6 +377,8 @@ func TestGetConsoleLogsHandler(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("pagination", testConsoleLogsPagination)
 }
 
 // TestGetConsoleLogsHandler_AllLevels tests that all log levels work correctly.
@@ -409,7 +411,7 @@ func TestGetConsoleLogsHandler_AllLevels(t *testing.T) {
 					}, true
 				},
 			}
-			handler := GetConsoleLogsHandler(mgr, DefaultTimeoutConfig())
+			handler := GetConsoleLogsHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{
@@ -460,7 +462,7 @@ func TestGetConsoleLogsHandler_MCPOwnership(t *testing.T) {
 			return nil, false
 		},
 	}
-	handler := GetConsoleLogsHandler(mgr, DefaultTimeoutConfig())
+	handler := GetConsoleLogsHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
@@ -719,7 +721,7 @@ func TestExtractTextHandler(t *testing.T) {
 			mgr := &mockSessionManager{
 				getSessionFunc: tt.getSessionFunc,
 			}
-			handler := ExtractTextHandler(mgr, DefaultTimeoutConfig())
+			handler := ExtractTextHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{
@@ -750,6 +752,8 @@ func TestExtractTextHandler(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("pagination", testExtractTextPagination)
 }
 
 // TestGetHTMLTool tests the get_html tool definition.
@@ -844,7 +848,7 @@ func TestGetHTMLHandler(t *testing.T) {
 			mgr := &mockSessionManager{
 				getSessionFunc: tt.getSessionFunc,
 			}
-			handler := GetHTMLHandler(mgr, DefaultTimeoutConfig())
+			handler := GetHTMLHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{
@@ -875,6 +879,8 @@ func TestGetHTMLHandler(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("pagination", testGetHTMLPagination)
 }
 
 // TestEvaluateTool tests the evaluate tool definition.
@@ -985,7 +991,7 @@ func TestEvaluateHandler(t *testing.T) {
 			mgr := &mockSessionManager{
 				getSessionFunc: tt.getSessionFunc,
 			}
-			handler := EvaluateHandler(mgr, DefaultTimeoutConfig())
+			handler := EvaluateHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{
@@ -1016,6 +1022,8 @@ func TestEvaluateHandler(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("pagination", testEvaluateTruncation)
 }
 
 // TestQuerySelectorTool tests the query_selector tool definition.
@@ -1129,7 +1137,7 @@ func TestQuerySelectorHandler(t *testing.T) {
 			mgr := &mockSessionManager{
 				getSessionFunc: tt.getSessionFunc,
 			}
-			handler := QuerySelectorHandler(mgr, DefaultTimeoutConfig())
+			handler := QuerySelectorHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{
@@ -1160,6 +1168,8 @@ func TestQuerySelectorHandler(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("pagination", testQuerySelectorPagination)
 }
 
 // TestGetAccessibilityTreeTool tests the get_accessibility_tree tool definition.
@@ -1419,7 +1429,7 @@ func TestNavigateAndExtractTextHandler(t *testing.T) {
 			mgr := &mockSessionManager{
 				createSessionFunc: tt.createSessionFunc,
 			}
-			handler := NavigateAndExtractTextHandler(mgr, DefaultTimeoutConfig())
+			handler := NavigateAndExtractTextHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{
@@ -1455,6 +1465,8 @@ func TestNavigateAndExtractTextHandler(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("pagination", testNavigateAndExtractTextPagination)
 }
 
 // TestElementInfoStructure tests the ElementInfo type serialization.
@@ -1635,7 +1647,7 @@ func TestGetLinksHandler(t *testing.T) {
 			mgr := &mockSessionManager{
 				getSessionFunc: tt.getSessionFunc,
 			}
-			handler := GetLinksHandler(mgr, DefaultTimeoutConfig())
+			handler := GetLinksHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{
@@ -1666,6 +1678,8 @@ func TestGetLinksHandler(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("pagination", testGetLinksPagination)
 }
 
 // TestLinkInfoStructure tests the LinkInfo type serialization.

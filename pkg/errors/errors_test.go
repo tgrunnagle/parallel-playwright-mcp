@@ -539,3 +539,25 @@ func TestErrorWrappingCompatibility(t *testing.T) {
 		}
 	})
 }
+
+func TestInvalidParamsError(t *testing.T) {
+	err := NewInvalidParamsError("maxChars", "must be a positive integer")
+
+	if got := err.Error(); got != `invalid parameter "maxChars": must be a positive integer` {
+		t.Errorf("Error() = %q", got)
+	}
+	if err.ErrorCode() != CodeInvalidParams {
+		t.Errorf("ErrorCode() = %d, want %d", err.ErrorCode(), CodeInvalidParams)
+	}
+	data := err.ErrorData()
+	if data["parameter"] != "maxChars" {
+		t.Errorf("ErrorData()[parameter] = %v", data["parameter"])
+	}
+	if data["suggestion"] != SuggestInvalidParams {
+		t.Errorf("ErrorData()[suggestion] = %v", data["suggestion"])
+	}
+
+	if got := (&InvalidParamsError{Param: "offset"}).Error(); got != `invalid parameter "offset"` {
+		t.Errorf("Error() without reason = %q", got)
+	}
+}

@@ -3,7 +3,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -36,7 +35,10 @@ func GetNetworkLogsTool() mcp.Tool {
 			mcp.Description("Browser session ID to retrieve logs from"),
 		),
 		mcp.WithNumber("limit",
-			mcp.Description("Maximum number of entries to return (default: all)"),
+			mcp.Description("Maximum number of entries to return (default: 50)"),
+		),
+		mcp.WithNumber("offset",
+			mcp.Description("Number of newest matching entries to skip (default: 0). Entries are selected newest first and returned oldest first; the buffer is live, so offsets and total shift as new entries arrive. Continue with offset + returned from the second content block while hasMore is true; fewer than limit items may be returned when the response budget is reached"),
 		),
 		mcp.WithObject("filter",
 			mcp.Description("Filter criteria for network logs"),
@@ -63,7 +65,7 @@ func GetNetworkLogsTool() mcp.Tool {
 }
 
 // GetNetworkLogsHandler returns the handler function for get_network_logs.
-func GetNetworkLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
+func GetNetworkLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig, responseConfig *ResponseConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		slog.Debug("tool handler called", "tool", "get_network_logs")
 
@@ -82,6 +84,11 @@ func GetNetworkLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *Tim
 			return mcp.NewToolResultError("sessionId is required"), nil
 		}
 
+		limit, offset, err := listPageParams(args)
+		if err != nil {
+			return invalidParamsResult(err), nil
+		}
+
 		// Get session with ownership validation
 		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
 		if !ok {
@@ -89,36 +96,13 @@ func GetNetworkLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *Tim
 			return mcp.NewToolResultError(errors.FormatErrorForTool(errors.NewSessionNotFoundError(sessionID))), nil
 		}
 
-		// Check if NetworkLogs buffer exists
-		if sess.NetworkLogs == nil {
-			return mcp.NewToolResultText("[]"), nil
+		// Retrieve all entries; Entries() returns chronological order (oldest first)
+		entries := []session.NetworkLogEntry{}
+		if sess.NetworkLogs != nil {
+			entries = sess.NetworkLogs.Entries(0)
 		}
 
-		// Determine limit
-		var limit int
-		if limitVal, ok := args["limit"]; ok && limitVal != nil {
-			switch v := limitVal.(type) {
-			case float64:
-				if v > 0 {
-					limit = int(v)
-				}
-			case int:
-				if v > 0 {
-					limit = v
-				}
-			}
-		}
-
-		// Retrieve entries from buffer
-		// Entries() returns in chronological order (oldest first)
-		var entries []session.NetworkLogEntry
-		if limit > 0 {
-			entries = sess.NetworkLogs.Entries(limit)
-		} else {
-			entries = sess.NetworkLogs.Entries(0) // Get all
-		}
-
-		// Reverse to get most recent first
+		// Select newest first: offset k skips the k newest matching entries
 		entries = reverseNetworkEntries(entries)
 
 		// Parse and apply filter if provided
@@ -146,15 +130,15 @@ func GetNetworkLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *Tim
 			}
 		}
 
-		// Format as JSON
-		result, err := json.Marshal(output)
+		// Page newest first, returned oldest first
+		result, err := paginateItems(output, offset, limit, responseConfig.budget(), true)
 		if err != nil {
 			slog.Error("failed to format network logs", "tool", "get_network_logs", "sessionID", sessionID, "error", err)
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to format logs: %v", err)), nil
 		}
 
-		slog.Debug("network logs retrieved", "tool", "get_network_logs", "sessionID", sessionID, "entryCount", len(output))
-		return mcp.NewToolResultText(string(result)), nil
+		slog.Debug("network logs retrieved", "tool", "get_network_logs", "sessionID", sessionID, "matchingEntries", len(output))
+		return result, nil
 	}
 }
 

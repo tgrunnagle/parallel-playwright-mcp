@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -1025,4 +1026,66 @@ func TestLoadWithDefaults_RetryableErrors(t *testing.T) {
 	if !hasTimeout {
 		t.Error("default RetryableErrors should include CodeTimeout (-32003)")
 	}
+}
+
+func TestLoadConfig(t *testing.T) {
+	t.Run("default response budget is 40000", func(t *testing.T) {
+		cfg, err := Load("/nonexistent/path/config.yaml")
+		if err != nil {
+			t.Fatalf("Load() error = %v", err)
+		}
+		if cfg.Tools.MaxResponseChars != 40000 {
+			t.Errorf("Tools.MaxResponseChars = %d, want 40000", cfg.Tools.MaxResponseChars)
+		}
+		if got := cfg.Tools.ToResponseConfig().MaxResponseChars; got != 40000 {
+			t.Errorf("ToResponseConfig().MaxResponseChars = %d, want 40000", got)
+		}
+	})
+
+	t.Run("yaml sets response budget", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		if err := os.WriteFile(path, []byte("tools:\n  maxResponseChars: 1234\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := Load(path)
+		if err != nil {
+			t.Fatalf("Load() error = %v", err)
+		}
+		if cfg.Tools.MaxResponseChars != 1234 {
+			t.Errorf("Tools.MaxResponseChars = %d, want 1234", cfg.Tools.MaxResponseChars)
+		}
+	})
+
+	t.Run("env overrides response budget", func(t *testing.T) {
+		t.Setenv("MCP_MAX_RESPONSE_CHARS", "500")
+		cfg, err := Load("/nonexistent/path/config.yaml")
+		if err != nil {
+			t.Fatalf("Load() error = %v", err)
+		}
+		if cfg.Tools.MaxResponseChars != 500 {
+			t.Errorf("Tools.MaxResponseChars = %d, want 500", cfg.Tools.MaxResponseChars)
+		}
+	})
+
+	for _, value := range []string{"0", "-5", "abc", "1.5"} {
+		t.Run("invalid MCP_MAX_RESPONSE_CHARS "+value, func(t *testing.T) {
+			t.Setenv("MCP_MAX_RESPONSE_CHARS", value)
+			_, err := Load("/nonexistent/path/config.yaml")
+			if err == nil {
+				t.Fatalf("Load() expected error for MCP_MAX_RESPONSE_CHARS=%q, got nil", value)
+			}
+			if !strings.Contains(err.Error(), "MCP_MAX_RESPONSE_CHARS") {
+				t.Errorf("error %q does not name MCP_MAX_RESPONSE_CHARS", err)
+			}
+		})
+	}
+
+	t.Run("yaml zero budget fails validation", func(t *testing.T) {
+		cfg := LoadWithDefaults()
+		cfg.Tools.MaxResponseChars = 0
+		errs := cfg.Validate()
+		if len(errs) != 1 || !strings.Contains(errs[0].Error(), "maxResponseChars") {
+			t.Errorf("Validate() = %v, want one maxResponseChars error", errs)
+		}
+	})
 }
