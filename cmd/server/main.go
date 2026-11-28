@@ -214,7 +214,7 @@ func run(ctx context.Context, emergencyCleanup **shutdown.EmergencyCleanup) erro
 	addTool(tools.GetHTMLTool(), tools.GetHTMLHandler(sessionMgr, timeoutConfig, responseConfig))
 	addTool(tools.EvaluateTool(), tools.EvaluateHandler(sessionMgr, timeoutConfig, responseConfig))
 	addTool(tools.QuerySelectorTool(), tools.QuerySelectorHandler(sessionMgr, timeoutConfig, responseConfig))
-	addTool(tools.GetAccessibilityTreeTool(), tools.GetAccessibilityTreeHandler(sessionMgr, timeoutConfig))
+	addTool(tools.GetAccessibilityTreeTool(), tools.GetAccessibilityTreeHandler(sessionMgr, timeoutConfig, responseConfig))
 	addTool(tools.NavigateAndExtractTextTool(), tools.NavigateAndExtractTextHandler(sessionMgr, timeoutConfig, responseConfig))
 	addTool(tools.GetLinksTool(), tools.GetLinksHandler(sessionMgr, timeoutConfig, responseConfig))
 

@@ -45,7 +45,7 @@ func allToolHandlers(mgr session.BrowserSessionManager) map[string]server.ToolHa
 		"get_html":                  GetHTMLHandler(mgr, tc, rc),
 		"evaluate":                  EvaluateHandler(mgr, tc, rc),
 		"query_selector":            QuerySelectorHandler(mgr, tc, rc),
-		"get_accessibility_tree":    GetAccessibilityTreeHandler(mgr, tc),
+		"get_accessibility_tree":    GetAccessibilityTreeHandler(mgr, tc, rc),
 		"get_links":                 GetLinksHandler(mgr, tc, rc),
 		"navigate_and_extract_text": NavigateAndExtractTextHandler(mgr, tc, rc),
 	}

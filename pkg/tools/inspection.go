@@ -1150,23 +1150,39 @@ func extractElementInfo(element playwright.ElementHandle) (*ElementInfo, error) 
 	return info, nil
 }
 
+// snapshotRefsDescription explains element refs; tool descriptions that return or
+// accept refs share it.
+const snapshotRefsDescription = "Each element carries a ref like [ref=e3], or [ref=f1e2] inside an iframe or a document loaded after the first. " +
+	"Pass a ref as the ref argument of click, type, fill, select_option, hover, or press_key to act on exactly that element. " +
+	"Refs stay the same while the document is unchanged and go stale when the page navigates; a stale ref fails at once with 'Stale element ref', so take a new snapshot."
+
 // GetAccessibilityTreeTool returns the get_accessibility_tree MCP tool definition.
-// NOTE: This tool uses JavaScript-based accessibility extraction because playwright-go
-// does not expose the native Accessibility().Snapshot() API. The JavaScript implementation
-// provides a simplified accessibility tree based on ARIA attributes and semantic HTML roles,
-// which may differ from the browser's native accessibility tree in some edge cases.
 func GetAccessibilityTreeTool() mcp.Tool {
 	return mcp.NewTool("get_accessibility_tree",
-		mcp.WithDescription("Get accessibility snapshot of the page (JavaScript-based extraction using ARIA attributes and semantic roles)"),
+		mcp.WithDescription("Get an ARIA snapshot of the page: a compact YAML tree of roles, accessible names, states such as [checked], and form values (password values show as •••). "+
+			snapshotRefsDescription+
+			" Content hidden with display:none or visibility:hidden is left out; content that is on screen but aria-hidden is kept."),
 		mcp.WithString("sessionId",
 			mcp.Required(),
 			mcp.Description("Browser session ID"),
+		),
+		mcp.WithString("selector",
+			mcp.Description("CSS selector of one element to snapshot instead of the whole page"),
+		),
+		mcp.WithNumber("depth",
+			mcp.Description("Maximum depth of the tree (default: unlimited)"),
+		),
+		mcp.WithNumber("maxChars",
+			mcp.Description("Maximum characters to return (default and upper bound: the server's response budget)"),
+		),
+		mcp.WithNumber("offset",
+			mcp.Description("Character offset to start from, for reading the next slice of truncated output (default: 0)"),
 		),
 	)
 }
 
 // GetAccessibilityTreeHandler returns the handler function for get_accessibility_tree.
-func GetAccessibilityTreeHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig) server.ToolHandlerFunc {
+func GetAccessibilityTreeHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig, responseConfig *ResponseConfig) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		slog.Debug("tool handler called", "tool", "get_accessibility_tree")
 
@@ -1185,6 +1201,15 @@ func GetAccessibilityTreeHandler(mgr session.BrowserSessionManager, timeoutConfi
 			return requiredParamResult("sessionId"), nil
 		}
 
+		maxChars, offset, err := textPageParams(args, responseConfig.budget())
+		if err != nil {
+			return invalidParamsResult(err), nil
+		}
+		depth, err := intParam(args, "depth", 0, 1)
+		if err != nil {
+			return invalidParamsResult(err), nil
+		}
+
 		// Get session with ownership validation
 		sess, ok := mgr.GetSession(mcpSessionID, sessionID)
 		if !ok {
@@ -1199,166 +1224,22 @@ func GetAccessibilityTreeHandler(mgr session.BrowserSessionManager, timeoutConfi
 			return noActivePageResult(), nil
 		}
 
-		// Get accessibility tree using JavaScript
-		// Note: playwright-go doesn't expose Accessibility().Snapshot() directly,
-		// so we use JavaScript to extract accessibility information
-		result, err := page.Evaluate(accessibilityTreeJS)
+		selector := req.GetString("selector", "")
+		snapshot, err := takeSnapshot(page, selector, depth, PlaywrightTimeoutFromContext(ctx))
 		if err != nil {
-			slog.Error("failed to get accessibility tree", "tool", "get_accessibility_tree", "sessionID", sessionID, "error", err)
-			return internalErrorResult("Failed to get accessibility tree: %v", err), nil
+			if ctxErr := HandleContextError(ctx, "get_accessibility_tree"); ctxErr != nil {
+				return errorResult(ctxErr), nil
+			}
+			slog.Error("failed to get accessibility snapshot", "tool", "get_accessibility_tree", "sessionID", sessionID, "error", err)
+			return errorResult(err), nil
 		}
 
-		// Serialize result to JSON
-		jsonBytes, err := json.Marshal(result)
-		if err != nil {
-			return internalErrorResult("Failed to serialize accessibility tree: %v", err), nil
+		if strings.TrimSpace(snapshot) == "" && offset == 0 {
+			return mcp.NewToolResultText("No accessible elements found."), nil
 		}
-
-		return mcp.NewToolResultText(string(jsonBytes)), nil
+		return textPageResult(snapshot, offset, maxChars), nil
 	}
 }
-
-// accessibilityTreeJS extracts accessibility information from the DOM using JavaScript.
-//
-// LIMITATION: playwright-go v0.5200.1 does not expose the native Accessibility().Snapshot() API.
-// This JavaScript-based implementation provides a simplified accessibility tree by:
-// - Extracting explicit ARIA attributes (aria-label, aria-labelledby, aria-expanded, etc.)
-// - Mapping semantic HTML elements to their implicit ARIA roles (button, link, heading, etc.)
-// - Traversing visible elements and building a hierarchical tree structure
-//
-// Differences from native accessibility API:
-// - May not capture all computed accessible names (e.g., from complex label algorithms)
-// - Does not include accessibility properties from browser internals
-// - Simplified role mapping compared to full ARIA specification
-//
-// This is suitable for most inspection and testing use cases but may not match
-// screen reader behavior exactly.
-const accessibilityTreeJS = `() => {
-	function getAccessibleName(element) {
-		// Try aria-label first
-		if (element.getAttribute('aria-label')) {
-			return element.getAttribute('aria-label');
-		}
-		// Try aria-labelledby
-		const labelledBy = element.getAttribute('aria-labelledby');
-		if (labelledBy) {
-			const labels = labelledBy.split(' ').map(id => {
-				const el = document.getElementById(id);
-				return el ? el.textContent.trim() : '';
-			}).filter(Boolean);
-			if (labels.length) return labels.join(' ');
-		}
-		// Try label element for form controls
-		if (element.id) {
-			const label = document.querySelector('label[for="' + element.id + '"]');
-			if (label) return label.textContent.trim();
-		}
-		// Try alt for images
-		if (element.tagName === 'IMG' && element.alt) {
-			return element.alt;
-		}
-		// Try title
-		if (element.title) {
-			return element.title;
-		}
-		// Try placeholder for inputs
-		if (element.placeholder) {
-			return element.placeholder;
-		}
-		// Use text content for simple elements
-		const text = element.textContent.trim();
-		return text.length < 100 ? text : text.substring(0, 100) + '...';
-	}
-
-	function getRole(element) {
-		// Explicit role
-		const explicitRole = element.getAttribute('role');
-		if (explicitRole) return explicitRole;
-
-		// Implicit roles based on tag
-		const implicitRoles = {
-			'A': element.href ? 'link' : null,
-			'BUTTON': 'button',
-			'INPUT': {
-				'button': 'button',
-				'checkbox': 'checkbox',
-				'radio': 'radio',
-				'text': 'textbox',
-				'password': 'textbox',
-				'email': 'textbox',
-				'search': 'searchbox',
-				'submit': 'button',
-				'reset': 'button'
-			}[element.type] || 'textbox',
-			'SELECT': 'combobox',
-			'TEXTAREA': 'textbox',
-			'IMG': 'img',
-			'NAV': 'navigation',
-			'MAIN': 'main',
-			'HEADER': 'banner',
-			'FOOTER': 'contentinfo',
-			'ASIDE': 'complementary',
-			'ARTICLE': 'article',
-			'SECTION': 'region',
-			'FORM': 'form',
-			'TABLE': 'table',
-			'UL': 'list',
-			'OL': 'list',
-			'LI': 'listitem',
-			'H1': 'heading',
-			'H2': 'heading',
-			'H3': 'heading',
-			'H4': 'heading',
-			'H5': 'heading',
-			'H6': 'heading'
-		};
-		return implicitRoles[element.tagName] || null;
-	}
-
-	function buildNode(element) {
-		const role = getRole(element);
-		const name = getAccessibleName(element);
-
-		// Skip elements without role and name, unless they have children with roles
-		const node = {
-			role: role || 'generic',
-			name: name || ''
-		};
-
-		// Add relevant properties
-		if (element.disabled) node.disabled = true;
-		if (element.checked) node.checked = true;
-		if (element.selected) node.selected = true;
-		if (element.getAttribute('aria-expanded') !== null) {
-			node.expanded = element.getAttribute('aria-expanded') === 'true';
-		}
-		if (element.getAttribute('aria-level')) {
-			node.level = parseInt(element.getAttribute('aria-level'));
-		}
-		if (element.tagName.match(/^H[1-6]$/)) {
-			node.level = parseInt(element.tagName[1]);
-		}
-
-		// Process children
-		const children = [];
-		for (const child of element.children) {
-			const style = window.getComputedStyle(child);
-			if (style.display !== 'none' && style.visibility !== 'hidden') {
-				const childNode = buildNode(child);
-				if (childNode.role !== 'generic' || childNode.name || childNode.children) {
-					children.push(childNode);
-				}
-			}
-		}
-		if (children.length > 0) {
-			node.children = children;
-		}
-
-		return node;
-	}
-
-	return buildNode(document.body);
-}`
 
 // LinkInfo represents information about a hyperlink on the page.
 type LinkInfo struct {

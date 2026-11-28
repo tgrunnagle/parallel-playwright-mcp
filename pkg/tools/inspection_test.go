@@ -1208,8 +1208,8 @@ func TestGetAccessibilityTreeTool(t *testing.T) {
 	}
 }
 
-// TestGetAccessibilityTreeHandler tests the get_accessibility_tree handler.
-func TestGetAccessibilityTreeHandler(t *testing.T) {
+// TestGetAccessibilityTreeHandlerValidation tests the get_accessibility_tree handler.
+func TestGetAccessibilityTreeHandlerValidation(t *testing.T) {
 	tests := []struct {
 		name           string
 		arguments      map[string]any
@@ -1256,7 +1256,7 @@ func TestGetAccessibilityTreeHandler(t *testing.T) {
 			mgr := &mockSessionManager{
 				getSessionFunc: tt.getSessionFunc,
 			}
-			handler := GetAccessibilityTreeHandler(mgr, DefaultTimeoutConfig())
+			handler := GetAccessibilityTreeHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 
 			req := mcp.CallToolRequest{
 				Params: mcp.CallToolParams{

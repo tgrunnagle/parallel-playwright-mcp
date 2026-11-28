@@ -21,6 +21,10 @@ type mockLocator struct {
 	hoverFunc             func(opts playwright.LocatorHoverOptions) error
 	pressFunc             func(key string, opts playwright.LocatorPressOptions) error
 	selectOptionFunc      func(values playwright.SelectOptionValues, opts playwright.LocatorSelectOptionOptions) ([]string, error)
+	countFunc             func() (int, error)
+	evaluateFunc          func(expression string, arg any) (any, error)
+	evaluateAllFunc       func(expression string, arg ...any) (any, error)
+	ariaSnapshotFunc      func(opts playwright.LocatorAriaSnapshotOptions) (string, error)
 }
 
 func (m *mockLocator) Click(opts ...playwright.LocatorClickOptions) error {
@@ -95,15 +99,27 @@ func (m *mockLocator) AllInnerTexts() ([]string, error)                  { retur
 func (m *mockLocator) AllTextContents() ([]string, error)                { return nil, nil }
 func (m *mockLocator) And(locator playwright.Locator) playwright.Locator { return m }
 func (m *mockLocator) AriaSnapshot(options ...playwright.LocatorAriaSnapshotOptions) (string, error) {
+	if m.ariaSnapshotFunc != nil {
+		opt := playwright.LocatorAriaSnapshotOptions{}
+		if len(options) > 0 {
+			opt = options[0]
+		}
+		return m.ariaSnapshotFunc(opt)
+	}
 	return "", nil
 }
 func (m *mockLocator) Blur(options ...playwright.LocatorBlurOptions) error { return nil }
 func (m *mockLocator) BoundingBox(options ...playwright.LocatorBoundingBoxOptions) (*playwright.Rect, error) {
 	return nil, nil
 }
-func (m *mockLocator) Check(options ...playwright.LocatorCheckOptions) error       { return nil }
-func (m *mockLocator) Clear(options ...playwright.LocatorClearOptions) error       { return nil }
-func (m *mockLocator) Count() (int, error)                                         { return 0, nil }
+func (m *mockLocator) Check(options ...playwright.LocatorCheckOptions) error { return nil }
+func (m *mockLocator) Clear(options ...playwright.LocatorClearOptions) error { return nil }
+func (m *mockLocator) Count() (int, error) {
+	if m.countFunc != nil {
+		return m.countFunc()
+	}
+	return 0, nil
+}
 func (m *mockLocator) Dblclick(options ...playwright.LocatorDblclickOptions) error { return nil }
 func (m *mockLocator) Describe(description string) playwright.Locator              { return m }
 func (m *mockLocator) Description() (string, error)                                { return "", nil }
@@ -122,9 +138,15 @@ func (m *mockLocator) ElementHandle(options ...playwright.LocatorElementHandleOp
 func (m *mockLocator) ElementHandles() ([]playwright.ElementHandle, error) { return nil, nil }
 func (m *mockLocator) ContentFrame() playwright.FrameLocator               { return nil }
 func (m *mockLocator) Evaluate(expression string, arg interface{}, options ...playwright.LocatorEvaluateOptions) (interface{}, error) {
+	if m.evaluateFunc != nil {
+		return m.evaluateFunc(expression, arg)
+	}
 	return nil, nil
 }
 func (m *mockLocator) EvaluateAll(expression string, arg ...interface{}) (interface{}, error) {
+	if m.evaluateAllFunc != nil {
+		return m.evaluateAllFunc(expression, arg...)
+	}
 	return nil, nil
 }
 func (m *mockLocator) EvaluateHandle(expression string, arg interface{}, options ...playwright.LocatorEvaluateHandleOptions) (playwright.JSHandle, error) {

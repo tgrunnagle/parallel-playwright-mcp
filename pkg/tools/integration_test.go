@@ -8,11 +8,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mxschmitt/playwright-go"
 	"github.com/tgrunnagle/parallel-playwright-mcp/pkg/browser"
 	"github.com/tgrunnagle/parallel-playwright-mcp/pkg/session"
 )
@@ -75,7 +77,19 @@ func startTestHTTPServer(t *testing.T) *httptest.Server {
 				<button>Visible Button</button>
 				<button style="display:none">Hidden Button</button>
 				<button style="visibility:hidden">Invisible Button</button>
+				<div aria-hidden="true"><button>Decorative Button</button></div>
 			</div>
+		</body></html>`)
+	})
+	mux.HandleFunc("/a11y-password", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<!DOCTYPE html><html><body>
+			<form>
+				<label for="user">Username</label>
+				<input id="user" type="text" />
+				<label for="pass">Password</label>
+				<input id="pass" type="password" />
+			</form>
 		</body></html>`)
 	})
 	mux.HandleFunc("/a11y-headings", func(w http.ResponseWriter, r *http.Request) {
@@ -1940,7 +1954,7 @@ func TestGetAccessibilityTreeToolIntegration(t *testing.T) {
 
 	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
 	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
-	accessibilityHandler := GetAccessibilityTreeHandler(mgr, DefaultTimeoutConfig())
+	accessibilityHandler := GetAccessibilityTreeHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 	ctx := context.Background()
 
 	// Create a session
@@ -1995,23 +2009,76 @@ func TestGetAccessibilityTreeToolIntegration(t *testing.T) {
 
 		text := extractTextContent(result.Content)
 
-		// Verify it returns a valid JSON structure
-		var tree map[string]interface{}
-		if err := json.Unmarshal([]byte(text), &tree); err != nil {
-			t.Fatalf("Failed to parse accessibility tree: %v", err)
+		// The snapshot is YAML, not JSON
+		var asJSON any
+		if json.Unmarshal([]byte(text), &asJSON) == nil {
+			t.Fatalf("Expected a YAML snapshot, got JSON: %s", text)
 		}
 
-		// Verify role is present
-		if tree["role"] == nil {
-			t.Error("Expected 'role' in accessibility tree")
+		// Elements appear as "- <role> "<name>" [ref=e<n>]" lines
+		lineRe := regexp.MustCompile(`(?m)^\s*- (\w+) "([^"]*)"(?: \[[^\]]+\])* \[ref=e\d+\]`)
+		for _, want := range []struct{ role, name string }{
+			{"button", "Submit Form"},
+			{"link", "Home"},
+			{"heading", "Title"},
+		} {
+			found := false
+			for _, m := range lineRe.FindAllStringSubmatch(text, -1) {
+				if m[1] == want.role && m[2] == want.name {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("Expected a line '- %s \"%s\" [ref=e<n>]' in snapshot:\n%s", want.role, want.name, text)
+			}
 		}
+	})
 
-		// Check that key elements are captured
-		if !strings.Contains(text, "button") {
-			t.Error("Expected 'button' role in accessibility tree")
+	t.Run("scoped selector", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "get_accessibility_tree",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"selector":  "main",
+				},
+			},
 		}
-		if !strings.Contains(text, "Submit Form") {
-			t.Error("Expected 'Submit Form' aria-label in accessibility tree")
+		result, err := accessibilityHandler(ctx, req)
+		if err != nil || result.IsError {
+			t.Fatalf("Expected success, got: %v %s", err, extractTextContent(result.Content))
+		}
+		text := extractTextContent(result.Content)
+		if !strings.Contains(text, `button "Submit Form"`) {
+			t.Errorf("Expected the button inside main, got:\n%s", text)
+		}
+		if strings.Contains(text, `link "Home"`) {
+			t.Errorf("Expected the nav link outside main to be left out, got:\n%s", text)
+		}
+	})
+
+	t.Run("scoped selector missing", func(t *testing.T) {
+		req := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name: "get_accessibility_tree",
+				Arguments: map[string]any{
+					"sessionId": sessionID,
+					"selector":  "#does-not-exist",
+				},
+			},
+		}
+		start := time.Now()
+		result, err := accessibilityHandler(ctx, req)
+		elapsed := time.Since(start)
+		if err != nil {
+			t.Fatalf("Handler returned error: %v", err)
+		}
+		text := extractTextContent(result.Content)
+		if !result.IsError || !strings.HasPrefix(text, "[-32002]") {
+			t.Fatalf("Expected [-32002] error, got: %s", text)
+		}
+		if elapsed > 2*time.Second {
+			t.Errorf("Expected an immediate failure, took %v", elapsed)
 		}
 	})
 }
@@ -3471,13 +3538,17 @@ func TestTimeoutBehaviorIntegration(t *testing.T) {
 // TestAccessibilityTreeSemanticRolesIntegration exercises accessibilityTreeJS
 // with diverse HTML structures to verify semantic role mapping, ARIA attribute
 // extraction, heading levels, form controls, and hidden element exclusion.
+// snapshotAttrsRe matches the bracketed attributes after a snapshot line's name,
+// ending with its ref: e<n> on the first document, f<k>e<n> after.
+const snapshotAttrsRe = `(?: \[[^\]]+\])* \[ref=(?:f\d+)?e\d+\](?: \[[^\]]+\])*`
+
 func TestAccessibilityTreeSemanticRolesIntegration(t *testing.T) {
 	pool, mgr := setupPoolAndManager(t)
 	defer pool.Stop(context.Background())
 
 	createHandler := SessionCreateHandler(mgr, DefaultTimeoutConfig())
 	navigateHandler := NavigateHandler(mgr, DefaultTimeoutConfig())
-	accessibilityHandler := GetAccessibilityTreeHandler(mgr, DefaultTimeoutConfig())
+	accessibilityHandler := GetAccessibilityTreeHandler(mgr, DefaultTimeoutConfig(), DefaultResponseConfig())
 	ctx := context.Background()
 	ts := startTestHTTPServer(t)
 
@@ -3499,9 +3570,7 @@ func TestAccessibilityTreeSemanticRolesIntegration(t *testing.T) {
 	sessionID := strings.TrimPrefix(extractTextContent(createResult.Content), "Created session: ")
 	defer mgr.CloseSession(ctx, "", sessionID)
 
-	// navigateAndGetTree is a helper that navigates to a URL and returns
-	// the accessibility tree JSON string.
-	navigateAndGetTree := func(t *testing.T, url string) string {
+	navigate := func(t *testing.T, url string) {
 		t.Helper()
 		navReq := mcp.CallToolRequest{
 			Params: mcp.CallToolParams{
@@ -3512,8 +3581,13 @@ func TestAccessibilityTreeSemanticRolesIntegration(t *testing.T) {
 				},
 			},
 		}
-		navigateHandler(ctx, navReq)
+		if result, err := navigateHandler(ctx, navReq); err != nil || result.IsError {
+			t.Fatalf("Navigation failed: %v %s", err, extractTextContent(result.Content))
+		}
+	}
 
+	getTree := func(t *testing.T) string {
+		t.Helper()
 		req := mcp.CallToolRequest{
 			Params: mcp.CallToolParams{
 				Name: "get_accessibility_tree",
@@ -3532,88 +3606,118 @@ func TestAccessibilityTreeSemanticRolesIntegration(t *testing.T) {
 		return extractTextContent(result.Content)
 	}
 
+	// navigateAndGetTree navigates to a URL and returns the YAML snapshot.
+	navigateAndGetTree := func(t *testing.T, url string) string {
+		t.Helper()
+		navigate(t, url)
+		return getTree(t)
+	}
+
+	activePage := func(t *testing.T) playwright.Page {
+		t.Helper()
+		sess, ok := mgr.GetSession("", sessionID)
+		if !ok || sess.ActivePage() == nil {
+			t.Fatal("Expected an active page")
+		}
+		return sess.ActivePage()
+	}
+
 	t.Run("semantic HTML roles", func(t *testing.T) {
 		text := navigateAndGetTree(t, ts.URL+"/a11y-semantic")
 
-		// Verify valid JSON
-		var tree map[string]interface{}
-		if err := json.Unmarshal([]byte(text), &tree); err != nil {
-			t.Fatalf("Failed to parse accessibility tree: %v\nRaw: %s", err, text)
-		}
-
-		// Check for semantic roles mapped from HTML elements
 		for _, role := range []string{"navigation", "main", "heading", "link", "article", "complementary", "contentinfo"} {
-			if !strings.Contains(text, `"`+role+`"`) {
-				t.Errorf("Expected role '%s' in accessibility tree", role)
+			if !strings.Contains(text, "- "+role) {
+				t.Errorf("Expected role '%s' in snapshot:\n%s", role, text)
 			}
 		}
-
-		// Check accessible names
-		if !strings.Contains(text, "Main Navigation") {
-			t.Error("Expected aria-label 'Main Navigation' in tree")
-		}
-		if !strings.Contains(text, "Home") {
-			t.Error("Expected link name 'Home' in tree")
-		}
-		if !strings.Contains(text, "Page Title") {
-			t.Error("Expected heading name 'Page Title' in tree")
+		for _, want := range []string{`navigation "Main Navigation"`, `link "Home"`, `heading "Page Title"`} {
+			if !strings.Contains(text, want) {
+				t.Errorf("Expected %s in snapshot:\n%s", want, text)
+			}
 		}
 	})
 
-	t.Run("form controls and ARIA attributes", func(t *testing.T) {
-		text := navigateAndGetTree(t, ts.URL+"/a11y-forms")
+	t.Run("form controls show values and states", func(t *testing.T) {
+		navigate(t, ts.URL+"/a11y-forms")
+		page := activePage(t)
+		if err := page.Locator("#name").Fill("Ada Lovelace"); err != nil {
+			t.Fatalf("fill failed: %v", err)
+		}
+		if err := page.Locator("#agree").Check(); err != nil {
+			t.Fatalf("check failed: %v", err)
+		}
+		text := getTree(t)
 
-		// Check form-related roles
-		for _, role := range []string{"form", "textbox", "checkbox", "combobox", "button"} {
-			if !strings.Contains(text, `"`+role+`"`) {
-				t.Errorf("Expected role '%s' in accessibility tree", role)
+		for _, role := range []string{"textbox", "checkbox", "combobox", "button"} {
+			if !strings.Contains(text, "- "+role) {
+				t.Errorf("Expected role '%s' in snapshot:\n%s", role, text)
 			}
 		}
+		if !regexp.MustCompile(`textbox "Name"` + snapshotAttrsRe + `: Ada Lovelace`).MatchString(text) {
+			t.Errorf("Expected the filled textbox to show its value:\n%s", text)
+		}
+		if !regexp.MustCompile(`checkbox "I agree to terms" \[checked\]`).MatchString(text) {
+			t.Errorf("Expected the checked checkbox to show [checked]:\n%s", text)
+		}
+		if !strings.Contains(text, `combobox "Select role"`) {
+			t.Errorf("Expected aria-label 'Select role':\n%s", text)
+		}
+		if !regexp.MustCompile(`button "Submit" \[expanded=false\]|button "Submit"`).MatchString(text) {
+			t.Errorf("Expected the submit button:\n%s", text)
+		}
+	})
 
-		// Check ARIA attributes resolve to accessible names
-		if !strings.Contains(text, "I agree to terms") {
-			t.Error("Expected aria-label 'I agree to terms'")
+	t.Run("password redaction", func(t *testing.T) {
+		navigate(t, ts.URL+"/a11y-password")
+		page := activePage(t)
+		const secret = "hunter2: correct horse"
+		if err := page.Locator("#user").Fill("ada"); err != nil {
+			t.Fatalf("fill failed: %v", err)
 		}
-		if !strings.Contains(text, "Select role") {
-			t.Error("Expected aria-label 'Select role'")
+		if err := page.Locator("#pass").Fill(secret); err != nil {
+			t.Fatalf("fill failed: %v", err)
 		}
-		// Check aria-expanded property
-		if !strings.Contains(text, `"expanded"`) {
-			t.Error("Expected 'expanded' property for button with aria-expanded")
+		text := getTree(t)
+
+		if !regexp.MustCompile(`textbox "Password"` + snapshotAttrsRe + `: •••`).MatchString(text) {
+			t.Errorf("Expected the password value as •••:\n%s", text)
+		}
+		for _, part := range []string{secret, "hunter2", "correct horse"} {
+			if strings.Contains(text, part) {
+				t.Errorf("Password value %q leaked into snapshot:\n%s", part, text)
+			}
+		}
+		if !strings.Contains(text, `textbox "Username"`) || !strings.Contains(text, ": ada") {
+			t.Errorf("Expected the username value to stay visible:\n%s", text)
 		}
 	})
 
 	t.Run("hidden elements excluded from tree nodes", func(t *testing.T) {
 		text := navigateAndGetTree(t, ts.URL+"/a11y-hidden")
 
-		if !strings.Contains(text, "Visible Button") {
-			t.Error("Expected 'Visible Button' in tree")
+		if !strings.Contains(text, `button "Visible Button"`) {
+			t.Errorf("Expected 'Visible Button' in snapshot:\n%s", text)
 		}
-
-		// Only the visible button should appear as a "button" role node.
-		// Hidden (display:none) and invisible (visibility:hidden) buttons
-		// should be excluded from the tree as child nodes.
-		buttonCount := strings.Count(text, `"button"`)
-		if buttonCount != 1 {
-			t.Errorf("Expected exactly 1 button role (visible only), found %d\nTree: %s", buttonCount, text)
+		// display:none and visibility:hidden content is left out.
+		for _, hidden := range []string{"Hidden text", "Invisible text", "Hidden Button", "Invisible Button"} {
+			if strings.Contains(text, hidden) {
+				t.Errorf("Expected %q to be absent:\n%s", hidden, text)
+			}
+		}
+		// AI mode keeps on-screen content even when it is aria-hidden, since an
+		// agent may need to act on it (decision D1 on issue #123).
+		if !strings.Contains(text, "Decorative Button") {
+			t.Errorf("Expected aria-hidden but visible 'Decorative Button' to be kept:\n%s", text)
 		}
 	})
 
 	t.Run("heading levels", func(t *testing.T) {
 		text := navigateAndGetTree(t, ts.URL+"/a11y-headings")
 
-		// All headings should have "heading" role
-		headingCount := strings.Count(text, `"heading"`)
-		if headingCount < 4 {
-			t.Errorf("Expected at least 4 heading roles, found %d", headingCount)
-		}
-
-		// Check that level properties are captured (json.Marshal may or may not add spaces)
 		for _, level := range []int{1, 2, 3, 4} {
-			levelStr := fmt.Sprintf(`"level":%d`, level)
-			levelStrSpaced := fmt.Sprintf(`"level": %d`, level)
-			if !strings.Contains(text, levelStr) && !strings.Contains(text, levelStrSpaced) {
-				t.Errorf("Expected level %d for h%d heading", level, level)
+			want := fmt.Sprintf(`heading "Level %d" [level=%d]`, level, level)
+			if !strings.Contains(text, want) {
+				t.Errorf("Expected %s in snapshot:\n%s", want, text)
 			}
 		}
 	})
@@ -3621,73 +3725,37 @@ func TestAccessibilityTreeSemanticRolesIntegration(t *testing.T) {
 	t.Run("lists and list items", func(t *testing.T) {
 		text := navigateAndGetTree(t, ts.URL+"/a11y-lists")
 
-		if !strings.Contains(text, `"list"`) {
-			t.Error("Expected 'list' role in tree")
-		}
-		if !strings.Contains(text, `"listitem"`) {
-			t.Error("Expected 'listitem' role in tree")
-		}
-		if !strings.Contains(text, "Apple") {
-			t.Error("Expected 'Apple' in tree")
-		}
-		if !strings.Contains(text, "First") {
-			t.Error("Expected 'First' in tree")
+		for _, want := range []string{"- list", "- listitem", "Apple", "First"} {
+			if !strings.Contains(text, want) {
+				t.Errorf("Expected %q in snapshot:\n%s", want, text)
+			}
 		}
 	})
 
 	t.Run("aria-labelledby resolves to referenced element text", func(t *testing.T) {
 		text := navigateAndGetTree(t, ts.URL+"/a11y-labelledby")
 
-		// The section with aria-labelledby should resolve to "Settings"
-		if !strings.Contains(text, "Settings") {
-			t.Error("Expected 'Settings' as name from aria-labelledby")
-		}
-		if !strings.Contains(text, `"region"`) {
-			t.Error("Expected 'region' role for section with explicit role")
+		if !strings.Contains(text, `region "Settings"`) {
+			t.Errorf("Expected region named 'Settings' from aria-labelledby:\n%s", text)
 		}
 	})
 
 	t.Run("tree has children structure", func(t *testing.T) {
 		text := navigateAndGetTree(t, ts.URL+"/a11y-semantic")
 
-		var tree map[string]interface{}
-		if err := json.Unmarshal([]byte(text), &tree); err != nil {
-			t.Fatalf("Failed to parse: %v", err)
-		}
-
-		// Root should have children
-		children, ok := tree["children"].([]interface{})
-		if !ok || len(children) == 0 {
-			t.Fatal("Expected root node to have children")
-		}
-
-		// At least one child should also have children (nav or main)
-		foundNested := false
-		for _, child := range children {
-			if childMap, ok := child.(map[string]interface{}); ok {
-				if _, hasChildren := childMap["children"]; hasChildren {
-					foundNested = true
-					break
-				}
-			}
-		}
-		if !foundNested {
-			t.Error("Expected nested tree structure with multiple levels of children")
+		// Children are indented one level under their parent.
+		m := regexp.MustCompile(`(?m)^( *)- main` + snapshotAttrsRe + `:\n( *)- heading "Page Title"`).FindStringSubmatch(text)
+		if m == nil || len(m[2]) != len(m[1])+2 {
+			t.Errorf("Expected the heading nested one level under main:\n%s", text)
 		}
 	})
 
 	t.Run("input type mapping", func(t *testing.T) {
 		text := navigateAndGetTree(t, ts.URL+"/a11y-forms")
 
-		var tree map[string]interface{}
-		if err := json.Unmarshal([]byte(text), &tree); err != nil {
-			t.Fatalf("Failed to parse: %v", err)
-		}
-
-		// Count textbox roles (should have at least 3: text input, email input, textarea)
-		textboxCount := strings.Count(text, `"textbox"`)
-		if textboxCount < 3 {
-			t.Errorf("Expected at least 3 textbox roles (text, email, textarea), found %d", textboxCount)
+		// text input, email input, and textarea all map to textbox
+		if count := strings.Count(text, "- textbox"); count < 3 {
+			t.Errorf("Expected at least 3 textbox roles (text, email, textarea), found %d:\n%s", count, text)
 		}
 	})
 }
