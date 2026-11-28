@@ -3,8 +3,10 @@ package tools
 
 import (
 	"context"
+	"fmt"
 	"time"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/tgrunnagle/parallel-playwright-mcp/pkg/errors"
 )
 
@@ -148,6 +150,16 @@ func HandleContextError(ctx context.Context, operation string) error {
 	default:
 		return err
 	}
+}
+
+// timeoutParam declares the timeout argument that ApplyTimeout reads. Every
+// tool whose handler calls ApplyTimeout declares it, naming its category's
+// built-in default; the server's session.timeout config can change that default.
+func timeoutParam(category TimeoutCategory) mcp.ToolOption {
+	ms := DefaultTimeoutConfig().GetCategoryTimeout(category).Milliseconds()
+	return mcp.WithNumber("timeout",
+		mcp.Description(fmt.Sprintf("Maximum time for the call in milliseconds (default: the server's %s timeout, %d unless configured)", category, ms)),
+	)
 }
 
 // ApplyTimeout is a convenience function for tools to apply timeout handling.

@@ -2,6 +2,7 @@ package tools
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -103,6 +104,27 @@ func TestToolAnnotations(t *testing.T) {
 				} else if *h.got != h.want {
 					t.Errorf("%s = %v, want %v", h.hint, *h.got, h.want)
 				}
+			}
+		})
+	}
+}
+
+// TestToolsDeclareTimeout checks that every tool declares the timeout number
+// parameter. Every handler calls ApplyTimeout, which reads timeout from the
+// arguments, so a tool added without it accepts an argument it does not declare.
+func TestToolsDeclareTimeout(t *testing.T) {
+	for _, st := range Registry(nil, nil, nil) {
+		t.Run(st.Tool.Name, func(t *testing.T) {
+			prop, ok := st.Tool.InputSchema.Properties["timeout"].(map[string]any)
+			if !ok {
+				t.Fatal("tool does not declare timeout")
+			}
+			if prop["type"] != "number" {
+				t.Errorf("timeout type = %v, want number", prop["type"])
+			}
+			desc, _ := prop["description"].(string)
+			if !strings.Contains(desc, "default: the server's") {
+				t.Errorf("timeout description %q does not name the category default", desc)
 			}
 		})
 	}

@@ -23,6 +23,7 @@ import (
 func GetConsoleLogsTool() mcp.Tool {
 	return mcp.NewTool("get_console_logs",
 		readOnlyLocalHints.option(),
+		timeoutParam(TimeoutDefault),
 		mcp.WithDescription("Retrieve browser console log messages from a session"),
 		mcp.WithString("sessionId",
 			mcp.Required(),
@@ -107,6 +108,7 @@ func GetConsoleLogsHandler(mgr session.BrowserSessionManager, timeoutConfig *Tim
 func ScreenshotTool() mcp.Tool {
 	return mcp.NewTool("screenshot",
 		readOnlyPageHints.option(),
+		timeoutParam(TimeoutDefault),
 		mcp.WithDescription("Capture a PNG screenshot of the page or element"),
 		mcp.WithString("sessionId",
 			mcp.Required(),
@@ -295,6 +297,7 @@ func parseClipRegion(vp map[string]any) *playwright.Rect {
 func ExtractTextTool() mcp.Tool {
 	return mcp.NewTool("extract_text",
 		readOnlyPageHints.option(),
+		timeoutParam(TimeoutElement),
 		mcp.WithDescription("Extract visible text from page as markdown"),
 		mcp.WithString("sessionId",
 			mcp.Required(),
@@ -732,6 +735,7 @@ const extractTextAsMarkdownJS = `(selector) => {
 func GetHTMLTool() mcp.Tool {
 	return mcp.NewTool("get_html",
 		readOnlyPageHints.option(),
+		timeoutParam(TimeoutElement),
 		mcp.WithDescription("Get HTML source of page or element"),
 		mcp.WithString("sessionId",
 			mcp.Required(),
@@ -843,6 +847,7 @@ func GetHTMLHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCon
 func EvaluateTool() mcp.Tool {
 	return mcp.NewTool("evaluate",
 		pageActionHints.option(),
+		timeoutParam(TimeoutScript),
 		mcp.WithDescription("Execute JavaScript expression in page context"),
 		mcp.WithString("sessionId",
 			mcp.Required(),
@@ -975,6 +980,7 @@ type BoundingBox struct {
 func QuerySelectorTool() mcp.Tool {
 	return mcp.NewTool("query_selector",
 		readOnlyPageHints.option(),
+		timeoutParam(TimeoutElement),
 		mcp.WithDescription("Query element info by CSS selector"),
 		mcp.WithString("sessionId",
 			mcp.Required(),
@@ -1166,6 +1172,7 @@ const snapshotRefsDescription = "Each element carries a ref like [ref=e3], or [r
 func GetAccessibilityTreeTool() mcp.Tool {
 	return mcp.NewTool("get_accessibility_tree",
 		readOnlyPageHints.option(),
+		timeoutParam(TimeoutDefault),
 		mcp.WithDescription("Get an ARIA snapshot of the page: a compact YAML tree of roles, accessible names, states such as [checked], and form values (password values show as •••). "+
 			snapshotRefsDescription+
 			" Content hidden with display:none or visibility:hidden is left out; content that is on screen but aria-hidden is kept."),
@@ -1259,6 +1266,7 @@ type LinkInfo struct {
 func GetLinksTool() mcp.Tool {
 	return mcp.NewTool("get_links",
 		pageChangeHints.option(),
+		timeoutParam(TimeoutNavigation),
 		mcp.WithDescription("Get all hyperlinks from the page with their IDs and labels"),
 		mcp.WithString("sessionId",
 			mcp.Required(),
@@ -1270,9 +1278,6 @@ func GetLinksTool() mcp.Tool {
 		mcp.WithString("waitUntil",
 			mcp.Enum("load", "domcontentloaded", "networkidle"),
 			mcp.Description("Wait condition for navigation (default: load)"),
-		),
-		mcp.WithNumber("timeout",
-			mcp.Description("Navigation timeout in milliseconds"),
 		),
 		mcp.WithNumber("limit",
 			mcp.Description("Maximum number of links to return (default: 50)"),
@@ -1371,6 +1376,7 @@ const getLinksJS = `() => {
 func NavigateAndExtractTextTool() mcp.Tool {
 	return mcp.NewTool("navigate_and_extract_text",
 		pageChangeHints.option(),
+		timeoutParam(TimeoutNavigation),
 		mcp.WithDescription("Navigate to URL and extract visible text as markdown (creates temporary session)"),
 		mcp.WithString("url",
 			mcp.Required(),
@@ -1461,8 +1467,9 @@ func NavigateAndExtractTextHandler(mgr session.BrowserSessionManager, timeoutCon
 			return internalErrorResult("no active page in temporary session"), nil
 		}
 
-		// Build navigation options
-		gotoOpts := playwright.PageGotoOptions{}
+		// Build navigation options. The navigation gets what is left of the call's
+		// timeout after the temporary session was created.
+		gotoOpts := playwright.PageGotoOptions{Timeout: PlaywrightTimeoutFromContext(ctx)}
 
 		if waitUntil, ok := args["waitUntil"].(string); ok && waitUntil != "" {
 			gotoOpts.WaitUntil = mapWaitUntil(waitUntil)
