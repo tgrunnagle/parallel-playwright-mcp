@@ -373,21 +373,40 @@ type BrowserStats struct {
 
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
-| `navigate` | Navigate to URL | `sessionId`*, `url`*, `waitUntil`, `timeout` |
-| `go_back` | Go back in history | `sessionId`* |
-| `go_forward` | Go forward in history | `sessionId`* |
-| `reload` | Reload current page | `sessionId`*, `waitUntil` |
+| `navigate` | Navigate to URL | `sessionId`*, `url`*, `waitUntil`, `timeout`, `includeSnapshot` |
+| `go_back` | Go back in history | `sessionId`*, `includeSnapshot` |
+| `go_forward` | Go forward in history | `sessionId`*, `includeSnapshot` |
+| `reload` | Reload current page | `sessionId`*, `waitUntil`, `includeSnapshot` |
 
 ### 5.3 Interaction Tools
 
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
-| `click` | Click an element | `sessionId`*, `selector`*, `button`, `clickCount` |
-| `type` | Type text with keystrokes | `sessionId`*, `selector`*, `text`*, `delay` |
-| `fill` | Fill input field (fast) | `sessionId`*, `selector`*, `value`* |
-| `select_option` | Select dropdown option | `sessionId`*, `selector`*, `value`* |
-| `hover` | Hover over element | `sessionId`*, `selector`* |
-| `press_key` | Press keyboard key | `sessionId`*, `key`*, `modifiers` |
+| `click` | Click an element | `sessionId`*, `selector`† or `ref`†, `button`, `clickCount`, `includeSnapshot` |
+| `type` | Type text with keystrokes | `sessionId`*, `selector`† or `ref`†, `text`*, `delay`, `includeSnapshot` |
+| `fill` | Fill input field (fast) | `sessionId`*, `selector`† or `ref`†, `value`*, `includeSnapshot` |
+| `select_option` | Select dropdown option | `sessionId`*, `selector`† or `ref`†, `value`*, `includeSnapshot` |
+| `hover` | Hover over element | `sessionId`*, `selector`† or `ref`†, `includeSnapshot` |
+| `press_key` | Press keyboard key | `sessionId`*, `key`*, `selector` or `ref` (optional), `modifiers`, `includeSnapshot` |
+
+†Exactly one of `selector` and `ref` is required. JSON Schema cannot express this through mcp-go's builders, so the tool descriptions state it and the handlers enforce it: both or neither returns `[-32602]` naming both parameters. `press_key` takes at most one; with neither, the key goes to the page.
+
+**Element refs.** A `ref` is an element id from a snapshot (`get_accessibility_tree`, or an action's `includeSnapshot`): `e<n>`, or `f<k>e<n>` for an element inside an iframe or in a document loaded after the first. It is resolved with the Playwright selector `aria-ref=<ref>`, so it names exactly one element even among identical ones. A ref must match `^(f[0-9]+)?e[0-9]+$` before any locator is built, so it cannot chain or switch selector engines. Refs stay the same while the document is unchanged; after a navigation the new document's refs take a new prefix and old refs match nothing. The handler counts a ref's matches before acting, and zero returns `[-32002] Stale element ref` at once instead of waiting for the timeout.
+
+**State summary.** Every action tool (§5.2 and §5.3) returns a summary of the page after the action. When the URL changed, the tool waits for `domcontentloaded`, bounded by the element timeout; it then waits a 150 ms settle window and reads:
+
+```json
+{"action": "click", "target": "ref=e3", "url": "http://localhost:8080/page2", "title": "Page Two",
+ "navigated": true, "newConsoleErrors": ["boom from click"], "failedRequests": ["GET http://localhost:8080/api 500"]}
+```
+
+- `target` is the selector, or `ref=<ref>`; it is omitted for page-level actions. `url` is the final URL, after redirects for `navigate`. `title` is omitted when it cannot be read; that never fails the action.
+- `navigated` is true when the URL changed, or when a navigation tool got a response. `httpStatus` is the main document's status, on navigation tools only.
+- `newConsoleErrors` lists console errors, and `failedRequests` requests with status 400 or above or no response (`... (no response)`), logged since the action started. The console and network buffers keep a total-appended counter that only increases, so entries are found as new even on a full buffer. Request URLs lose their query string, fragment, and user info, since those may carry tokens.
+- Each list holds at most 5 entries of at most 200 characters; entries left out are counted under `"more": {"newConsoleErrors": <n>, "failedRequests": <m>}`, omitted when nothing was cut.
+- The result's structured content is the summary. Its text is the tool's one-line message, a newline, then the summary JSON, so hosts that pass only `content` still see it. Console messages or requests that arrive after the settle window appear in the next summary.
+
+With `includeSnapshot: true`, the result appends a second content block holding the snapshot (§5.4) taken after the settle window, cut to the response budget; a cut snapshot adds a third block, `[truncated: <n> more characters; call get_accessibility_tree with offset=<k>]`. If the snapshot fails after a successful action, the second block reports the error and the result stays a success.
 
 ### 5.4 Inspection Tools
 
@@ -397,16 +416,33 @@ type BrowserStats struct {
 | `extract_text` | Extract visible text as markdown, with form controls as inline tokens | `sessionId`*, `selector` (optional), `maxChars`, `offset` |
 | `navigate_and_extract_text` | Navigate to a URL and extract visible text as markdown (no session required) | `url`*, `waitUntil`, `selector`, `browserType`, `maxChars`, `offset` |
 | `get_html` | Get page HTML source | `sessionId`*, `selector` (optional), `outer`, `maxChars`, `offset` |
-| `get_accessibility_tree` | Get accessibility snapshot | `sessionId`* |
+| `get_accessibility_tree` | Get an ARIA snapshot with element refs | `sessionId`*, `selector`, `depth`, `maxChars`, `offset` |
 | `evaluate` | Execute JavaScript | `sessionId`*, `expression`*, `maxChars` |
 | `query_selector` | Query element info | `sessionId`*, `selector`*, `all`, `limit`, `offset` |
 | `get_links` | Get hyperlinks with IDs and labels | `sessionId`*, `url`, `waitUntil`, `timeout`, `limit`, `offset` |
 | `get_console_logs` | Get captured console messages | `sessionId`*, `level`, `limit`, `offset` |
 | `get_network_logs` | Get captured network requests | `sessionId`*, `limit`, `offset`, `filter` |
 
+**ARIA snapshot.** `get_accessibility_tree` returns Playwright's AI-mode ARIA snapshot (`Page.AriaSnapshot` with `Mode: AriaSnapshotModeAi`): a compact YAML tree with one line per element, carrying its role, accessible name, states, ref, and form value.
+
+```yaml
+- main [ref=e2]:
+  - heading "Sign in" [level=1] [ref=e3]
+  - textbox "Email" [ref=e4]: a@b.c
+  - textbox "Password" [ref=e5]: •••
+  - checkbox "Remember me" [checked] [ref=e6]
+  - button "Go" [ref=e7]
+  - button "Go" [ref=e8]
+```
+
+- AI mode prints input values in clear text, passwords included. Each `textbox` line with a value is resolved through its ref, and the value is replaced with `•••` when the element's `type` is `password`, or when its type cannot be read.
+- Content hidden with `display:none` or `visibility:hidden` is left out. Content that is on screen but `aria-hidden` is kept, since an agent may need to act on it; this is how AI mode differs from the default ARIA snapshot.
+- `selector` snapshots one element instead of the page. A selector matching nothing returns `[-32002]` at once instead of waiting for the timeout; one matching several returns the multi-match error (§6.1). `depth` limits the tree depth.
+- The snapshot follows the text-tool budget below: `maxChars` and `offset` in characters, with the same truncation notice.
+
 **Response budget and pagination.** Content tools return at most `tools.maxResponseChars` characters (Unicode code points, default 40000) in their content block per call. A second text content block, the pagination block, carries truncation notices or list metadata, so page content can never write into it.
 
-- Text tools (`extract_text`, `navigate_and_extract_text`, `get_html`) take `maxChars` and `offset` in characters. Output within the budget is returned unchanged as one block. Cut output adds `[truncated: <n> more characters; call again with offset=<k>]`; an `offset` at or past the end returns an empty block and `[end of content: <total> characters]`.
+- Text tools (`extract_text`, `navigate_and_extract_text`, `get_html`, `get_accessibility_tree`) take `maxChars` and `offset` in characters. Output within the budget is returned unchanged as one block. Cut output adds `[truncated: <n> more characters; call again with offset=<k>]`; an `offset` at or past the end returns an empty block and `[end of content: <total> characters]`.
 - `evaluate` takes `maxChars` only, because paging would re-run the script. Cut output adds `[truncated: result JSON is incomplete; narrow the expression]`.
 - `query_selector` without `all` returns one element object, with its string fields cut the same way when it exceeds the budget.
 - List tools (`query_selector` with `all: true`, `get_links`, `get_console_logs`, `get_network_logs`) take `limit` (default 50) and `offset` in items. The first block stays the bare JSON array; the second is `{"total": <n>, "offset": <k>, "returned": <m>, "hasMore": <bool>}`. Trailing items that do not fit the budget are dropped, so continue with `offset + returned` while `hasMore` is true. A single item larger than the budget is returned alone with its string fields cut, or as `{"truncated": true}` when its keys alone exceed the budget, so `offset` always advances.
@@ -556,9 +592,18 @@ The page is rendered as markdown. Links and images carry absolute URLs, and form
 | -32602 | Invalid Params | Invalid parameters |
 | -32603 | Internal Error | Server error |
 | -32001 | Session Not Found | Invalid session ID |
-| -32002 | Element Not Found | Selector not found |
+| -32002 | Element Not Found | Selector or ref did not resolve to one element (see below) |
 | -32003 | Timeout | Operation timed out |
 | -32004 | Navigation Failed | Page load failed |
+| -32005 | Interaction Failed | An element action failed for another reason |
+
+Every tool error goes through `errors.FormatErrorForTool`, so its text starts with `[<code>]`. Missing or invalid parameters use -32602 and unexpected server-side failures use -32603. -32002 carries one of three messages:
+
+- `Element not found`: the selector matched no element.
+- `Stale element ref`: a ref is not on the current page, with reason `ref <r> is not on the current page` and suggestion `Take a new snapshot with get_accessibility_tree`. It is returned at once, without waiting for the timeout.
+- `Selector matched <n> elements`: a strict mode violation, with the first 3 matches' tag and text (80 characters each) in the reason.
+
+If retry is later wired to `retry.retryableErrors` (default `[-32002, -32003]`), the stale-ref and multi-match errors must be excluded: retrying them cannot succeed.
 
 ### 6.2 Error Response Format
 
