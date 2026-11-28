@@ -342,8 +342,12 @@ func TestClickTool(t *testing.T) {
 	if !foundSessionId {
 		t.Error("Expected 'sessionId' to be in required properties")
 	}
-	if !foundSelector {
-		t.Error("Expected 'selector' to be in required properties")
+	// selector and ref are mutually exclusive, so neither is required by the schema
+	if foundSelector {
+		t.Error("Expected 'selector' to be optional now that 'ref' can replace it")
+	}
+	if _, ok := props["ref"]; !ok {
+		t.Error("Expected 'ref' property in input schema")
 	}
 }
 
@@ -401,8 +405,12 @@ func TestTypeTool(t *testing.T) {
 	if !foundSessionId {
 		t.Error("Expected 'sessionId' to be in required properties")
 	}
-	if !foundSelector {
-		t.Error("Expected 'selector' to be in required properties")
+	// selector and ref are mutually exclusive, so neither is required by the schema
+	if foundSelector {
+		t.Error("Expected 'selector' to be optional now that 'ref' can replace it")
+	}
+	if _, ok := props["ref"]; !ok {
+		t.Error("Expected 'ref' property in input schema")
 	}
 	if !foundText {
 		t.Error("Expected 'text' to be in required properties")
@@ -460,8 +468,12 @@ func TestFillTool(t *testing.T) {
 	if !foundSessionId {
 		t.Error("Expected 'sessionId' to be in required properties")
 	}
-	if !foundSelector {
-		t.Error("Expected 'selector' to be in required properties")
+	// selector and ref are mutually exclusive, so neither is required by the schema
+	if foundSelector {
+		t.Error("Expected 'selector' to be optional now that 'ref' can replace it")
+	}
+	if _, ok := props["ref"]; !ok {
+		t.Error("Expected 'ref' property in input schema")
 	}
 	if !foundValue {
 		t.Error("Expected 'value' to be in required properties")
@@ -522,8 +534,12 @@ func TestSelectOptionTool(t *testing.T) {
 	if !foundSessionId {
 		t.Error("Expected 'sessionId' to be in required properties")
 	}
-	if !foundSelector {
-		t.Error("Expected 'selector' to be in required properties")
+	// selector and ref are mutually exclusive, so neither is required by the schema
+	if foundSelector {
+		t.Error("Expected 'selector' to be optional now that 'ref' can replace it")
+	}
+	if _, ok := props["ref"]; !ok {
+		t.Error("Expected 'ref' property in input schema")
 	}
 	if !foundValue {
 		t.Error("Expected 'value' to be in required properties")
@@ -575,8 +591,12 @@ func TestHoverTool(t *testing.T) {
 	if !foundSessionId {
 		t.Error("Expected 'sessionId' to be in required properties")
 	}
-	if !foundSelector {
-		t.Error("Expected 'selector' to be in required properties")
+	// selector and ref are mutually exclusive, so neither is required by the schema
+	if foundSelector {
+		t.Error("Expected 'selector' to be optional now that 'ref' can replace it")
+	}
+	if _, ok := props["ref"]; !ok {
+		t.Error("Expected 'ref' property in input schema")
 	}
 }
 
@@ -668,7 +688,7 @@ func TestClickHandler(t *testing.T) {
 				"sessionId": "sess-123",
 			},
 			expectError:    true,
-			expectedResult: "selector is required",
+			expectedResult: "[-32602] Invalid parameters (parameter: selector, ref)",
 		},
 		{
 			name: "empty selector",
@@ -677,7 +697,27 @@ func TestClickHandler(t *testing.T) {
 				"selector":  "",
 			},
 			expectError:    true,
-			expectedResult: "selector is required",
+			expectedResult: "[-32602] Invalid parameters (parameter: selector, ref)",
+		},
+		{
+			name: "both selector and ref",
+			arguments: map[string]any{
+				"sessionId": "sess-123",
+				"selector":  "#button",
+				"ref":       "e3",
+			},
+			expectError:    true,
+			expectedResult: "[-32602] Invalid parameters (parameter: selector, ref) (reason: provide exactly one of selector or ref, not both)",
+		},
+		{
+			name: "neither selector nor ref",
+			arguments: map[string]any{
+				"sessionId": "sess-123",
+				"selector":  "",
+				"ref":       "",
+			},
+			expectError:    true,
+			expectedResult: "[-32602] Invalid parameters (parameter: selector, ref) (reason: exactly one of selector or ref is required)",
 		},
 		{
 			name: "session not found",
@@ -866,7 +906,7 @@ func TestTypeHandler(t *testing.T) {
 				"text":      "hello",
 			},
 			expectError:    true,
-			expectedResult: "selector is required",
+			expectedResult: "[-32602] Invalid parameters (parameter: selector, ref)",
 		},
 		{
 			name: "missing text",
@@ -1019,7 +1059,7 @@ func TestFillHandler(t *testing.T) {
 				"value":     "test value",
 			},
 			expectError:    true,
-			expectedResult: "selector is required",
+			expectedResult: "[-32602] Invalid parameters (parameter: selector, ref)",
 		},
 		{
 			name: "session not found",
@@ -1162,7 +1202,7 @@ func TestSelectOptionHandler(t *testing.T) {
 				"value":     "option1",
 			},
 			expectError:    true,
-			expectedResult: "selector is required",
+			expectedResult: "[-32602] Invalid parameters (parameter: selector, ref)",
 		},
 		{
 			name: "missing value",
@@ -1360,7 +1400,7 @@ func TestHoverHandler(t *testing.T) {
 				"sessionId": "sess-123",
 			},
 			expectError:    true,
-			expectedResult: "selector is required",
+			expectedResult: "[-32602] Invalid parameters (parameter: selector, ref)",
 		},
 		{
 			name: "session not found",

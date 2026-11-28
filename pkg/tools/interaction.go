@@ -19,14 +19,16 @@ import (
 // Click simulates a mouse click on an element identified by selector.
 func ClickTool() mcp.Tool {
 	return mcp.NewTool("click",
-		mcp.WithDescription("Click an element on the page"),
+		mcp.WithDescription("Click an element on the page. Target it with exactly one of selector or ref; a ref comes from get_accessibility_tree and fails at once with 'Stale element ref' once the page has changed"),
 		mcp.WithString("sessionId",
 			mcp.Required(),
 			mcp.Description("Browser session ID"),
 		),
 		mcp.WithString("selector",
-			mcp.Required(),
-			mcp.Description("CSS selector, XPath, or text selector for element to click"),
+			mcp.Description("CSS selector, XPath, or text selector for element to click. Provide exactly one of selector or ref"),
+		),
+		mcp.WithString("ref",
+			mcp.Description(refParamDescription),
 		),
 		mcp.WithString("button",
 			mcp.Description("Mouse button to use (left, right, middle)"),
@@ -59,11 +61,12 @@ func ClickHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfi
 			return requiredParamResult("sessionId"), nil
 		}
 
-		selector := req.GetString("selector", "")
-		if selector == "" {
-			slog.Error("missing required selector", "tool", "click", "sessionID", sessionID)
-			return requiredParamResult("selector"), nil
+		target, targetErr := resolveTarget(args, false)
+		if targetErr != nil {
+			slog.Error("invalid element target", "tool", "click", "sessionID", sessionID, "error", targetErr)
+			return errorResult(targetErr), nil
 		}
+		selector := target.Label
 
 		slog.Debug("clicking element", "tool", "click", "sessionID", sessionID, "selector", selector)
 
@@ -79,7 +82,11 @@ func ClickHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfi
 			return noActivePageResult(), nil
 		}
 
-		locator := page.Locator(selector)
+		locator, locErr := target.locate(page)
+		if locErr != nil {
+			slog.Error("element target did not resolve", "sessionID", sessionID, "target", selector, "error", locErr)
+			return errorResult(locErr), nil
+		}
 		opts := buildClickOptions(args)
 
 		// Propagate context deadline to Playwright if no explicit timeout was set
@@ -104,14 +111,16 @@ func ClickHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfi
 // Type simulates typing text into an element with keystroke events.
 func TypeTool() mcp.Tool {
 	return mcp.NewTool("type",
-		mcp.WithDescription("Type text into an element with keystroke events"),
+		mcp.WithDescription("Type text into an element with keystroke events. Target it with exactly one of selector or ref; a ref comes from get_accessibility_tree and fails at once with 'Stale element ref' once the page has changed"),
 		mcp.WithString("sessionId",
 			mcp.Required(),
 			mcp.Description("Browser session ID"),
 		),
 		mcp.WithString("selector",
-			mcp.Required(),
-			mcp.Description("CSS selector for input element"),
+			mcp.Description("CSS selector for input element. Provide exactly one of selector or ref"),
+		),
+		mcp.WithString("ref",
+			mcp.Description(refParamDescription),
 		),
 		mcp.WithString("text",
 			mcp.Required(),
@@ -144,11 +153,12 @@ func TypeHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig
 			return requiredParamResult("sessionId"), nil
 		}
 
-		selector := req.GetString("selector", "")
-		if selector == "" {
-			slog.Error("missing required selector", "tool", "type", "sessionID", sessionID)
-			return requiredParamResult("selector"), nil
+		target, targetErr := resolveTarget(args, false)
+		if targetErr != nil {
+			slog.Error("invalid element target", "tool", "type", "sessionID", sessionID, "error", targetErr)
+			return errorResult(targetErr), nil
 		}
+		selector := target.Label
 
 		text := req.GetString("text", "")
 		if text == "" {
@@ -170,7 +180,11 @@ func TypeHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig
 			return noActivePageResult(), nil
 		}
 
-		locator := page.Locator(selector)
+		locator, locErr := target.locate(page)
+		if locErr != nil {
+			slog.Error("element target did not resolve", "sessionID", sessionID, "target", selector, "error", locErr)
+			return errorResult(locErr), nil
+		}
 		opts := buildTypeOptions(args)
 
 		if err := locator.PressSequentially(text, opts); err != nil {
@@ -190,14 +204,16 @@ func TypeHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig
 // Fill populates an input field with text without keystroke events.
 func FillTool() mcp.Tool {
 	return mcp.NewTool("fill",
-		mcp.WithDescription("Fill an input field with text (fast, no keystroke events)"),
+		mcp.WithDescription("Fill an input field with text (fast, no keystroke events). Target it with exactly one of selector or ref; a ref comes from get_accessibility_tree and fails at once with 'Stale element ref' once the page has changed"),
 		mcp.WithString("sessionId",
 			mcp.Required(),
 			mcp.Description("Browser session ID"),
 		),
 		mcp.WithString("selector",
-			mcp.Required(),
-			mcp.Description("CSS selector for input element"),
+			mcp.Description("CSS selector for input element. Provide exactly one of selector or ref"),
+		),
+		mcp.WithString("ref",
+			mcp.Description(refParamDescription),
 		),
 		mcp.WithString("value",
 			mcp.Required(),
@@ -227,11 +243,12 @@ func FillHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig
 			return requiredParamResult("sessionId"), nil
 		}
 
-		selector := req.GetString("selector", "")
-		if selector == "" {
-			slog.Error("missing required selector", "tool", "fill", "sessionID", sessionID)
-			return requiredParamResult("selector"), nil
+		target, targetErr := resolveTarget(args, false)
+		if targetErr != nil {
+			slog.Error("invalid element target", "tool", "fill", "sessionID", sessionID, "error", targetErr)
+			return errorResult(targetErr), nil
 		}
+		selector := target.Label
 
 		value := req.GetString("value", "")
 		// Note: Allow empty value since user may want to clear input
@@ -250,7 +267,11 @@ func FillHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig
 			return noActivePageResult(), nil
 		}
 
-		locator := page.Locator(selector)
+		locator, locErr := target.locate(page)
+		if locErr != nil {
+			slog.Error("element target did not resolve", "sessionID", sessionID, "target", selector, "error", locErr)
+			return errorResult(locErr), nil
+		}
 		opts := buildFillOptions(args)
 
 		if err := locator.Fill(value, opts); err != nil {
@@ -270,14 +291,16 @@ func FillHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfig
 // SelectOption selects an option from a dropdown/select element.
 func SelectOptionTool() mcp.Tool {
 	return mcp.NewTool("select_option",
-		mcp.WithDescription("Select an option from a dropdown/select element"),
+		mcp.WithDescription("Select an option from a dropdown/select element. Target it with exactly one of selector or ref; a ref comes from get_accessibility_tree and fails at once with 'Stale element ref' once the page has changed"),
 		mcp.WithString("sessionId",
 			mcp.Required(),
 			mcp.Description("Browser session ID"),
 		),
 		mcp.WithString("selector",
-			mcp.Required(),
-			mcp.Description("CSS selector for select element"),
+			mcp.Description("CSS selector for select element. Provide exactly one of selector or ref"),
+		),
+		mcp.WithString("ref",
+			mcp.Description(refParamDescription),
 		),
 		mcp.WithString("value",
 			mcp.Required(),
@@ -311,11 +334,12 @@ func SelectOptionHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeo
 			return requiredParamResult("sessionId"), nil
 		}
 
-		selector := req.GetString("selector", "")
-		if selector == "" {
-			slog.Error("missing required selector", "tool", "select_option", "sessionID", sessionID)
-			return requiredParamResult("selector"), nil
+		target, targetErr := resolveTarget(args, false)
+		if targetErr != nil {
+			slog.Error("invalid element target", "tool", "select_option", "sessionID", sessionID, "error", targetErr)
+			return errorResult(targetErr), nil
 		}
+		selector := target.Label
 
 		value := req.GetString("value", "")
 		if value == "" {
@@ -339,7 +363,11 @@ func SelectOptionHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeo
 			return noActivePageResult(), nil
 		}
 
-		locator := page.Locator(selector)
+		locator, locErr := target.locate(page)
+		if locErr != nil {
+			slog.Error("element target did not resolve", "sessionID", sessionID, "target", selector, "error", locErr)
+			return errorResult(locErr), nil
+		}
 		opts := buildSelectOptionOptions(args)
 
 		var selectedValues []string
@@ -382,14 +410,16 @@ func SelectOptionHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeo
 // Hover simulates a mouse hover over an element.
 func HoverTool() mcp.Tool {
 	return mcp.NewTool("hover",
-		mcp.WithDescription("Hover over an element"),
+		mcp.WithDescription("Hover over an element. Target it with exactly one of selector or ref; a ref comes from get_accessibility_tree and fails at once with 'Stale element ref' once the page has changed"),
 		mcp.WithString("sessionId",
 			mcp.Required(),
 			mcp.Description("Browser session ID"),
 		),
 		mcp.WithString("selector",
-			mcp.Required(),
-			mcp.Description("CSS selector for element to hover over"),
+			mcp.Description("CSS selector for element to hover over. Provide exactly one of selector or ref"),
+		),
+		mcp.WithString("ref",
+			mcp.Description(refParamDescription),
 		),
 		mcp.WithNumber("timeout",
 			mcp.Description("Maximum time to wait for element in milliseconds"),
@@ -415,11 +445,12 @@ func HoverHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfi
 			return requiredParamResult("sessionId"), nil
 		}
 
-		selector := req.GetString("selector", "")
-		if selector == "" {
-			slog.Error("missing required selector", "tool", "hover", "sessionID", sessionID)
-			return requiredParamResult("selector"), nil
+		target, targetErr := resolveTarget(args, false)
+		if targetErr != nil {
+			slog.Error("invalid element target", "tool", "hover", "sessionID", sessionID, "error", targetErr)
+			return errorResult(targetErr), nil
 		}
+		selector := target.Label
 
 		slog.Debug("hovering over element", "tool", "hover", "sessionID", sessionID, "selector", selector)
 
@@ -435,7 +466,11 @@ func HoverHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutConfi
 			return noActivePageResult(), nil
 		}
 
-		locator := page.Locator(selector)
+		locator, locErr := target.locate(page)
+		if locErr != nil {
+			slog.Error("element target did not resolve", "sessionID", sessionID, "target", selector, "error", locErr)
+			return errorResult(locErr), nil
+		}
 		opts := buildHoverOptions(args)
 
 		if err := locator.Hover(opts); err != nil {
@@ -465,7 +500,10 @@ func PressKeyTool() mcp.Tool {
 			mcp.Description("Key to press (e.g., 'Enter', 'Tab', 'a')"),
 		),
 		mcp.WithString("selector",
-			mcp.Description("Optional CSS selector to focus before pressing key"),
+			mcp.Description("Optional CSS selector to focus before pressing key. Give at most one of selector or ref; with neither, the key goes to the page"),
+		),
+		mcp.WithString("ref",
+			mcp.Description("Optional element ref from get_accessibility_tree to focus before pressing key, such as e3 or f1e2"),
 		),
 		mcp.WithArray("modifiers",
 			mcp.Description("Modifier keys to hold during press"),
@@ -504,7 +542,12 @@ func PressKeyHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 			return requiredParamResult("key"), nil
 		}
 
-		selector := req.GetString("selector", "")
+		target, targetErr := resolveTarget(args, true)
+		if targetErr != nil {
+			slog.Error("invalid element target", "tool", "press_key", "sessionID", sessionID, "error", targetErr)
+			return errorResult(targetErr), nil
+		}
+		selector := target.Label
 
 		// Build key string with modifiers if provided
 		keyWithModifiers := buildKeyWithModifiers(key, args)
@@ -523,9 +566,12 @@ func PressKeyHandler(mgr session.BrowserSessionManager, timeoutConfig *TimeoutCo
 			return noActivePageResult(), nil
 		}
 
-		// If selector is provided, use locator.Press, otherwise use page.Keyboard.Press
-		if selector != "" {
-			locator := page.Locator(selector)
+		// If a target is provided, use locator.Press, otherwise use page.Keyboard.Press
+		if !target.isZero() {
+			locator, locErr := target.locate(page)
+			if locErr != nil {
+				return errorResult(locErr), nil
+			}
 			opts := buildPressOptions(args)
 
 			if err := locator.Press(keyWithModifiers, opts); err != nil {

@@ -90,6 +90,9 @@ func TestToolErrorsAreFormatted(t *testing.T) {
 		{"navigate_and_extract_text", map[string]any{"url": "https://example.com", "browserType": "netscape"}},
 		{"session_create", map[string]any{"browserType": "netscape"}},
 		{"extract_text", map[string]any{"sessionId": sid, "offset": float64(-1)}},
+		{"click", map[string]any{"sessionId": sid, "selector": "#b", "ref": "e1"}},
+		{"fill", map[string]any{"sessionId": sid, "ref": "css=div", "value": "x"}},
+		{"press_key", map[string]any{"sessionId": sid, "key": "Enter", "selector": "#b", "ref": "e1"}},
 
 		// Unknown session.
 		{"click", map[string]any{"sessionId": "sess-unknown", "selector": "#b"}},
