@@ -63,8 +63,11 @@ func TestNavigateAndExtractTextTimeoutIntegration(t *testing.T) {
 	if !result.IsError || !strings.HasPrefix(text, "[-32003]") {
 		t.Errorf("result = %q (error %v), want a [-32003] timeout error", text, result.IsError)
 	}
-	if elapsed > 1500*time.Millisecond {
-		t.Errorf("call took %v, want about 1 second or less", elapsed)
+	// The 500 ms budget plus headroom for a loaded CI runner, well short of the
+	// 2 s the page takes to load.
+	const limit = 1800 * time.Millisecond
+	if elapsed > limit {
+		t.Errorf("call took %v, want at most %v", elapsed, limit)
 	}
 }
 
@@ -104,6 +107,9 @@ func TestInspectionSelectorMissingIntegration(t *testing.T) {
 		t.Fatalf("navigate failed: %v %s", err, extractTextContent(nav.Content))
 	}
 
+	// Far enough below the 10 s element timeout to show the call did not wait
+	// for it, with headroom for a loaded CI runner.
+	const limit = 5 * time.Second
 	for _, tc := range []struct {
 		name    string
 		handler func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error)
@@ -127,8 +133,8 @@ func TestInspectionSelectorMissingIntegration(t *testing.T) {
 			if text := extractTextContent(result.Content); !result.IsError || !strings.HasPrefix(text, "[-32002]") {
 				t.Errorf("result = %q, want [-32002]", text)
 			}
-			if elapsed >= time.Second {
-				t.Errorf("took %v, want under 1 second", elapsed)
+			if elapsed >= limit {
+				t.Errorf("took %v, want under %v", elapsed, limit)
 			}
 		})
 	}

@@ -158,7 +158,7 @@ func HandleContextError(ctx context.Context, operation string) error {
 func timeoutParam(category TimeoutCategory) mcp.ToolOption {
 	ms := DefaultTimeoutConfig().GetCategoryTimeout(category).Milliseconds()
 	return mcp.WithNumber("timeout",
-		mcp.Description(fmt.Sprintf("Maximum time for the call in milliseconds (default: the server's %s timeout, %d unless configured)", category, ms)),
+		mcp.Description(fmt.Sprintf("Maximum time for the call in milliseconds (default: %d, or the server's configured %s timeout)", ms, category)),
 	)
 }
 

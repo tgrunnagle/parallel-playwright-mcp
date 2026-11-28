@@ -24,7 +24,7 @@ const (
 // SessionCreateTool returns the session_create MCP tool definition.
 func SessionCreateTool() mcp.Tool {
 	return mcp.NewTool("session_create",
-		toolHints{}.option(),
+		sessionCreateHints.option(),
 		timeoutParam(TimeoutDefault),
 		mcp.WithDescription("Create an isolated browser session, with its own cookies and storage, and return 'Created session: <id>'. "+
 			"Pass the ID as sessionId to the other tools, and close the session with session_close when done. "+
@@ -160,7 +160,7 @@ func SessionListHandler(mgr session.BrowserSessionManager, timeoutConfig *Timeou
 // SessionCloseTool returns the session_close MCP tool definition.
 func SessionCloseTool() mcp.Tool {
 	return mcp.NewTool("session_close",
-		toolHints{destructive: true, idempotent: true}.option(),
+		sessionCloseHints.option(),
 		timeoutParam(TimeoutDefault),
 		mcp.WithDescription("Close a browser session and release its browser context, pages, and logs. "+
 			"The session ID stops working afterwards, and closing it again returns a session-not-found error. "+

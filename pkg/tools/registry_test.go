@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -41,7 +42,7 @@ func TestAllToolNamesMatchesRegistry(t *testing.T) {
 }
 
 // TestToolAnnotations checks every tool's four annotation hints against the
-// table in issue #124. mcp.NewTool defaults to destructive and open-world, so
+// annotation table in docs/design/mvp_design.md section 5. mcp.NewTool defaults to destructive and open-world, so
 // every hint, false ones included, must be set explicitly.
 func TestToolAnnotations(t *testing.T) {
 	type hints struct{ readOnly, destructive, idempotent, openWorld bool }
@@ -109,14 +110,19 @@ func TestToolAnnotations(t *testing.T) {
 	}
 }
 
+// sentenceBreak matches the end of one sentence and the start of the next, so
+// an abbreviation such as "e.g. foo" is not counted as a break.
+var sentenceBreak = regexp.MustCompile(`[.!?]\s+[A-Z]`)
+
 // TestToolDescriptions checks that every description is two to four sentences
 // and that every selector parameter documents the shared selector syntax.
 func TestToolDescriptions(t *testing.T) {
 	for _, st := range Registry(nil, nil, nil) {
 		t.Run(st.Tool.Name, func(t *testing.T) {
-			sentences := strings.Count(st.Tool.Description, ". ") + 1
-			if sentences < 2 || sentences > 4 || !strings.HasSuffix(st.Tool.Description, ".") {
-				t.Errorf("description is %d sentences, want two to four: %q", sentences, st.Tool.Description)
+			desc := st.Tool.Description
+			sentences := len(sentenceBreak.FindAllStringIndex(desc, -1)) + 1
+			if sentences < 2 || sentences > 4 || strings.TrimRight(desc, ".!?") == desc {
+				t.Errorf("description is %d sentences, want two to four: %q", sentences, desc)
 			}
 			prop, ok := st.Tool.InputSchema.Properties["selector"].(map[string]any)
 			if !ok {
@@ -143,7 +149,7 @@ func TestToolsDeclareTimeout(t *testing.T) {
 				t.Errorf("timeout type = %v, want number", prop["type"])
 			}
 			desc, _ := prop["description"].(string)
-			if !strings.Contains(desc, "default: the server's") {
+			if !strings.Contains(desc, "or the server's configured") {
 				t.Errorf("timeout description %q does not name the category default", desc)
 			}
 		})

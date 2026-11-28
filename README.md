@@ -92,7 +92,7 @@ Every `selector` parameter, on the interaction and inspection tools alike, takes
 | CSS | `#email`, `.item > a` |
 | XPath | `//h1`, `xpath=//main//p` |
 
-Inspection tools act on the first match, and a selector matching nothing returns `[-32002]` at once instead of waiting for the element timeout.
+`screenshot`, `extract_text`, `get_html`, `navigate_and_extract_text`, and `query_selector` without `all` act on the first match, and a selector matching nothing returns `[-32002]` at once instead of waiting for the element timeout. `query_selector` with `all` returns every match, or an empty list. `get_accessibility_tree` needs a selector that matches exactly one element.
 
 ### Acting on refs
 

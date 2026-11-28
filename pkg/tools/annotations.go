@@ -33,6 +33,12 @@ var (
 	// pageActionHints is for tools that act on the page and can submit forms
 	// or trigger page actions.
 	pageActionHints = toolHints{destructive: true, openWorld: true}
+	// sessionCreateHints is for session_create: it adds a session each call, so
+	// it is not idempotent, but it removes nothing and loads no page.
+	sessionCreateHints = toolHints{}
+	// sessionCloseHints is for session_close: it discards the session's state for
+	// good, and closing a closed session changes nothing further.
+	sessionCloseHints = toolHints{destructive: true, idempotent: true}
 )
 
 // option returns the tool option that sets all four hints.
